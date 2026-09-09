@@ -1,0 +1,45 @@
+{
+  "name": "antigravity-auto-submit",
+  "displayName": "Antigravity Auto-Submitter CLI",
+  "description": "Production-grade autonomous confirmation daemon for Antigravity IDE",
+  "version": "1.3.0",
+  "publisher": "WillyEverGreen",
+  "author": {
+    "name": "WillyEverGreen / advdi"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WillyEverGreen/Antigravity-Auto-Submitter"
+  },
+  "bugs": {
+    "url": "https://github.com/WillyEverGreen/Antigravity-Auto-Submitter/issues"
+  },
+  "homepage": "https://github.com/WillyEverGreen/Antigravity-Auto-Submitter#readme",
+  "keywords": [
+    "antigravity",
+    "auto-submit",
+    "auto-accept",
+    "cli",
+    "autonomous",
+    "autopilot",
+    "ai-agent",
+    "devtools",
+    "cdp"
+  ],
+  "main": "auto-accept.js",
+  "bin": {
+    "antigravity-auto-accept": "./auto-accept.js",
+    "auto-accept": "./auto-accept.js"
+  },
+  "scripts": {
+    "start": "node auto-accept.js",
+    "cli": "node auto-accept.js",
+    "cli:autopilot": "node auto-accept.js --mode autopilot",
+    "cli:status": "node auto-accept.js --status",
+    "test": "node test/cli.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

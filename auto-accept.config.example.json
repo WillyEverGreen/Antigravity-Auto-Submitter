@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "mode": "autonomous",
+  "cdpPort": 0,
+  "safetyDelayMs": 200,
+  "pollIntervalMs": 250,
+  "autoSelectAlwaysAllow": false,
+  "askKeywords": [
+    "git push",
+    "git reset --hard"
+  ],
+  "skipKeywords": [
+    "rm -rf",
+    "drop table",
+    "git push --force",
+    "format c:",
+    "del /f /s /q c:"
+  ]
+}
