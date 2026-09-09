@@ -175,21 +175,100 @@ async function handleDoctor(cfg, shouldExit = true) {
   if (shouldExit) process.exit(0);
 }
 
+function findAntigravityExecutable() {
+  if (process.platform === 'win32') {
+    const candidates = [
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity', 'Antigravity.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Antigravity', 'Antigravity.exe'),
+    ];
+    return candidates.find(c => fs.existsSync(c)) || null;
+  } else if (process.platform === 'darwin') {
+    const app = '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE';
+    const app2 = '/Applications/Antigravity.app/Contents/MacOS/Antigravity';
+    if (fs.existsSync(app)) return app;
+    if (fs.existsSync(app2)) return app2;
+    return null;
+  } else {
+    return 'antigravity';
+  }
+}
+
+function handleLaunch() {
+  const exe = findAntigravityExecutable();
+  if (!exe) {
+    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this machine.${C.reset}\n`);
+    printSetupInstructions();
+    process.exit(1);
+  }
+
+  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port 9333...${C.reset}`);
+  console.log(`  Executable: ${C.green}${exe}${C.reset}`);
+
+  const { spawn } = require('child_process');
+  const child = spawn(exe, ['--remote-debugging-port=9333'], {
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
+
+  console.log(`\n${C.bold}${C.green}✔ Antigravity IDE process spawned successfully!${C.reset}\n`);
+}
+
+function handleSetup() {
+  console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submitter — Automatic Environment Setup${C.reset}\n`);
+
+  if (process.platform === 'win32') {
+    const exe = findAntigravityExecutable();
+    if (!exe) {
+      console.log(`  ${C.yellow}⚠️ Antigravity IDE executable not found in standard paths.${C.reset}`);
+      printSetupInstructions();
+      process.exit(0);
+    }
+
+    const { execSync } = require('child_process');
+    const psScript = `
+      $desktop = [Environment]::GetFolderPath('Desktop');
+      $linkPath = Join-Path $desktop 'Antigravity IDE.lnk';
+      $shell = New-Object -ComObject WScript.Shell;
+      $sc = $shell.CreateShortcut($linkPath);
+      $sc.TargetPath = '${exe.replace(/\\/g, '\\\\')}';
+      $sc.Arguments = '--remote-debugging-port=9333';
+      $sc.Save();
+    `;
+    try {
+      execSync(`powershell -Command "${psScript.replace(/[\r\n]+/g, ' ')}"`, { stdio: 'ignore' });
+      console.log(`  ${C.bold}${C.green}✔ Successfully created / updated Desktop shortcut for Antigravity IDE!${C.reset}`);
+      console.log(`  Target:    ${C.cyan}${exe}${C.reset}`);
+      console.log(`  Arguments: ${C.yellow}--remote-debugging-port=9333${C.reset}\n`);
+    } catch (e) {
+      console.log(`  ${C.yellow}⚠️ Shortcut auto-patch error: ${e.message}${C.reset}\n`);
+      printSetupInstructions();
+    }
+  } else {
+    console.log(`  ${C.bold}${C.green}✔ On macOS/Linux, simply run: ${C.cyan}auto-accept launch${C.reset}\n`);
+  }
+  process.exit(0);
+}
+
 function printSetupInstructions() {
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}`);
   console.log(`  ${C.bold}${C.brightCyan}👉 HOW TO CONNECT ANTIGRAVITY IDE (1-Minute Setup):${C.reset}`);
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}\n`);
-  console.log(`  Antigravity IDE must be launched with remote debugging enabled (${C.bold}--remote-debugging-port=9333${C.reset}).\n`);
+  console.log(`  💡 ${C.bold}1-Click Auto Launch:${C.reset} Run ${C.bold}${C.green}auto-accept launch${C.reset} to open IDE with debug port automatically!\n`);
+  console.log(`  Antigravity IDE can also be launched with remote debugging enabled (${C.bold}--remote-debugging-port=9333${C.reset}).\n`);
 
   if (process.platform === 'win32') {
     console.log(`  ${C.bold}${C.yellow}Windows Setup:${C.reset}`);
-    console.log(`    ${C.bold}Option A (Desktop Shortcut - Recommended):${C.reset}`);
+    console.log(`    ${C.bold}Option A (Auto-Setup Shortcut - Recommended):${C.reset}`);
+    console.log(`      Run: ${C.bold}${C.green}auto-accept setup${C.reset}\n`);
+    console.log(`    ${C.bold}Option B (Manual Desktop Shortcut):${C.reset}`);
     console.log(`      1. Right-click your ${C.cyan}Antigravity IDE${C.reset} shortcut -> ${C.bold}Properties${C.reset}`);
     console.log(`      2. In the ${C.bold}Target${C.reset} field, add ${C.yellow}--remote-debugging-port=9333${C.reset} to the end:`);
     console.log(`         ${C.dim}"...\\Antigravity IDE.exe" --remote-debugging-port=9333${C.reset}`);
     console.log(`      3. Click OK and launch Antigravity from that shortcut.\n`);
-    console.log(`    ${C.bold}Option B (Terminal / PowerShell):${C.reset}`);
-    console.log(`      ${C.cyan}& "C:\\Users\\advdi\\AppData\\Local\\Programs\\Antigravity IDE\\Antigravity IDE.exe" --remote-debugging-port=9333${C.reset}\n`);
   } else if (process.platform === 'darwin') {
     console.log(`  ${C.bold}${C.yellow}macOS Setup:${C.reset}`);
     console.log(`    Launch Antigravity from Terminal:`);
@@ -214,6 +293,8 @@ ${C.bold}USAGE:${C.reset}
 
 ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept${C.reset}               Start the auto-approval daemon (default)
+  ${C.green}auto-accept launch${C.reset}        Auto-launch Antigravity IDE with remote debugging port
+  ${C.green}auto-accept setup${C.reset}         Auto-create / patch Desktop shortcut with --remote-debugging-port=9333
   ${C.green}auto-accept init${C.reset}          Generate .auto-accept.json in the current directory
   ${C.green}auto-accept status${C.reset}        Query live Antigravity IDE status as JSON
   ${C.green}auto-accept list${C.reset}          List active keywords and mode configuration
@@ -505,6 +586,8 @@ function resolveConfig() {
     }
   }
 
+  if (firstArg === 'launch' || firstArg === 'start-ide') handleLaunch();
+  if (firstArg === 'setup' || firstArg === 'patch') handleSetup();
   if (firstArg === 'list' || firstArg === 'rules') handleList(cfg);
   if (firstArg === 'doctor' || firstArg === 'check' || firstArg === 'setup') handleDoctor(cfg);
   if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') handleAddRuleCli('ask', args.slice(1), cfg, configSource);
@@ -784,6 +867,35 @@ async function scanPortRange(start, end) {
   return null;
 }
 
+function findSystemListeningPorts() {
+  const { execSync } = require('child_process');
+  const ports = new Set();
+  try {
+    if (process.platform === 'win32') {
+      const out = execSync('netstat -ano', { encoding: 'utf8', timeout: 1500 });
+      out.split('\n').forEach(l => {
+        if (l.includes('LISTENING')) {
+          const match = l.match(/(?:127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\[::\]):(\d+)/);
+          if (match) {
+            const p = parseInt(match[1], 10);
+            if (p >= 1024 && p <= 65535) ports.add(p);
+          }
+        }
+      });
+    } else {
+      const out = execSync('lsof -i -P -n 2>/dev/null || ss -tulpn 2>/dev/null', { encoding: 'utf8', timeout: 1500 });
+      out.split('\n').forEach(l => {
+        const match = l.match(/[:\s](\d+)\s+\(LISTEN\)/) || l.match(/:(\d+)\s/);
+        if (match) {
+          const p = parseInt(match[1], 10);
+          if (p >= 1024 && p <= 65535) ports.add(p);
+        }
+      });
+    }
+  } catch (e) {}
+  return Array.from(ports);
+}
+
 async function findCdpEndpoint(preferredPort) {
   if (preferredPort > 0) {
     const targets = await fetchTargets(preferredPort);
@@ -793,6 +905,13 @@ async function findCdpEndpoint(preferredPort) {
   const commonPorts = [9333, 9222, 9229, 9300];
   for (const p of commonPorts) {
     if (p === preferredPort) continue;
+    const targets = await fetchTargets(p);
+    if (targets && targets.length > 0) return { port: p, targets };
+  }
+
+  const activePorts = findSystemListeningPorts();
+  for (const p of activePorts) {
+    if (commonPorts.includes(p) || p === preferredPort) continue;
     const targets = await fetchTargets(p);
     if (targets && targets.length > 0) return { port: p, targets };
   }

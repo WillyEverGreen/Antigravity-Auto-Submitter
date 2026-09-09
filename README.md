@@ -201,12 +201,15 @@ auto-accept list
 ## 📋 CLI Commands & Flags
 
 ### Subcommands
-| Command | Description |
+| Command | Action |
 | :--- | :--- |
-| `auto-accept` | Start the confirmation engine (default) |
-| `auto-accept init` | Initialize `.auto-accept.json` in the current folder |
-| `auto-accept status` | Query live Antigravity IDE connection as JSON |
-| `auto-accept list` | Display active keyword guardrails and configuration |
+| `auto-accept` | Start auto-submit confirmation daemon (default) |
+| `auto-accept launch` | 🚀 Auto-launch Antigravity IDE with remote debugging port enabled |
+| `auto-accept setup` | ⚡ 1-Click auto-patch Desktop shortcut with `--remote-debugging-port=9333` |
+| `auto-accept init` | Create `.auto-accept.json` in the current folder |
+| `auto-accept doctor` | System diagnostic & connection verification |
+| `auto-accept list` | Display active Ask and Skip guardrail rules |
+| `auto-accept status` | Query connection and approval statistics as JSON |
 | `auto-accept add-ask <kw>` | Add keyword(s) requiring manual permission |
 | `auto-accept add-skip <kw>` | Add keyword(s) to directly skip |
 | `auto-accept rm <kw>` | Remove keyword(s) from any active list |
