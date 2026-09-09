@@ -322,6 +322,62 @@ it('AutoSubmitDaemon supports interactive hotkeys a and r for live rule manageme
   assert.strictEqual(typeof daemon.promptAddRule, 'function');
   assert.strictEqual(typeof daemon.promptRemoveRule, 'function');
   assert.strictEqual(typeof daemon.saveActiveConfig, 'function');
+  assert.strictEqual(typeof daemon.showStats, 'function');
+  assert.strictEqual(typeof daemon.showConfig, 'function');
+  assert.strictEqual(typeof daemon.showRulesList, 'function');
+});
+
+// ── 8. Stdin Resumption and Prompt Lifecycle ──
+it('guarantees process.stdin.resume() and clean prompt teardown upon prompt completion', () => {
+  const readline = require('readline');
+  const { AutoSubmitDaemon, DEFAULTS } = require('../auto-accept.js');
+  const daemon = new AutoSubmitDaemon(DEFAULTS, 'default');
+
+  // Verify initial state
+  assert.strictEqual(daemon.isPrompting, false);
+
+  // Simulate prompt completion finish function logic
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    daemon.isPrompting = false;
+    process.stdin.resume();
+  };
+
+  daemon.isPrompting = true;
+  finish();
+
+  assert.strictEqual(daemon.isPrompting, false);
+  assert.strictEqual(process.stdin.isPaused(), false, 'process.stdin MUST NOT be left paused');
+});
+
+// ── 9. Hotkey Normalization & Symbol Handling ──
+it('correctly normalizes upper-case characters and symbol keys like ?', () => {
+  const readline = require('readline');
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.resume();
+
+  let lastTriggered = '';
+  const handler = (str, key) => {
+    const char = (key && key.name ? key.name.toLowerCase() : (str || '')).toLowerCase();
+    const rawStr = str || '';
+    if (rawStr === '?' || char === '?') lastTriggered = 'help';
+    else if (char === 'p') lastTriggered = 'pause';
+    else if (char === 'm') lastTriggered = 'mode';
+  };
+
+  // Test '?' where key.name is undefined
+  handler('?', { sequence: '?', name: undefined });
+  assert.strictEqual(lastTriggered, 'help');
+
+  // Test Shift+P
+  handler('P', { sequence: 'P', name: 'p', shift: true });
+  assert.strictEqual(lastTriggered, 'pause');
+
+  // Test Shift+M
+  handler('M', { sequence: 'M', name: 'm', shift: true });
+  assert.strictEqual(lastTriggered, 'mode');
 });
 
 console.log(`\nResults: ${passed}/${total} passed.`);

@@ -131,7 +131,7 @@ ${C.dim}Run ${C.reset}${C.bold}auto-accept${C.reset}${C.dim} in this directory a
 }
 
 // ── Subcommand: list ──
-function handleList(cfg) {
+function handleList(cfg, shouldExit = true) {
   console.log(`
 ${C.bold}${C.cyan}Antigravity Auto-Submit — Active Rules${C.reset}
 
@@ -144,11 +144,11 @@ ${cfg.askKeywords.map(k => `    • "${k}"`).join('\n') || '    (none)'}
   ${C.magenta}⏩ Directly Skip List (${cfg.skipKeywords.length} rules):${C.reset}
 ${cfg.skipKeywords.map(k => `    • "${k}"`).join('\n') || '    (none)'}
 `);
-  process.exit(0);
+  if (shouldExit) process.exit(0);
 }
 
 // ── Subcommand: doctor (Connection & Setup Guide) ──
-async function handleDoctor(cfg) {
+async function handleDoctor(cfg, shouldExit = true) {
   console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submitter — System Doctor${C.reset}\n`);
 
   // 1. Node.js check
@@ -172,7 +172,7 @@ async function handleDoctor(cfg) {
     console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.yellow}No active port detected ⚠️${C.reset}                                     \n`);
     printSetupInstructions();
   }
-  process.exit(0);
+  if (shouldExit) process.exit(0);
 }
 
 function printSetupInstructions() {
@@ -286,11 +286,7 @@ function handleAddRuleCli(listType, rawArgs, cfg, configSource) {
   const listTitle = listType === 'skip' ? 'Directly Skip' : 'Ask for Permission';
   const saveTarget = getSaveTarget(isGlobal, configSource);
 
-  let fileConfig = { ...DEFAULTS,
-  handleAddRuleCli,
-  handleRemoveRuleCli,
-  getSaveTarget
-};
+  let fileConfig = { ...DEFAULTS };
   if (fs.existsSync(saveTarget)) {
     try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) {}
   } else {
@@ -509,13 +505,36 @@ function resolveConfig() {
     }
   }
 
-  if (firstArg === 'list') handleList(cfg);
+  if (firstArg === 'list' || firstArg === 'rules') handleList(cfg);
   if (firstArg === 'doctor' || firstArg === 'check' || firstArg === 'setup') handleDoctor(cfg);
   if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') handleAddRuleCli('ask', args.slice(1), cfg, configSource);
   if (firstArg === 'add-skip' || firstArg === 'skip') handleAddRuleCli('skip', args.slice(1), cfg, configSource);
   if (firstArg === 'rm-ask' || firstArg === 'remove-ask') handleRemoveRuleCli('ask', args.slice(1), cfg, configSource);
   if (firstArg === 'rm-skip' || firstArg === 'remove-skip') handleRemoveRuleCli('skip', args.slice(1), cfg, configSource);
   if (firstArg === 'rm' || firstArg === 'remove') handleRemoveRuleCli('all', args.slice(1), cfg, configSource);
+
+  if (firstArg === 'config') {
+    console.log(`\n${C.bold}${C.cyan}Active Configuration (${configSource}):${C.reset}\n${JSON.stringify(cfg, null, 2)}\n`);
+    process.exit(0);
+  }
+  if (firstArg === 'pause') {
+    cfg.enabled = false;
+    shouldSave = true;
+    console.log(`${C.yellow}⏸ Auto-submit set to PAUSED${C.reset}`);
+  }
+  if (firstArg === 'resume' || firstArg === 'start-daemon') {
+    cfg.enabled = true;
+    shouldSave = true;
+    console.log(`${C.green}✔ Auto-submit set to ACTIVE${C.reset}`);
+  }
+  if (firstArg === 'mode' && args[1]) {
+    const val = args[1].toLowerCase();
+    if (val === 'autopilot' || val === 'autonomous') {
+      cfg.mode = val;
+      shouldSave = true;
+      console.log(`${C.cyan}✔ Operating mode set to ${val.toUpperCase()}${C.reset}`);
+    }
+  }
 
   if (shouldSave) {
     const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
@@ -848,8 +867,8 @@ class AutoSubmitDaemon {
   ${C.dim}│${C.reset}  ${C.bold}Guard:${C.reset}     ${C.yellow}${this.config.askKeywords.length} Ask rules${C.reset}  ${C.gray}|${C.reset}  ${C.magenta}${this.config.skipKeywords.length} Skip rules${C.reset}
   ${C.dim}╰─────────────────────────────────────────────────────────────╯${C.reset}
   ${C.dim}Hotkeys:${C.reset}
-    ${C.yellow}p${C.reset} Pause/Resume  •  ${C.yellow}m${C.reset} Mode  •  ${C.yellow}a${C.reset} Add Rule  •  ${C.yellow}r${C.reset} Remove Rule
-    ${C.yellow}s${C.reset} Live Stats    •  ${C.yellow}c${C.reset} Config •  ${C.yellow}h${C.reset} Help (?)  •  ${C.yellow}q${C.reset} Quit
+    ${C.yellow}p${C.reset} Pause/Resume  •  ${C.yellow}m${C.reset} Mode    •  ${C.yellow}a${C.reset} Add Rule  •  ${C.yellow}r${C.reset} Remove Rule  •  ${C.yellow}l${C.reset} List Rules
+    ${C.yellow}s${C.reset} Live Stats    •  ${C.yellow}c${C.reset} Config  •  ${C.yellow}d${C.reset} Doctor    •  ${C.yellow}h${C.reset} Help (?)     •  ${C.yellow}q${C.reset} Quit
 `);
   }
 
@@ -982,6 +1001,56 @@ class AutoSubmitDaemon {
     }
   }
 
+  showStats() {
+    console.log(`
+  ${C.bold}--- Live Statistics ---${C.reset}
+  Connection:         ${this.isConnected ? `${C.green}Connected (Port ${this.activePort})${C.reset}` : `${C.yellow}Disconnected${C.reset}`}
+  Target Window:      ${this.targetTitle || 'N/A'}
+  Session Approvals:  ${C.bold}${this.stats.sessionApprovals}${C.reset}
+  Lifetime Approvals: ${C.bold}${this.stats.lifetimeClicks}${C.reset}
+  Intercepted Blocks: ${C.bold}${this.stats.sessionBlocks}${C.reset}
+  Last Action:        ${this.stats.lastAction || 'None'} (${this.stats.lastClicked || 'N/A'})
+`);
+  }
+
+  showConfig() {
+    console.log(`
+  ${C.bold}--- Active Configuration ---${C.reset}
+  Source:         ${this.configSource}
+  Mode:           ${this.config.mode}
+  Click Delay:    ${this.config.safetyDelayMs}ms
+  Poll Interval:  ${this.config.pollIntervalMs}ms
+  Ask List:       ${this.config.askKeywords.join(', ') || '(none)'}
+  Skip List:      ${this.config.skipKeywords.join(', ') || '(none)'}
+`);
+  }
+
+  showRulesList() {
+    handleList(this.config, false);
+  }
+
+  async runDoctorCheck() {
+    console.log('');
+    await handleDoctor(this.config, false);
+  }
+
+  showHelp() {
+    console.log(`
+  ${C.bold}${C.brightCyan}--- Hotkey Reference & Controls ---${C.reset}
+  ${C.bold}Key${C.reset}     ${C.bold}Action${C.reset}           ${C.bold}Description${C.reset}
+  ${C.yellow}p${C.reset}       Pause / Resume   Instantly toggles auto-approvals on or off
+  ${C.yellow}m${C.reset}       Toggle Mode      Cycles between Autonomous (reviews plans) and Autopilot (100% hands-free)
+  ${C.yellow}a${C.reset}       Add Rule         Interactively add a keyword rule to Ask or Skip list without restarting
+  ${C.yellow}r${C.reset}       Remove Rule      Interactively remove a keyword rule from Ask or Skip list
+  ${C.yellow}l${C.reset}       List Rules       Displays active Ask & Skip keyword rules
+  ${C.yellow}s${C.reset}       Live Stats       Displays live session approvals, lifetime approvals, and target window
+  ${C.yellow}c${C.reset}       Show Config      Prints active configuration source, ports, and guardrail lists
+  ${C.yellow}d${C.reset}       Doctor           Runs immediate connection & environment diagnostic check
+  ${C.yellow}h${C.reset} / ${C.yellow}?${C.reset}   Help Reference   Displays this hotkey guide
+  ${C.yellow}q${C.reset}       Quit             Cleanly disconnects from Antigravity and exits (or Ctrl+C)
+`);
+  }
+
   // Vite-style Instant Keystrokes (no Enter needed)
   setupInstantHotkeys() {
     readline.emitKeypressEvents(process.stdin);
@@ -993,15 +1062,29 @@ class AutoSubmitDaemon {
 
     process.stdin.on('keypress', (str, key) => {
       if (this.isPrompting) return;
-      if (!key) return;
 
-      // Ctrl+C or q
-      if ((key.ctrl && key.name === 'c') || key.name === 'q') {
+      // Ctrl+C or Ctrl+Q or q
+      if ((key && key.ctrl && (key.name === 'c' || key.name === 'C')) || str === '\x03') {
         this.shutdown();
         return;
       }
 
-      switch (key.name) {
+      // Ctrl+L to clear screen & redraw banner
+      if ((key && key.ctrl && (key.name === 'l' || key.name === 'L')) || str === '\x0c') {
+        if (typeof console.clear === 'function') console.clear();
+        this.printBanner();
+        return;
+      }
+
+      const char = (key && key.name ? key.name.toLowerCase() : (str || '')).toLowerCase();
+      const rawStr = str || '';
+
+      if (char === 'q') {
+        this.shutdown();
+        return;
+      }
+
+      switch (char) {
         case 'p':
           this.config.enabled = !this.config.enabled;
           this.logEvent('info', ` TOGGLE `, `Auto-submit is now ${this.config.enabled ? 'ACTIVE' : 'PAUSED'}`, '', this.config.enabled ? C.pillGreen : C.pillYellow);
@@ -1021,43 +1104,29 @@ class AutoSubmitDaemon {
           break;
 
         case 's':
-          console.log(`
-  ${C.bold}--- Live Statistics ---${C.reset}
-  Connection:         ${this.isConnected ? `${C.green}Connected (Port ${this.activePort})${C.reset}` : `${C.yellow}Disconnected${C.reset}`}
-  Target Window:      ${this.targetTitle || 'N/A'}
-  Session Approvals:  ${C.bold}${this.stats.sessionApprovals}${C.reset}
-  Lifetime Approvals: ${C.bold}${this.stats.lifetimeClicks}${C.reset}
-  Intercepted Blocks: ${C.bold}${this.stats.sessionBlocks}${C.reset}
-  Last Action:        ${this.stats.lastAction || 'None'} (${this.stats.lastClicked || 'N/A'})
-`);
+          this.showStats();
           break;
 
         case 'c':
-          console.log(`
-  ${C.bold}--- Active Configuration ---${C.reset}
-  Source:         ${this.configSource}
-  Mode:           ${this.config.mode}
-  Click Delay:    ${this.config.safetyDelayMs}ms
-  Poll Interval:  ${this.config.pollIntervalMs}ms
-  Ask List:       ${this.config.askKeywords.join(', ')}
-  Skip List:      ${this.config.skipKeywords.join(', ')}
-`);
+          this.showConfig();
+          break;
+
+        case 'd':
+          this.runDoctorCheck();
+          break;
+
+        case 'l':
+          this.showRulesList();
           break;
 
         case 'h':
-        case '?':
-          console.log(`
-  ${C.bold}${C.brightCyan}--- Hotkey Reference & Controls ---${C.reset}
-  ${C.bold}Key${C.reset}     ${C.bold}Action${C.reset}           ${C.bold}Description${C.reset}
-  ${C.yellow}p${C.reset}       Pause / Resume   Instantly toggles auto-approvals on or off
-  ${C.yellow}m${C.reset}       Toggle Mode      Cycles between Autonomous (reviews plans) and Autopilot (100% hands-free)
-  ${C.yellow}a${C.reset}       Add Rule         Interactively add a keyword rule to Ask or Skip list without restarting
-  ${C.yellow}r${C.reset}       Remove Rule      Interactively remove a keyword rule from Ask or Skip list
-  ${C.yellow}s${C.reset}       Live Stats       Displays live session approvals, lifetime approvals, blocks, and target window
-  ${C.yellow}c${C.reset}       Show Config      Prints active configuration source, ports, and guardrail lists
-  ${C.yellow}h${C.reset} / ${C.yellow}?${C.reset}   Help Reference   Displays this hotkey guide
-  ${C.yellow}q${C.reset}       Quit             Cleanly disconnects from Antigravity and exits (or Ctrl+C)
-`);
+          this.showHelp();
+          break;
+
+        default:
+          if (rawStr === '?' || char === '?') {
+            this.showHelp();
+          }
           break;
       }
     });
@@ -1087,14 +1156,24 @@ class AutoSubmitDaemon {
     this.stopScanner();
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    let finished = false;
     const finish = () => {
-      rl.close();
+      if (finished) return;
+      finished = true;
+      try { rl.close(); } catch(e) {}
       this.isPrompting = false;
       if (process.stdin.isTTY) {
         try { process.stdin.setRawMode(true); } catch(e) {}
       }
+      try { process.stdin.resume(); } catch(e) {}
       this.startScanner();
     };
+
+    rl.on('SIGINT', () => {
+      console.log(`\n  ${C.dim}Cancelled.${C.reset}`);
+      finish();
+    });
+    rl.on('close', finish);
 
     console.log(`\n  ${C.bold}${C.cyan}--- Add Guardrail Rule ---${C.reset}`);
     rl.question(`  Target list: (1) Ask for Permission, (2) Skip [1]: `, (choice) => {
@@ -1125,14 +1204,24 @@ class AutoSubmitDaemon {
     this.stopScanner();
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    let finished = false;
     const finish = () => {
-      rl.close();
+      if (finished) return;
+      finished = true;
+      try { rl.close(); } catch(e) {}
       this.isPrompting = false;
       if (process.stdin.isTTY) {
         try { process.stdin.setRawMode(true); } catch(e) {}
       }
+      try { process.stdin.resume(); } catch(e) {}
       this.startScanner();
     };
+
+    rl.on('SIGINT', () => {
+      console.log(`\n  ${C.dim}Cancelled.${C.reset}`);
+      finish();
+    });
+    rl.on('close', finish);
 
     console.log(`\n  ${C.bold}${C.yellow}--- Remove Guardrail Rule ---${C.reset}`);
     const rules = [];
@@ -1195,6 +1284,7 @@ class AutoSubmitDaemon {
     if (process.stdin.isTTY) {
       try { process.stdin.setRawMode(false); } catch (e) {}
     }
+    try { process.stdin.pause(); } catch (e) {}
     process.exit(0);
   }
 }
