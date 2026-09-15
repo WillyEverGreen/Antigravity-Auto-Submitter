@@ -16,3 +16,4 @@ auto-accept.config.json
 # Scratch / temporary
 scratch/
 coverage/
+implementation_plan.md

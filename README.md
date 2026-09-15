@@ -15,13 +15,13 @@
   </p>
 
   <p>
+    <a href="#-quick-setup-3-easy-steps">Quick Setup</a> •
     <a href="#-quick-start">Quick Start</a> •
     <a href="#-instant-hotkeys">Instant Hotkeys</a> •
-    <a href="#-plugin-to-any-folder">Plugin to Any Project</a> •
+    <a href="#-plugin-to-any-project-folder">Plugin to Any Project</a> •
     <a href="#-operating-modes">Modes</a> •
-    <a href="#-safety-keyword-gates">Keyword Gates</a> •
-    <a href="#-cli-commands--flags">Commands & Flags</a> •
-    <a href="#-how-it-works">Architecture</a>
+    <a href="#-safety-keyword-guardrails">Keyword Guardrails</a> •
+    <a href="#-cli-commands--flags">Commands & Flags</a>
   </p>
 
 </div>
@@ -30,7 +30,7 @@
 
 ## 🌟 Overview
 
-When working with Google Antigravity IDE on long-running AI workflows (like `/goal`, full-stack generation, refactors, or test suites), the agent frequently pauses:
+When working with Google Antigravity IDE on long-running AI workflows (like `/goal`, full-stack generation, refactors, or test suites), the agent frequently pauses for manual permissions:
 - *"Allow running this command?"*
 - *"Allow reading / editing this file?"*
 - *"Proceed with implementation plan?"*
@@ -39,49 +39,91 @@ When working with Google Antigravity IDE on long-running AI workflows (like `/go
 
 ---
 
+## ⚡ Quick Setup (3 Easy Steps)
+
+### 📦 Step 1: Install CLI
+
+Install globally or run zero-install via `npx`:
+
+```bash
+# Option A: Global Install (Recommended)
+npm install -g antigravity-auto-submit
+
+# Option B: Zero-Install (npx)
+npx antigravity-auto-submit
+
+# Option C: From Source Repository
+git clone https://github.com/WillyEverGreen/Antigravity-Auto-Submitter.git
+cd Antigravity-Auto-Submitter
+npm install
+npm link
+```
+
 ---
 
-## ⚙️ 1-Minute Setup (Connect Antigravity IDE)
+### 🔌 Step 2: Connect Antigravity IDE
 
-To allow `auto-accept` to communicate with confirmation dialogs, launch Antigravity IDE with remote debugging enabled:
+Antigravity IDE needs to launch with remote debugging enabled on port `9333`:
 
-### 🪟 Windows
-- **Option A (Desktop Shortcut - Recommended)**:
-  1. Right-click your **Antigravity IDE** shortcut → **Properties**.
-  2. In the **Target** field, add `--remote-debugging-port=9333` to the end:
-     ```text
-     "C:\Users\...\Antigravity IDE.exe" --remote-debugging-port=9333
-     ```
-  3. Click **OK** and start Antigravity IDE.
-- **Option B (PowerShell / Terminal)**:
+#### ⚡ Option A: Automated Desktop Shortcut Setup (Windows - Recommended)
+Run once in your terminal:
+```bash
+auto-accept setup
+```
+*This automatically creates or patches your Antigravity IDE Desktop Shortcut to append `--remote-debugging-port=9333`.*
+
+#### 🚀 Option B: 1-Click Launch (Cross-Platform)
+Launch Antigravity IDE with the remote debugging port enabled in one command:
+```bash
+auto-accept launch
+```
+
+#### 🛠️ Option C: Manual Launch
+- **Windows (PowerShell)**:
   ```powershell
   Start-Process "Antigravity IDE" -ArgumentList "--remote-debugging-port=9333"
   ```
+- **Windows (Desktop Shortcut)**:
+  Right-click **Antigravity IDE** shortcut → **Properties** → In **Target**, append ` --remote-debugging-port=9333`
+- **macOS (Terminal)**:
+  ```bash
+  open -a "Antigravity" --args --remote-debugging-port=9333
+  ```
+- **Linux (Terminal)**:
+  ```bash
+  antigravity --remote-debugging-port=9333
+  ```
 
-### 🍎 macOS
+---
+
+### 🩺 Step 3: Verify & Start Daemon
+
+#### 1. Verify Connection Status
 ```bash
-open -a "Antigravity" --args --remote-debugging-port=9333
+auto-accept doctor
+```
+*Checks your Node.js version, CDP port availability, and target Antigravity IDE workbench.*
+
+#### 2. Start Approval Daemon
+```bash
+# Start default Autonomous daemon (auto-approves safe tools, pauses for plan review)
+auto-accept
 ```
 
-### 🐧 Linux
-```bash
-antigravity --remote-debugging-port=9333
-```
-
-> **Verify Setup**: Run `auto-accept doctor` in your terminal anytime to verify your connection status and target window.
+---
 
 ## 🚀 Quick Start
 
 Run directly from any terminal:
 
 ```bash
-# Start daemon with recommended Autonomous mode
+# Autonomous Mode (Default - reviews plans, auto-approves safe tools)
 auto-accept
 
-# Or run 100% hands-free Autopilot (auto-approves plans + tools)
+# Autopilot Mode (100% hands-free - auto-approves plans + tools)
 auto-accept --mode autopilot
 
-# Or run in quiet background daemon mode
+# Background Daemon Mode (Non-interactive)
 auto-accept --daemon
 ```
 
