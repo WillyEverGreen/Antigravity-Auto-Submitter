@@ -5,7 +5,21 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
----
+## [1.4.0] - 2026-09-16
+
+### Added
+- **Antigravity 3-Tier Workstation Deletion Audit (`antigravity-check` / `agy-check`)**:
+  - Full workstation scanner categorizing storage into 3 safety tiers: **🟢 Tier 1: SAFE TO DELETE** (scratch scripts, browser WebP recordings, session transcript logs, cached AST annotations, %TEMP% dumps, NPM/UV/Pip package caches), **🟡 Tier 2: STALE & ADVISABLE TO DELETE** (session brain history, Playwright browser binaries, project dependencies), and **🔴 Tier 3: DO NOT DELETE** (critical agent rules, skills, MCP configuration, user settings).
+  - Compact 80-column terminal output preventing line-wrap glitches across Windows CMD and PowerShell.
+- **Selective & Deep Cleanup Engine (`antigravity-clean` / `agy-clean`)**:
+  - Flags: `--all`, `--stale`, `--deep`, `--scratch`, `--recordings`, `--caches`, `--days <N>`, and `-f` / `--force`.
+- **Brain Session Manager (`antigravity-brain` / `agy-brain`)**:
+  - Displays session distribution tables ranked by disk size with extracted project topics.
+  - Delete by Table Index Number (`antigravity-brain --delete 2`).
+  - Automatic trailing dot stripping (`antigravity-brain --delete 9178f300-5..`).
+  - Age-based batch purge (`antigravity-brain --delete-older-than 7`) evaluating session folder creation time (`ctime`).
+  - Full 36-char UUID display (`--full-id`) and interactive selector mode (`-i` / `--interactive`).
+- **Cross-Platform Node.js Bin Executables**: Exposes `antigravity-check`, `antigravity-clean`, `antigravity-brain`, and short `agy-*` aliases system-wide via package binaries.
 
 ## [1.3.0] - 2026-09-10
 

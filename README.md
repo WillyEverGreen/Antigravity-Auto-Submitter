@@ -257,6 +257,9 @@ auto-accept list
 | `auto-accept rm <kw>` | Remove keyword(s) from any active list |
 | `auto-accept rm-ask <kw>` | Remove keyword(s) from Ask list |
 | `auto-accept rm-skip <kw>` | Remove keyword(s) from Skip list |
+| `antigravity-check` / `agy-check` | 🔍 Run 3-tier deletion audit scan (Safe / Review / Do Not Delete) |
+| `antigravity-clean` / `agy-clean` | 🧹 Purge safe temporary scratch scripts, browser recordings, and caches |
+| `antigravity-brain` / `agy-brain` | 🧠 Inspect session brain disk distribution and delete specific sessions |
 
 ### Flags
 ```
@@ -276,6 +279,90 @@ OPTIONS:
   -v, --version           Show version
   -h, --help              Show help
 ```
+
+---
+
+## 🧹 Workstation Audit & Temp Cleanup Utility (`antigravity-check` & `antigravity-clean`)
+
+Antigravity Auto-Submitter suite includes global CLI utilities to audit and clean temporary agent scripts, browser video recordings, session logs, and package manager caches without touching critical configuration, active workspace code, or custom skills.
+
+### 🔍 3-Tier Workstation Audit (`antigravity-check` / `agy-check`)
+Run at any time in any terminal to inspect system temporary space categorized into **3 safety tiers**:
+
+```bash
+antigravity-check
+# or short alias: agy-check
+```
+
+- **🟢 Tier 1: SAFE TO DELETE** (Scratch scripts, browser WebP recordings, session transcript logs, cached AST annotations, `%TEMP%` dumps, NPM/UV/Pip package caches)
+- **🟡 Tier 2: CHECK BEFORE DELETING** (Past conversation session history & plan artifacts, Playwright browser binaries)
+- **🔴 Tier 3: DO NOT DELETE** (System agent rules, custom skills, MCP configuration, user settings, installation ID)
+
+### 🧹 Purging Temporary & Stale Files (`antigravity-clean` / `agy-clean`)
+```bash
+# Purge ALL Tier 1 safe temporary items (~3.94 GB freed)
+antigravity-clean --all
+
+# Purge Tier 1 safe items + Stale session brain history (> 7 days old)
+antigravity-clean --stale
+
+# Perform a COMPLETE DEEP CLEAN (Tier 1 safe + stale brain + stale project dependencies)
+antigravity-clean --deep
+
+# Custom age threshold (e.g. purge stale items > 3 days old)
+antigravity-clean --stale --days 3
+
+# Purge only temporary scratch scripts & agent dumps
+antigravity-clean --scratch
+
+# Purge browser WebP video recordings
+antigravity-clean --recordings
+
+# Purge NPM, Pip, and UV package caches
+antigravity-clean --caches
+
+### 🧠 Brain Session Manager (`antigravity-brain` / `agy-brain`)
+Inspect disk space distribution across all active conversation sessions, view extracted project topics, and perform targeted session cleanup:
+
+```bash
+# Display brain sessions ranked by disk size with project topics
+antigravity-brain
+# or short alias: agy-brain
+
+# Delete a specific session by Table # Number (e.g. session #2 in the list)
+antigravity-brain --delete 2
+
+# Delete a specific session by ID or prefix (supports pasting "9178f300-5..")
+antigravity-brain --delete 9178f300
+
+# Delete all sessions older than N days
+antigravity-brain --delete-older-than 7
+
+# Delete empty / zero-file brain directories
+antigravity-brain --clean-empty
+
+# Display full 36-character UUIDs
+antigravity-brain --full-id
+
+# Run interactive session delete picker
+antigravity-brain --interactive
+```
+
+---
+
+## 🔍 Frequently Asked Questions (FAQ & Search Index)
+
+#### Q: How do I automatically approve tool permissions in Google Antigravity IDE?
+> Run `npm install -g antigravity-auto-submit` and launch your IDE with `auto-accept setup` or `auto-accept launch`. The background daemon automatically approves terminal execution and file modification prompts in real time.
+
+#### Q: How do I run Antigravity IDE on 100% hands-free autopilot overnight?
+> Run `auto-accept --mode autopilot`. In Autopilot mode, the daemon auto-approves both tool execution prompts AND implementation plan dialogs (*Proceed* / *Proceed with plan*).
+
+#### Q: What does `--remote-debugging-port=9333` do in Antigravity IDE?
+> Google Antigravity IDE is built on Electron/VSCode architecture. Passing `--remote-debugging-port=9333` enables Chrome DevTools Protocol (CDP), allowing `auto-accept` to inspect DOM approval cards safely without taking control of your physical mouse or keyboard.
+
+#### Q: How do I prevent risky commands (like `git push` or `rm -rf`) from auto-executing?
+> `auto-accept` includes built-in keyword guardrails. Use `auto-accept add-ask "git push"` to enforce manual confirmation for sensitive commands, or `auto-accept add-skip "rm -rf"` to skip destructive operations completely.
 
 ---
 
