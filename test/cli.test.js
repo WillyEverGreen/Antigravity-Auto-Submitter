@@ -380,7 +380,41 @@ it('correctly normalizes upper-case characters and symbol keys like ?', () => {
   assert.strictEqual(lastTriggered, 'mode');
 });
 
+// ── 10. Antigravity Suite Bin & Script Verification ──
+it('bin scripts exist and have valid syntax', () => {
+  const binDir = path.join(__dirname, '..', 'bin');
+  const expectedBins = [
+    'antigravity-check.js',
+    'antigravity-find-temp.js',
+    'antigravity-clean.js',
+    'antigravity-brain.js'
+  ];
+  for (const b of expectedBins) {
+    const p = path.join(binDir, b);
+    assert(fs.existsSync(p), `Missing bin script: ${b}`);
+    const content = fs.readFileSync(p, 'utf8');
+    assert(content.includes('#!/usr/bin/env node'));
+    assert.doesNotThrow(() => {
+      new vm.Script(content);
+    }, `Syntax error in ${b}`);
+  }
+});
+
+it('python cleaner and brain scripts exist and compile cleanly', () => {
+  const scriptsDir = path.join(__dirname, '..', 'scripts');
+  const pyCleaner = path.join(scriptsDir, 'antigravity_cleaner.py');
+  const pyBrain = path.join(scriptsDir, 'antigravity_brain.py');
+
+  assert(fs.existsSync(pyCleaner), 'antigravity_cleaner.py missing');
+  assert(fs.existsSync(pyBrain), 'antigravity_brain.py missing');
+
+  const { execSync } = require('child_process');
+  const pythonCmd = process.platform === 'win32' ? 'py' : 'python3';
+  assert.doesNotThrow(() => {
+    execSync(`${pythonCmd} -m py_compile "${pyCleaner}" "${pyBrain}"`, { stdio: 'pipe' });
+  });
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
-if (passed !== total) {
-  process.exit(1);
-}
+try { process.stdin.pause(); } catch (e) {}
+process.exit(passed === total ? 0 : 1);

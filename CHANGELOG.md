@@ -5,6 +5,27 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-09-20
+
+### Added
+- **Comprehensive Multi-Root Storage Auditing & Cleanup**:
+  - Unified coverage across both primary Antigravity environments: `~/.gemini/antigravity-ide/` and `~/.gemini/antigravity/` (AGY CLI).
+  - Added monitoring and cleanup for SQLite conversation databases (`conversations/*.db`, `*.db-shm`, `*.db-wal`, `*.pb`).
+  - Added scanning for cloned temporary workspaces in `~/.gemini/tmp/` and file history in `~/.gemini/history/`.
+  - Added targeted Chromium browser profile cache discovery (`~/.gemini/antigravity-browser-profile/`).
+  - Added coverage for `implicit/` context caches, `context_state/`, and `html_artifacts/`.
+- **Dry-Run Temporary File Discovery Scanner (`antigravity-find-temp` / `agy-find-temp`)**:
+  - New dedicated CLI binary and command (`antigravity-find-temp` / `agy-find-temp` / `auto-accept find-temp`) displaying individual candidate files with age, size, and category.
+  - Added `--limit <N>` and `--json` machine-readable output flags.
+- **Enhanced `antigravity-clean` Granular Controls**:
+  - Added `--browser-cache`, `--conversations`, `--tmp`, and `--history` flags.
+- **Companion Conversation Database Purging in `antigravity-brain`**:
+  - Automatically purges corresponding SQLite databases and context state when deleting brain sessions to eliminate orphaned database records.
+- **Integrated Subcommands in Daemon CLI**:
+  - `auto-accept check`, `auto-accept find-temp`, `auto-accept clean`, and `auto-accept brain` callable directly from `auto-accept`.
+- **Automated Test Coverage**:
+  - Added unit test suite assertions for all bin script syntax, python script compilation, and runner integrity.
+
 ## [1.4.0] - 2026-09-16
 
 ### Added

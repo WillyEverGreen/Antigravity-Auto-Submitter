@@ -258,6 +258,7 @@ auto-accept list
 | `auto-accept rm-ask <kw>` | Remove keyword(s) from Ask list |
 | `auto-accept rm-skip <kw>` | Remove keyword(s) from Skip list |
 | `antigravity-check` / `agy-check` | 🔍 Run 3-tier deletion audit scan (Safe / Review / Do Not Delete) |
+| `antigravity-find-temp` / `agy-find-temp` | 🔎 Preview individual candidate temporary files before deletion (dry-run) |
 | `antigravity-clean` / `agy-clean` | 🧹 Purge safe temporary scratch scripts, browser recordings, and caches |
 | `antigravity-brain` / `agy-brain` | 🧠 Inspect session brain disk distribution and delete specific sessions |
 
@@ -282,52 +283,104 @@ OPTIONS:
 
 ---
 
-## 🧹 Workstation Audit & Temp Cleanup Utility (`antigravity-check` & `antigravity-clean`)
+## 🧹 Workstation Audit & Temp Cleanup Suite
 
-Antigravity Auto-Submitter suite includes global CLI utilities to audit and clean temporary agent scripts, browser video recordings, session logs, and package manager caches without touching critical configuration, active workspace code, or custom skills.
+The **Antigravity Auto-Submitter** suite provides unified CLI tools (`antigravity-check`, `antigravity-find-temp`, `antigravity-clean`, `antigravity-brain`, and `auto-accept <cmd>`) to audit and safely purge temporary files, caches, recordings, conversation databases, and orphan sandboxes across the entire workstation.
+
+> [!IMPORTANT]
+> **Multi-Root Architecture:**
+> The cleaner scans and manages **both** Antigravity data environments simultaneously:
+> 1. `~/.gemini/antigravity-ide/` (Antigravity IDE app data & brain storage)
+> 2. `~/.gemini/antigravity/` (Antigravity CLI / AGY core engine data & brain storage)
+> 3. `~/.gemini/antigravity-browser-profile/` (Headless Chromium profile caches)
+> 4. `~/.gemini/tmp/` & `~/.gemini/history/` (Cloned repo workspaces & file history)
+> 5. System `%TEMP%` & Package Manager Caches (`uv`, `npm-cache`, `pip/Cache`, `ms-playwright`)
+
+---
+
+### 🛡️ Complete 3-Tier Safety Topology
+
+| Tier | Category / Storage Path | Description & Behavior |
+| :--- | :--- | :--- |
+| **🟢 Tier 1: SAFE TO DELETE**<br>*(No review required)* | • `scratch/` (Global across roots)<br>• `browser_recordings/` (WebP videos)<br>• `brain/<id>/scratch/`<br>• `brain/<id>/.system_generated/` (Logs)<br>• `annotations/` (Cached AST indices)<br>• `crashes/` (Crash dump logs)<br>• `implicit/` (Implicit context caches)<br>• `context_state/` (Context caches)<br>• `html_artifacts/` (HTML previews)<br>• `prompting/` (Browser step caches)<br>• `antigravity-browser-profile/` (Web caches)<br>• `%TEMP%` (Agent temporary scripts)<br>• `uv/cache`, `npm-cache`, `pip/Cache` | Disposable cache files, video recordings, scratch scripts, and logs that can be purged at any time without data loss. Reclaimed via `antigravity-clean --all`. |
+| **🟡 Tier 2: REVIEW CANDIDATES**<br>*(Age-gated analysis)* | • `brain/<id>` (Inactive sessions > 7d)<br>• `conversations/*.db` (Databases > 7d)<br>• `~/.gemini/tmp/` (Cloned workspaces)<br>• `~/.gemini/history/` (File history)<br>• `~/tools/**/node_modules`, `.venv` (> 14d)<br>• `%LOCALAPPDATA%/ms-playwright` | Historical artifacts and past conversation databases. Advisable to delete when stale, but guarded against active conversations. Reclaimed via `--stale` or `--deep`. |
+| **🔴 Tier 3: DO NOT DELETE**<br>*(Strictly Protected)* | • `~/.gemini/config/` (User rules & skills)<br>• `antigravity-ide/builtin/` (Core skills)<br>• `mcp_config.json` & `mcp/` folders<br>• `user_settings.pb` & `settings.json`<br>• `installation_id`<br>• `google_accounts.json` & OAuth tokens<br>• **Active Conversation Session** | Core configuration, custom skills, user settings, auth credentials, and active session files are permanently shielded from deletion. |
+
+---
 
 ### 🔍 3-Tier Workstation Audit (`antigravity-check` / `agy-check`)
-Run at any time in any terminal to inspect system temporary space categorized into **3 safety tiers**:
+
+Run at any time in any terminal to inspect system temporary space categorized into the 3 safety tiers:
 
 ```bash
 antigravity-check
 # or short alias: agy-check
+# or via daemon:  auto-accept check
 ```
 
-- **🟢 Tier 1: SAFE TO DELETE** (Scratch scripts, browser WebP recordings, session transcript logs, cached AST annotations, `%TEMP%` dumps, NPM/UV/Pip package caches)
-- **🟡 Tier 2: CHECK BEFORE DELETING** (Past conversation session history & plan artifacts, Playwright browser binaries)
-- **🔴 Tier 3: DO NOT DELETE** (System agent rules, custom skills, MCP configuration, user settings, installation ID)
+**JSON Output Mode:**
+```bash
+antigravity-check --json
+```
+
+---
+
+### 🔎 Temporary File Discovery Scanner (`antigravity-find-temp` / `agy-find-temp`)
+
+Preview individual candidate files eligible for cleanup before executing deletions (dry-run mode):
+
+```bash
+# Preview top 35 candidate files ranked by size
+antigravity-find-temp
+
+# Preview top 50 files
+antigravity-find-temp --limit 50
+
+# Output candidate files as JSON
+antigravity-find-temp --json
+```
+
+---
 
 ### 🧹 Purging Temporary & Stale Files (`antigravity-clean` / `agy-clean`)
+
 ```bash
-# Purge ALL Tier 1 safe temporary items (~3.94 GB freed)
+# Purge ALL Tier 1 safe temporary items (~1.09 GB freed)
 antigravity-clean --all
 
-# Purge Tier 1 safe items + Stale session brain history (> 7 days old)
+# Purge Tier 1 safe items + stale brain sessions & conversation DBs (> 7 days)
 antigravity-clean --stale
 
-# Perform a COMPLETE DEEP CLEAN (Tier 1 safe + stale brain + stale project dependencies)
+# Perform a COMPLETE DEEP CLEAN (Tier 1 + stale brain + stale DBs + temp repos + deps: ~4.96 GB)
 antigravity-clean --deep
 
 # Custom age threshold (e.g. purge stale items > 3 days old)
 antigravity-clean --stale --days 3
 
-# Purge only temporary scratch scripts & agent dumps
-antigravity-clean --scratch
+# Skip confirmation prompt (non-interactive automation)
+antigravity-clean --all --force
 
-# Purge browser WebP video recordings
-antigravity-clean --recordings
+# Granular targeted cleanups:
+antigravity-clean --browser-cache      # Clean Chromium browser profile web caches
+antigravity-clean --conversations       # Clean stale conversation SQLite databases
+antigravity-clean --tmp                 # Clean cloned temporary workspaces in ~/.gemini/tmp
+antigravity-clean --history             # Clean workspace file history snapshots
+antigravity-clean --scratch             # Clean global and session scratch scripts
+antigravity-clean --recordings          # Clean browser WebP video recordings
+antigravity-clean --caches              # Clean NPM, Pip, and UV package caches
+```
 
-# Purge NPM, Pip, and UV package caches
-antigravity-clean --caches
+---
 
 ### 🧠 Brain Session Manager (`antigravity-brain` / `agy-brain`)
-Inspect disk space distribution across all active conversation sessions, view extracted project topics, and perform targeted session cleanup:
+
+Inspect disk space distribution across all active conversation sessions, extract project topics, and perform targeted session cleanup with automatic companion database purging:
 
 ```bash
 # Display brain sessions ranked by disk size with project topics
 antigravity-brain
 # or short alias: agy-brain
+# or via daemon:  auto-accept brain
 
 # Delete a specific session by Table # Number (e.g. session #2 in the list)
 antigravity-brain --delete 2
@@ -335,7 +388,7 @@ antigravity-brain --delete 2
 # Delete a specific session by ID or prefix (supports pasting "9178f300-5..")
 antigravity-brain --delete 9178f300
 
-# Delete all sessions older than N days
+# Delete all sessions older than N days (automatically purges matching .db/.pb files)
 antigravity-brain --delete-older-than 7
 
 # Delete empty / zero-file brain directories
@@ -378,4 +431,4 @@ Runs the automated test suite verifying scanner script compilation, configuratio
 
 ## 📄 License
 
-MIT License. Copyright (c) 2026 WillyEverGreen / advdi.
+MIT License. Copyright (c) 2026 WillyEverGreen.

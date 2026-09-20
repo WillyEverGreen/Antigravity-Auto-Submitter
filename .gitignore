@@ -17,3 +17,5 @@ auto-accept.config.json
 scratch/
 coverage/
 implementation_plan.md
+__pycache__/
+*.pyc

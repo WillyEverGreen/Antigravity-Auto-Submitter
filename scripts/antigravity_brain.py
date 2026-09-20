@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Antigravity Active Brain Session Manager (v2.0 Enhanced UX)
+Antigravity Active Brain Session Manager (v2.5 Multi-Root Enterprise Edition)
 Commands: antigravity-brain / agy-brain
 
 Features:
-  - Display clean copy-pasteable Session ID prefixes (e.g., 9178f300-5a3d) without truncating dots
+  - Multi-Root session discovery (~/.gemini/antigravity-ide/brain and ~/.gemini/antigravity/brain)
+  - Display clean copy-pasteable Session ID prefixes (e.g., 9178f300-5a3d)
   - Full 36-char ID display mode (--full-id)
   - Delete by Index Number (e.g., antigravity-brain --delete 2)
-  - Automatic trailing dot stripping so pasted strings like "9178f300-5.." match instantly
+  - Automatic companion cleanup of associated conversation databases (.db, .pb) and context caches
   - Interactive Session Selection (-i / --interactive)
 """
 
@@ -31,6 +32,7 @@ YELLOW = "\033[93m"
 RED = "\033[91m"
 CYAN = "\033[96m"
 BOLD = "\033[1m"
+DIM = "\033[2m"
 RESET = "\033[0m"
 
 
@@ -111,29 +113,41 @@ def extract_session_title(conv_path):
 
 
 def get_all_sessions(sort_by="size"):
-    base_dir = os.path.expanduser("~/.gemini/antigravity-ide/brain")
+    brain_roots = [
+        os.path.expanduser("~/.gemini/antigravity-ide/brain"),
+        os.path.expanduser("~/.gemini/antigravity/brain")
+    ]
     active_session_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
     now = time.time()
     sessions = []
+    seen_ids = set()
 
-    if os.path.exists(base_dir):
-        for conv_id in os.listdir(base_dir):
-            conv_path = os.path.join(base_dir, conv_id)
-            if os.path.isdir(conv_path):
-                cnt, sz, mtime = get_dir_size_and_mtime(conv_path)
-                title = extract_session_title(conv_path)
-                is_active = (active_session_id and conv_id == active_session_id)
-                age_sec = now - mtime
-                sessions.append({
-                    "id": conv_id,
-                    "path": conv_path,
-                    "title": title,
-                    "size": sz,
-                    "files": cnt,
-                    "mtime": mtime,
-                    "age_sec": age_sec,
-                    "is_active": is_active
-                })
+    for base_dir in brain_roots:
+        if not os.path.exists(base_dir):
+            continue
+        try:
+            for conv_id in os.listdir(base_dir):
+                if conv_id in seen_ids:
+                    continue
+                conv_path = os.path.join(base_dir, conv_id)
+                if os.path.isdir(conv_path):
+                    seen_ids.add(conv_id)
+                    cnt, sz, mtime = get_dir_size_and_mtime(conv_path)
+                    title = extract_session_title(conv_path)
+                    is_active = (active_session_id and conv_id == active_session_id)
+                    age_sec = now - mtime
+                    sessions.append({
+                        "id": conv_id,
+                        "path": conv_path,
+                        "title": title,
+                        "size": sz,
+                        "files": cnt,
+                        "mtime": mtime,
+                        "age_sec": age_sec,
+                        "is_active": is_active
+                    })
+        except Exception:
+            pass
 
     if sort_by == "age":
         sessions.sort(key=lambda s: s["mtime"], reverse=True)
@@ -150,6 +164,7 @@ def display_distribution(sessions, top_n=20, full_id=False):
     print()
     print(f"{BOLD}{CYAN}========================================================================================{RESET}")
     print(f"{BOLD}{CYAN}      ANTIGRAVITY BRAIN SESSIONS DISTRIBUTION & DISK ANALYSIS                           {RESET}")
+    print(f"{BOLD}{CYAN}      Multi-Root Architecture: ~/.gemini/antigravity-ide & ~/.gemini/antigravity        {RESET}")
     print(f"{BOLD}{CYAN}========================================================================================{RESET}")
     print()
 
@@ -198,12 +213,53 @@ def find_target_session(query, sessions):
         if 0 <= idx < len(sessions):
             return sessions[idx]
 
-    # 2. Check by full ID or prefix matching (stripping trailing dots/dashes)
+    # 2. Check by full ID or prefix matching
     for s in sessions:
         if s["id"] == query_clean or s["id"].startswith(query_clean):
             return s
 
     return None
+
+
+def purge_associated_session_files(session_id):
+    """
+    Purge companion files belonging to this session across all roots
+    (conversations/*.db, implicit/*.pb, context_state/*.pb)
+    """
+    deleted_bytes = 0
+    deleted_files = 0
+    roots = [
+        os.path.expanduser("~/.gemini/antigravity-ide"),
+        os.path.expanduser("~/.gemini/antigravity")
+    ]
+    subdirs = ["conversations", "implicit", "context_state", "html_artifacts"]
+
+    for r in roots:
+        for sub in subdirs:
+            p = os.path.join(r, sub)
+            if not os.path.exists(p):
+                continue
+            try:
+                for f in os.listdir(p):
+                    if f.startswith(session_id):
+                        fp = os.path.join(p, f)
+                        try:
+                            if os.path.isfile(fp):
+                                sz = os.path.getsize(fp)
+                                os.remove(fp)
+                                deleted_bytes += sz
+                                deleted_files += 1
+                            elif os.path.isdir(fp):
+                                sz = sum(os.path.getsize(os.path.join(root, file)) for root, _, files in os.walk(fp) for file in files)
+                                shutil.rmtree(fp, ignore_errors=True)
+                                deleted_bytes += sz
+                                deleted_files += 1
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    return deleted_files, deleted_bytes
 
 
 def delete_session(query, force=False):
@@ -227,14 +283,16 @@ def delete_session(query, force=False):
     print(f"  Age     : {format_age(target['age_sec'])}\n")
 
     if not force:
-        confirm = input(f"{BOLD}{RED}Are you sure you want to permanently delete this brain session? [y/N]: {RESET}").strip().lower()
+        confirm = input(f"{BOLD}{RED}Are you sure you want to permanently delete this brain session and its conversation DB? [y/N]: {RESET}").strip().lower()
         if confirm not in ["y", "yes"]:
             print(f"{BOLD}{CYAN}Deletion cancelled.{RESET}")
             return
 
     try:
         shutil.rmtree(target["path"])
-        print(f"\n{BOLD}{GREEN}✓ Successfully deleted session {target['id']}! ({sz_str} freed){RESET}\n")
+        extra_files, extra_bytes = purge_associated_session_files(target["id"])
+        total_freed = target["size"] + extra_bytes
+        print(f"\n{BOLD}{GREEN}✓ Successfully deleted session {target['id']}! ({format_size(total_freed)} freed, including {extra_files} companion DB/cache files){RESET}\n")
     except Exception as e:
         print(f"\n{BOLD}{RED}Error deleting session: {e}{RESET}\n")
 
@@ -278,7 +336,8 @@ def delete_sessions_older_than(days, force=False):
     for s in targets:
         try:
             shutil.rmtree(s["path"])
-            deleted_sz += s["size"]
+            _, extra_bytes = purge_associated_session_files(s["id"])
+            deleted_sz += s["size"] + extra_bytes
             deleted_count += 1
         except Exception:
             pass
@@ -288,7 +347,7 @@ def delete_sessions_older_than(days, force=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Antigravity Brain Session Manager (v2.0)",
+        description="Antigravity Brain Session Manager (v2.5)",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 

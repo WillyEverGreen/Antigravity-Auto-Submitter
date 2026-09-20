@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
-Antigravity Workstation Audit & Safe Cleanup Utility (v5.1 Compact Terminal Edition)
-Commands: antigravity-check, antigravity-clean, agy-check, agy-clean
+Antigravity Workstation Audit & Safe Cleanup Utility (v5.5 Multi-Root Enterprise Edition)
+Commands: antigravity-check, antigravity-find-temp, antigravity-clean, agy-check, agy-find-temp, agy-clean
+
+Scans and cleans all temporary files, caches, recordings, scratch scripts, conversation databases,
+and package caches across both ~/.gemini/antigravity-ide and ~/.gemini/antigravity (AGY CLI).
 """
 
 import os
 import sys
 import argparse
 import time
+import json
+import shutil
 
 if sys.platform == "win32":
     os.system("")
@@ -22,6 +27,7 @@ YELLOW = "\033[93m"
 RED = "\033[91m"
 CYAN = "\033[96m"
 BOLD = "\033[1m"
+DIM = "\033[2m"
 RESET = "\033[0m"
 
 
@@ -36,188 +42,550 @@ def format_size(bytes_val):
         return f"{bytes_val} B"
 
 
-def get_dir_size(path):
-    total = 0
-    count = 0
+def format_age(age_seconds):
+    if age_seconds < 60:
+        return f"{int(age_seconds)}s ago"
+    elif age_seconds < 3600:
+        return f"{int(age_seconds / 60)}m ago"
+    elif age_seconds < 86400:
+        return f"{age_seconds / 3600:.1f}h ago"
+    else:
+        return f"{age_seconds / 86400:.1f}d ago"
+
+
+def fast_scan_dir(path, collect_files=False):
+    """
+    Ultra-fast directory scanner using os.scandir with inline WIN32_FIND_DATA stats.
+    Returns (file_count, total_bytes, file_list).
+    """
+    total_sz = 0
+    total_cnt = 0
     file_list = []
-    if os.path.exists(path):
-        if os.path.isfile(path):
-            try:
-                sz = os.path.getsize(path)
-                return 1, sz, [path]
-            except Exception:
-                return 0, 0, []
-        for root, _, files in os.walk(path):
-            for f in files:
-                fp = os.path.join(root, f)
-                try:
-                    sz = os.path.getsize(fp)
-                    total += sz
-                    count += 1
-                    file_list.append(fp)
-                except Exception:
-                    pass
-    return count, total, file_list
+
+    if not os.path.exists(path):
+        return 0, 0, []
+
+    if os.path.isfile(path):
+        try:
+            sz = os.path.getsize(path)
+            return 1, sz, [path] if collect_files else []
+        except Exception:
+            return 0, 0, []
+
+    stack = [path]
+    while stack:
+        curr = stack.pop()
+        try:
+            with os.scandir(curr) as it:
+                for entry in it:
+                    try:
+                        if entry.is_file(follow_symlinks=False):
+                            stat = entry.stat(follow_symlinks=False)
+                            total_sz += stat.st_size
+                            total_cnt += 1
+                            if collect_files:
+                                file_list.append((entry.path, stat.st_size, stat.st_mtime))
+                        elif entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return total_cnt, total_sz, file_list
 
 
 def get_active_session_id():
-    return os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+    active_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+    if not active_id:
+        cwd = os.getcwd()
+        if "brain" in cwd:
+            parts = cwd.replace("\\", "/").split("/")
+            if "brain" in parts:
+                idx = parts.index("brain")
+                if idx + 1 < len(parts) and len(parts[idx + 1]) >= 8:
+                    active_id = parts[idx + 1]
+    return active_id
 
 
-def run_comprehensive_audit(stale_days=7):
-    base_dir = os.path.expanduser("~/.gemini/antigravity-ide")
-    config_dir = os.path.expanduser("~/.gemini/config")
-    temp_dir = os.environ.get("TEMP", "")
+def get_antigravity_roots():
+    gemini_dir = os.path.expanduser("~/.gemini")
+    roots = []
+    for candidate in ["antigravity-ide", "antigravity"]:
+        p = os.path.join(gemini_dir, candidate)
+        if os.path.exists(p):
+            roots.append(p)
+    return roots
+
+
+def scan_browser_caches(collect_files=False):
+    profile_dir = os.path.expanduser("~/.gemini/antigravity-browser-profile")
+    total_cnt = 0
+    total_sz = 0
+    file_list = []
+
+    if not os.path.exists(profile_dir):
+        return 0, 0, []
+
+    target_subdirs = {"cache", "code cache", "gpucache", "shadercache", "grshadercache", "cachestorage", "reports"}
+    stack = [profile_dir]
+
+    while stack:
+        curr = stack.pop()
+        try:
+            with os.scandir(curr) as it:
+                for entry in it:
+                    try:
+                        name_lower = entry.name.lower()
+                        if entry.is_file(follow_symlinks=False):
+                            stat = entry.stat(follow_symlinks=False)
+                            total_sz += stat.st_size
+                            total_cnt += 1
+                            if collect_files:
+                                file_list.append((entry.path, stat.st_size, stat.st_mtime))
+                        elif entry.is_dir(follow_symlinks=False):
+                            if curr == profile_dir or name_lower == "default" or name_lower in target_subdirs or "cache" in name_lower:
+                                stack.append(entry.path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return total_cnt, total_sz, file_list
+
+
+def collect_audit_metrics(stale_days=7, collect_files=False):
     now = time.time()
     stale_sec = stale_days * 86400
     active_session_id = get_active_session_id()
+    roots = get_antigravity_roots()
 
+    metrics = {
+        "tier1_safe": {},
+        "tier2_review": {},
+        "tier3_protected": {},
+        "safe_total_bytes": 0,
+        "safe_total_files": 0,
+        "reclaimable_total_bytes": 0,
+        "reclaimable_total_files": 0,
+    }
+
+    # Helper to register category
+    def add_tier1(name, cnt, sz, files):
+        metrics["tier1_safe"][name] = {"count": cnt, "size": sz, "files": files}
+        metrics["safe_total_bytes"] += sz
+        metrics["safe_total_files"] += cnt
+
+    def add_tier2(name, cnt, sz, files, is_advisable=True):
+        metrics["tier2_review"][name] = {"count": cnt, "size": sz, "files": files, "advisable": is_advisable}
+        if is_advisable:
+            metrics["reclaimable_total_bytes"] += sz
+            metrics["reclaimable_total_files"] += cnt
+
+    def add_tier3(name, cnt, sz, files):
+        metrics["tier3_protected"][name] = {"count": cnt, "size": sz, "files": files}
+
+    # 1. Global Scratch across roots
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        sp = os.path.join(r, "scratch")
+        if os.path.exists(sp):
+            c, s, fl = fast_scan_dir(sp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Global Scratch Scripts", t_cnt, t_sz, t_fl)
+
+    # 2. Browser WebP Recordings across roots
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        rp = os.path.join(r, "browser_recordings")
+        if os.path.exists(rp):
+            c, s, fl = fast_scan_dir(rp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Browser WebP Recordings", t_cnt, t_sz, t_fl)
+
+    # 3. Session Scratch & Logs in brain across roots
+    scratch_cnt, scratch_sz, scratch_fl = 0, 0, []
+    logs_cnt, logs_sz, logs_fl = 0, 0, []
+    stale_brain_cnt, stale_brain_sz, stale_brain_fl = 0, 0, []
+    active_brain_cnt, active_brain_sz, active_brain_fl = 0, 0, []
+
+    for r in roots:
+        bp = os.path.join(r, "brain")
+        if not os.path.exists(bp):
+            continue
+        try:
+            with os.scandir(bp) as it:
+                for conv in it:
+                    if not conv.is_dir(follow_symlinks=False):
+                        continue
+                    conv_id = conv.name
+                    is_active = (active_session_id and conv_id == active_session_id)
+
+                    # Session scratch
+                    s_scratch = os.path.join(conv.path, "scratch")
+                    if os.path.exists(s_scratch):
+                        c, s, fl = fast_scan_dir(s_scratch, collect_files)
+                        scratch_cnt += c; scratch_sz += s; scratch_fl.extend(fl)
+
+                    # Session logs
+                    s_sys = os.path.join(conv.path, ".system_generated")
+                    if os.path.exists(s_sys):
+                        c, s, fl = fast_scan_dir(s_sys, collect_files)
+                        logs_cnt += c; logs_sz += s; logs_fl.extend(fl)
+
+                    # Stale vs active full brain sessions
+                    c, s, fl = fast_scan_dir(conv.path, collect_files)
+                    if not is_active:
+                        try:
+                            mtime = conv.stat(follow_symlinks=False).st_mtime
+                            if (now - mtime) > stale_sec:
+                                stale_brain_cnt += c; stale_brain_sz += s; stale_brain_fl.extend(fl)
+                            else:
+                                active_brain_cnt += c; active_brain_sz += s; active_brain_fl.extend(fl)
+                        except Exception:
+                            active_brain_cnt += c; active_brain_sz += s; active_brain_fl.extend(fl)
+                    else:
+                        active_brain_cnt += c; active_brain_sz += s; active_brain_fl.extend(fl)
+        except Exception:
+            pass
+
+    add_tier1("Session Scratch Folders", scratch_cnt, scratch_sz, scratch_fl)
+    add_tier1("Session Transcripts & Logs", logs_cnt, logs_sz, logs_fl)
+    add_tier2(f"Stale Brain Sessions (> {stale_days}d)", stale_brain_cnt, stale_brain_sz, stale_brain_fl, is_advisable=True)
+    add_tier2(f"Active Brain Sessions (< {stale_days}d)", active_brain_cnt, active_brain_sz, active_brain_fl, is_advisable=False)
+
+    # 4. Cached Document & AST Annotations
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        ap = os.path.join(r, "annotations")
+        if os.path.exists(ap):
+            c, s, fl = fast_scan_dir(ap, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Cached AST Annotations", t_cnt, t_sz, t_fl)
+
+    # 5. Crash Dump Logs
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        cp = os.path.join(r, "crashes")
+        if os.path.exists(cp):
+            c, s, fl = fast_scan_dir(cp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Crash Dump Logs", t_cnt, t_sz, t_fl)
+
+    # 6. Implicit Context Cache (.pb)
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        ip = os.path.join(r, "implicit")
+        if os.path.exists(ip):
+            c, s, fl = fast_scan_dir(ip, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Implicit Context Cache", t_cnt, t_sz, t_fl)
+
+    # 7. Context State Caches
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        csp = os.path.join(r, "context_state")
+        if os.path.exists(csp):
+            c, s, fl = fast_scan_dir(csp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Context State Caches", t_cnt, t_sz, t_fl)
+
+    # 8. HTML Artifact Previews
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        hp = os.path.join(r, "html_artifacts")
+        if os.path.exists(hp):
+            c, s, fl = fast_scan_dir(hp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("HTML Artifact Previews", t_cnt, t_sz, t_fl)
+
+    # 9. Prompting Step Caches
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        pp = os.path.join(r, "prompting")
+        if os.path.exists(pp):
+            c, s, fl = fast_scan_dir(pp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier1("Prompting Step Caches", t_cnt, t_sz, t_fl)
+
+    # 10. Antigravity Browser Profile Web Caches
+    b_cnt, b_sz, b_fl = scan_browser_caches(collect_files)
+    add_tier1("Browser Profile Web Caches", b_cnt, b_sz, b_fl)
+
+    # 11. System Temp Scripts & Dumps
+    sys_temp_dir = os.environ.get("TEMP", "")
+    temp_cnt, temp_sz, temp_fl = 0, 0, []
+    if sys_temp_dir and os.path.exists(sys_temp_dir):
+        try:
+            with os.scandir(sys_temp_dir) as it:
+                for entry in it:
+                    if entry.is_file(follow_symlinks=False):
+                        name_l = entry.name.lower()
+                        if any(name_l.startswith(p) for p in ["tmp", "antigravity", "repomix", "agent", ".gemini", "playwright"]) and (
+                            name_l.endswith((".py", ".js", ".json", ".log", ".tmp", ".xml"))
+                        ):
+                            stat = entry.stat(follow_symlinks=False)
+                            temp_cnt += 1; temp_sz += stat.st_size
+                            if collect_files:
+                                temp_fl.append((entry.path, stat.st_size, stat.st_mtime))
+        except Exception:
+            pass
+    add_tier1("System Temp Scripts", temp_cnt, temp_sz, temp_fl)
+
+    # 12. Package Caches (UV, NPM, Pip)
+    pkg_caches = [
+        os.path.expanduser("~/AppData/Local/uv/cache"),
+        os.path.expanduser("~/AppData/Local/npm-cache"),
+        os.path.expanduser("~/AppData/Local/pip/Cache"),
+    ]
+    pkg_cnt, pkg_sz, pkg_fl = 0, 0, []
+    for pc in pkg_caches:
+        if os.path.exists(pc):
+            c, s, fl = fast_scan_dir(pc, collect_files)
+            pkg_cnt += c; pkg_sz += s; pkg_fl.extend(fl)
+    add_tier1("Package Manager Caches (UV/NPM/Pip)", pkg_cnt, pkg_sz, pkg_fl)
+
+    # 13. Conversations SQLite Databases & State (.db, .db-shm, .db-wal, .pb)
+    stale_conv_cnt, stale_conv_sz, stale_conv_fl = 0, 0, []
+    active_conv_cnt, active_conv_sz, active_conv_fl = 0, 0, []
+
+    for r in roots:
+        cp = os.path.join(r, "conversations")
+        if not os.path.exists(cp):
+            continue
+        try:
+            with os.scandir(cp) as it:
+                for entry in it:
+                    if entry.is_file(follow_symlinks=False):
+                        stat = entry.stat(follow_symlinks=False)
+                        conv_id = entry.name.split(".")[0]
+                        is_active = (active_session_id and conv_id == active_session_id)
+                        if not is_active and (now - stat.st_mtime) > stale_sec:
+                            stale_conv_cnt += 1; stale_conv_sz += stat.st_size
+                            if collect_files:
+                                stale_conv_fl.append((entry.path, stat.st_size, stat.st_mtime))
+                        else:
+                            active_conv_cnt += 1; active_conv_sz += stat.st_size
+                            if collect_files:
+                                active_conv_fl.append((entry.path, stat.st_size, stat.st_mtime))
+        except Exception:
+            pass
+
+    add_tier2(f"Stale Conversation DBs (> {stale_days}d)", stale_conv_cnt, stale_conv_sz, stale_conv_fl, is_advisable=True)
+    add_tier2(f"Active Conversation DBs (< {stale_days}d)", active_conv_cnt, active_conv_sz, active_conv_fl, is_advisable=False)
+
+    # 14. Cloned Temp Workspaces & Sandboxes (~/.gemini/tmp)
+    gemini_tmp = os.path.expanduser("~/.gemini/tmp")
+    tmp_cnt, tmp_sz, tmp_fl = 0, 0, []
+    if os.path.exists(gemini_tmp):
+        tmp_cnt, tmp_sz, tmp_fl = fast_scan_dir(gemini_tmp, collect_files)
+    add_tier2("Temporary Cloned Workspaces (~/.gemini/tmp)", tmp_cnt, tmp_sz, tmp_fl, is_advisable=True)
+
+    # 15. Workspace History Snapshots (~/.gemini/history)
+    gemini_hist = os.path.expanduser("~/.gemini/history")
+    hist_cnt, hist_sz, hist_fl = 0, 0, []
+    if os.path.exists(gemini_hist):
+        hist_cnt, hist_sz, hist_fl = fast_scan_dir(gemini_hist, collect_files)
+    add_tier2("Workspace History Snapshots (~/.gemini/history)", hist_cnt, hist_sz, hist_fl, is_advisable=True)
+
+    # 16. Stale Project Dependencies (~/tools/**/node_modules, .venv)
+    tools_dir = os.path.expanduser("~/tools")
+    stale_deps_cnt, stale_deps_sz, stale_deps_fl = 0, 0, []
+    active_deps_cnt, active_deps_sz, active_deps_fl = 0, 0, []
+    if os.path.exists(tools_dir):
+        try:
+            with os.scandir(tools_dir) as it:
+                for entry in it:
+                    if entry.is_dir(follow_symlinks=False):
+                        mtime = entry.stat(follow_symlinks=False).st_mtime
+                        is_stale = (now - mtime) > (14 * 86400)
+                        for dep_sub in ["node_modules", ".venv", "venv"]:
+                            dp = os.path.join(entry.path, dep_sub)
+                            if os.path.exists(dp):
+                                c, s, fl = fast_scan_dir(dp, collect_files)
+                                if is_stale:
+                                    stale_deps_cnt += c; stale_deps_sz += s; stale_deps_fl.extend(fl)
+                                else:
+                                    active_deps_cnt += c; active_deps_sz += s; active_deps_fl.extend(fl)
+        except Exception:
+            pass
+
+    add_tier2("Stale Project Dependencies (> 14d)", stale_deps_cnt, stale_deps_sz, stale_deps_fl, is_advisable=True)
+    add_tier2("Active Project Dependencies (< 14d)", active_deps_cnt, active_deps_sz, active_deps_fl, is_advisable=False)
+
+    # 17. Playwright Browser Binaries
+    pw_dir = os.path.expanduser("~/AppData/Local/ms-playwright")
+    pw_cnt, pw_sz, pw_fl = 0, 0, []
+    if os.path.exists(pw_dir):
+        pw_cnt, pw_sz, pw_fl = fast_scan_dir(pw_dir, collect_files)
+    add_tier2("Playwright Browser Binaries", pw_cnt, pw_sz, pw_fl, is_advisable=False)
+
+    # 18. IDE Code Tracker History
+    t_cnt, t_sz, t_fl = 0, 0, []
+    for r in roots:
+        tp = os.path.join(r, "code_tracker")
+        if os.path.exists(tp):
+            c, s, fl = fast_scan_dir(tp, collect_files)
+            t_cnt += c; t_sz += s; t_fl.extend(fl)
+    add_tier2("IDE Code Tracker History", t_cnt, t_sz, t_fl, is_advisable=False)
+
+    # 19. Protected Tier 3 Systems
+    tier_critical_paths = [
+        ("Global Config, Rules & Skills", os.path.expanduser("~/.gemini/config")),
+        ("Built-in Core Skills & Assets", os.path.expanduser("~/.gemini/antigravity-ide/builtin")),
+        ("MCP Configuration Files", os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json")),
+        ("User Settings State", os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb")),
+        ("Installation Identifier", os.path.expanduser("~/.gemini/antigravity-ide/installation_id")),
+        ("Gemini Account Auth Creds", os.path.expanduser("~/.gemini/google_accounts.json")),
+        ("OAuth Tokens State", os.path.expanduser("~/.gemini/oauth_creds.json")),
+    ]
+    for name, p in tier_critical_paths:
+        c, s, fl = fast_scan_dir(p, collect_files)
+        add_tier3(name, c, s, fl)
+
+    metrics["reclaimable_total_bytes"] += metrics["safe_total_bytes"]
+    metrics["reclaimable_total_files"] += metrics["safe_total_files"]
+
+    return metrics
+
+
+def run_comprehensive_audit(stale_days=7):
     print()
     print(f"{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}{CYAN}      ANTIGRAVITY WORKSTATION DELETION AUDIT & SAFETY GUIDE                     {RESET}")
+    print(f"{BOLD}{CYAN}      Multi-Root Architecture: ~/.gemini/antigravity-ide & ~/.gemini/antigravity{RESET}")
     print(f"{BOLD}{CYAN}================================================================================{RESET}")
     print()
 
+    metrics = collect_audit_metrics(stale_days=stale_days, collect_files=False)
+
     # --- TIER 1: SAFE TO DELETE ---
-    tier_safe = [
-        ("Global Scratch Scripts", os.path.join(base_dir, "scratch")),
-        ("Browser WebP Recordings", os.path.join(base_dir, "browser_recordings")),
-        ("Session Scratch Folders", os.path.join(base_dir, "brain")),
-        ("Session Transcripts & Logs", os.path.join(base_dir, "brain")),
-        ("Cached AST Annotations", os.path.join(base_dir, "annotations")),
-        ("Crash Dump Logs", os.path.join(base_dir, "crashes")),
-        ("Implicit Context Cache", os.path.join(base_dir, "implicit")),
-        ("System Temp Scripts", temp_dir),
-        ("UV Package Cache", os.path.expanduser("~/AppData/Local/uv/cache")),
-        ("NPM Package Cache", os.path.expanduser("~/AppData/Local/npm-cache")),
-        ("Pip Package Cache", os.path.expanduser("~/AppData/Local/pip/Cache")),
-    ]
-
     print(f"{BOLD}{GREEN}[SAFE TO DELETE] TIER 1: SAFE TO DELETE (NO REVIEW NEEDED){RESET}")
-    safe_total_bytes = 0
-    safe_total_files = 0
-
-    for name, path in tier_safe:
-        if name == "Session Scratch Folders":
-            cnt, sz = 0, 0
-            if os.path.exists(path):
-                for conv in os.listdir(path):
-                    s_p = os.path.join(path, conv, "scratch")
-                    c, s, _ = get_dir_size(s_p)
-                    cnt += c; sz += s
-        elif name == "Session Transcripts & Logs":
-            cnt, sz = 0, 0
-            if os.path.exists(path):
-                for conv in os.listdir(path):
-                    l_p = os.path.join(path, conv, ".system_generated")
-                    c, s, _ = get_dir_size(l_p)
-                    cnt += c; sz += s
-        elif name == "System Temp Scripts":
-            cnt, sz = 0, 0
-            if path and os.path.exists(path):
-                for f in os.listdir(path):
-                    if any(f.lower().startswith(p) for p in ["tmp", "antigravity", "repomix", "agent"]) and (
-                        f.endswith(".py") or f.endswith(".js") or f.endswith(".json") or f.endswith(".log") or f.endswith(".tmp") or f.endswith(".xml")
-                    ):
-                        fp = os.path.join(path, f)
-                        if os.path.isfile(fp):
-                            try:
-                                s = os.path.getsize(fp)
-                                cnt += 1; sz += s
-                            except Exception: pass
-        else:
-            cnt, sz, _ = get_dir_size(path)
-
-        safe_total_bytes += sz
-        safe_total_files += cnt
+    for name, info in metrics["tier1_safe"].items():
+        cnt = info["count"]
+        sz = info["size"]
         color = YELLOW if sz > 100 * 1024 * 1024 else GREEN
-        print(f"  + {BOLD}{name:<28s}{RESET} : {cnt:7,d} files | {color}{format_size(sz):>10s}{RESET}")
+        print(f"  + {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {color}{format_size(sz):>10s}{RESET}")
 
     print(f"  {BOLD}------------------------------------------------------------------------------{RESET}")
-    print(f"  {BOLD}{GREEN}TOTAL SAFE RECLAIMABLE SPACE: {format_size(safe_total_bytes)} ({safe_total_files:,} files){RESET}")
+    print(f"  {BOLD}{GREEN}TOTAL SAFE RECLAIMABLE SPACE: {format_size(metrics['safe_total_bytes'])} ({metrics['safe_total_files']:,} files){RESET}")
     print()
 
-    # --- TIER 2: ADVISABLE TO DELETE ---
+    # --- TIER 2: REVIEW CANDIDATES ---
     print(f"{BOLD}{YELLOW}[REVIEW CANDIDATES] TIER 2: STALE & ADVISABLE TO DELETE (> {stale_days} DAYS){RESET}")
+    for name, info in metrics["tier2_review"].items():
+        cnt = info["count"]
+        sz = info["size"]
+        is_advisable = info["advisable"]
+        status_tag = f"{BOLD}{GREEN}[ADVISABLE]{RESET}" if is_advisable else "[KEEP]"
+        if "Playwright" in name:
+            status_tag = "[RE-DOWNLOADABLE]"
+        color = GREEN if is_advisable else YELLOW
+        print(f"  ! {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {color}{format_size(sz):>10s}{RESET} {status_tag}")
 
-    brain_dir = os.path.join(base_dir, "brain")
-    stale_brain_cnt, stale_brain_sz = 0, 0
-    active_brain_cnt, active_brain_sz = 0, 0
-
-    if os.path.exists(brain_dir):
-        for conv in os.listdir(brain_dir):
-            if active_session_id and conv == active_session_id:
-                continue
-            conv_p = os.path.join(brain_dir, conv)
-            if os.path.isdir(conv_p):
-                try:
-                    mtime = os.path.getctime(conv_p)
-                    c, s, _ = get_dir_size(conv_p)
-                    if (now - mtime) > stale_sec:
-                        stale_brain_cnt += c; stale_brain_sz += s
-                    else:
-                        active_brain_cnt += c; active_brain_sz += s
-                except Exception: pass
-
-    tools_dir = os.path.expanduser("~/tools")
-    stale_deps_cnt, stale_deps_sz = 0, 0
-    active_deps_cnt, active_deps_sz = 0, 0
-
-    if os.path.exists(tools_dir):
-        for item in os.listdir(tools_dir):
-            fp = os.path.join(tools_dir, item)
-            if os.path.isdir(fp):
-                try:
-                    mtime = os.path.getmtime(fp)
-                    is_stale = (now - mtime) > (14 * 86400)
-                    for dep_sub in ["node_modules", ".venv", "venv"]:
-                        dep_p = os.path.join(fp, dep_sub)
-                        if os.path.exists(dep_p):
-                            c, s, _ = get_dir_size(dep_p)
-                            if is_stale:
-                                stale_deps_cnt += c; stale_deps_sz += s
-                            else:
-                                active_deps_cnt += c; active_deps_sz += s
-                except Exception: pass
-
-    pw_cnt, pw_sz, _ = get_dir_size(os.path.expanduser("~/AppData/Local/ms-playwright"))
-    tracker_cnt, tracker_sz, _ = get_dir_size(os.path.join(base_dir, "code_tracker"))
-
-    print(f"  ! {BOLD}{'Stale Brain (> ' + str(stale_days) + 'd)':<28s}{RESET} : {stale_brain_cnt:7,d} files | {GREEN}{format_size(stale_brain_sz):>10s}{RESET} {BOLD}{GREEN}[ADVISABLE]{RESET}")
-    print(f"  ! {BOLD}{'Active Brain (< ' + str(stale_days) + 'd)':<28s}{RESET} : {active_brain_cnt:7,d} files | {YELLOW}{format_size(active_brain_sz):>10s}{RESET} [KEEP]")
-    print(f"  ! {BOLD}{'Stale Project Dependencies':<28s}{RESET} : {stale_deps_cnt:7,d} files | {GREEN}{format_size(stale_deps_sz):>10s}{RESET} {BOLD}{GREEN}[ADVISABLE]{RESET}")
-    print(f"  ! {BOLD}{'Active Project Dependencies':<28s}{RESET} : {active_deps_cnt:7,d} files | {YELLOW}{format_size(active_deps_sz):>10s}{RESET} [KEEP]")
-    print(f"  ! {BOLD}{'Playwright Browser Binaries':<28s}{RESET} : {pw_cnt:7,d} files | {YELLOW}{format_size(pw_sz):>10s}{RESET} [RE-DOWNLOADABLE]")
-    print(f"  ! {BOLD}{'IDE Code Tracker History':<28s}{RESET} : {tracker_cnt:7,d} files | {YELLOW}{format_size(tracker_sz):>10s}{RESET}")
-
-    stale_reclaimable = safe_total_bytes + stale_brain_sz + stale_deps_sz
     print(f"  {BOLD}------------------------------------------------------------------------------{RESET}")
-    print(f"  {BOLD}{GREEN}TOTAL RECOMMENDED RECLAIMABLE SPACE (Safe + Stale): {format_size(stale_reclaimable)}{RESET}")
+    print(f"  {BOLD}{GREEN}TOTAL RECOMMENDED RECLAIMABLE SPACE (Safe + Stale): {format_size(metrics['reclaimable_total_bytes'])} ({metrics['reclaimable_total_files']:,} files){RESET}")
     print()
 
     # --- TIER 3: CRITICAL PROTECTED ---
-    tier_critical = [
-        ("Global Config, Rules & Skills", config_dir),
-        ("Built-in Core Skills & Assets", os.path.join(base_dir, "builtin")),
-        ("MCP Configuration", os.path.join(base_dir, "mcp_config.json")),
-        ("User Settings State", os.path.join(base_dir, "user_settings.pb")),
-        ("Installation Identifier", os.path.join(base_dir, "installation_id")),
-    ]
-
     print(f"{BOLD}{RED}[DO NOT DELETE] TIER 3: CRITICAL SYSTEM & CONFIG PATHS (PROTECTED){RESET}")
-
-    for name, path in tier_critical:
-        cnt, sz, _ = get_dir_size(path)
-        print(f"  🛑 {BOLD}{name:<28s}{RESET} : {cnt:7,d} files | {RED}{format_size(sz):>10s}{RESET}")
+    for name, info in metrics["tier3_protected"].items():
+        cnt = info["count"]
+        sz = info["size"]
+        print(f"  🛑 {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {RED}{format_size(sz):>10s}{RESET}")
 
     print()
     print(f"{BOLD}{CYAN}================================================================================{RESET}")
     print(f"{BOLD}SUMMARY & ACTION GUIDE:{RESET}")
-    print(f"  • Run {BOLD}{GREEN}antigravity-clean --all{RESET} to purge all Tier 1 safe items ({format_size(safe_total_bytes)}).")
-    print(f"  • Run {BOLD}{GREEN}antigravity-clean --stale{RESET} to purge Tier 1 items + stale brain history > {stale_days}d.")
-    print(f"  • Run {BOLD}{GREEN}antigravity-clean --deep{RESET} to perform a complete deep clean ({format_size(stale_reclaimable)}).")
+    print(f"  • Run {BOLD}{GREEN}antigravity-clean --all{RESET} to purge all Tier 1 safe items ({format_size(metrics['safe_total_bytes'])}).")
+    print(f"  • Run {BOLD}{GREEN}antigravity-clean --stale{RESET} to purge Tier 1 items + stale brain & conversation DBs > {stale_days}d.")
+    print(f"  • Run {BOLD}{GREEN}antigravity-clean --deep{RESET} for a complete deep clean ({format_size(metrics['reclaimable_total_bytes'])}).")
+    print(f"  • Run {BOLD}{GREEN}antigravity-find-temp{RESET} to preview candidate files before deletion.")
     print(f"  • NEVER delete items under {BOLD}{RED}Tier 3 [DO NOT DELETE]{RESET}.")
     print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+
+def run_temp_scanner(stale_days=7, limit=35, output_json=False):
+    metrics = collect_audit_metrics(stale_days=stale_days, collect_files=True)
+
+    if output_json:
+        data = {
+            "tier1_safe": {k: {"files": v["count"], "size_bytes": v["size"]} for k, v in metrics["tier1_safe"].items()},
+            "tier2_review": {k: {"files": v["count"], "size_bytes": v["size"], "advisable": v["advisable"]} for k, v in metrics["tier2_review"].items()},
+            "summary": {
+                "safe_bytes": metrics["safe_total_bytes"],
+                "safe_files": metrics["safe_total_files"],
+                "reclaimable_bytes": metrics["reclaimable_total_bytes"],
+                "reclaimable_files": metrics["reclaimable_total_files"],
+            }
+        }
+        print(json.dumps(data, indent=2))
+        return
+
+    print()
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      ANTIGRAVITY TEMPORARY FILE DISCOVERY SCANNER                              {RESET}")
+    print(f"{BOLD}{CYAN}      Previewing files eligible for cleanup (Safe Tier 1 & Stale Tier 2)        {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+    now = time.time()
+    all_candidates = []
+
+    for category, info in metrics["tier1_safe"].items():
+        for fp, sz, mtime in info["files"]:
+            all_candidates.append({
+                "tier": "Tier 1 (Safe)",
+                "category": category,
+                "path": fp,
+                "size": sz,
+                "age_sec": now - mtime
+            })
+
+    for category, info in metrics["tier2_review"].items():
+        if info["advisable"]:
+            for fp, sz, mtime in info["files"]:
+                all_candidates.append({
+                    "tier": "Tier 2 (Review)",
+                    "category": category,
+                    "path": fp,
+                    "size": sz,
+                    "age_sec": now - mtime
+                })
+
+    # Sort candidates by size descending
+    all_candidates.sort(key=lambda x: x["size"], reverse=True)
+
+    print(f"{BOLD}{'Category':<32s} {'Age':<10s} {'Size':>10s}  {'Path':<50s}{RESET}")
+    print(f"{DIM}{'-' * 110}{RESET}")
+
+    shown = all_candidates[:limit]
+    for c in shown:
+        p_short = c["path"]
+        home = os.path.expanduser("~")
+        if p_short.startswith(home):
+            p_short = "~" + p_short[len(home):]
+        if len(p_short) > 58:
+            p_short = p_short[:25] + "..." + p_short[-30:]
+
+        sz_str = format_size(c["size"])
+        age_str = format_age(c["age_sec"])
+        color = GREEN if c["tier"].startswith("Tier 1") else YELLOW
+        print(f"{color}{c['category'][:31]:<32s}{RESET} {age_str:<10s} {BOLD}{sz_str:>10s}{RESET}  {DIM}{p_short}{RESET}")
+
+    if len(all_candidates) > limit:
+        remaining = len(all_candidates) - limit
+        rem_sz = sum(c["size"] for c in all_candidates[limit:])
+        print(f"{DIM}... and {remaining:,} more candidate files ({format_size(rem_sz)}){RESET}")
+
+    print(f"{DIM}{'-' * 110}{RESET}")
+    print(f"Total Discovered Candidates: {BOLD}{len(all_candidates):,}{RESET} files | Reclaimable Space: {BOLD}{GREEN}{format_size(metrics['reclaimable_total_bytes'])}{RESET}")
+    print()
+    print(f"{BOLD}To purge these files:{RESET}")
+    print(f"  • {GREEN}antigravity-clean --all{RESET}   (Safely delete Tier 1 items: {format_size(metrics['safe_total_bytes'])})")
+    print(f"  • {GREEN}antigravity-clean --stale{RESET} (Delete Tier 1 items + stale brain/conversations)")
+    print(f"  • {GREEN}antigravity-clean --deep{RESET}  (Complete purge including temp workspaces & stale project deps)")
     print()
 
 
@@ -228,10 +596,14 @@ def purge_files(files_to_delete):
 
     for fp in files_to_delete:
         try:
-            sz = os.path.getsize(fp)
-            os.remove(fp)
-            deleted_count += 1
-            deleted_bytes += sz
+            if os.path.exists(fp):
+                sz = os.path.getsize(fp)
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                elif os.path.isdir(fp):
+                    shutil.rmtree(fp, ignore_errors=True)
+                deleted_count += 1
+                deleted_bytes += sz
         except Exception:
             errors += 1
 
@@ -251,230 +623,145 @@ def purge_empty_dirs(path):
                 pass
 
 
-def scan_antigravity_temp(stale_days=7, include_stale_brain=False, include_stale_deps=False):
-    base_dir = os.path.expanduser("~/.gemini/antigravity-ide")
-    active_session_id = get_active_session_id()
-    now = time.time()
-    stale_sec = stale_days * 86400
-
-    categories = {
-        "global_scratch": {"name": "Global Scratch Scripts", "path": os.path.join(base_dir, "scratch"), "files": [], "size": 0},
-        "session_scratch": {"name": "Session Scratch Folders", "path": os.path.join(base_dir, "brain"), "files": [], "size": 0},
-        "session_logs": {"name": "Session Logs & Transcripts", "path": os.path.join(base_dir, "brain"), "files": [], "size": 0},
-        "browser_recordings": {"name": "Browser Video Recordings", "path": os.path.join(base_dir, "browser_recordings"), "files": [], "size": 0},
-        "annotations": {"name": "Cached Document Annotations", "path": os.path.join(base_dir, "annotations"), "files": [], "size": 0},
-        "crashes": {"name": "Crash Dump Logs", "path": os.path.join(base_dir, "crashes"), "files": [], "size": 0},
-        "implicit": {"name": "Implicit Context Cache", "path": os.path.join(base_dir, "implicit"), "files": [], "size": 0},
-        "system_temp": {"name": "System Temp Scripts", "path": os.environ.get("TEMP", ""), "files": [], "size": 0},
-        "package_caches": {
-            "name": "NPM, Pip & UV Caches",
-            "paths": [
-                os.path.expanduser("~/AppData/Local/uv/cache"),
-                os.path.expanduser("~/AppData/Local/npm-cache"),
-                os.path.expanduser("~/AppData/Local/pip/Cache")
-            ],
-            "files": [], "size": 0
-        },
-        "stale_brain": {"name": f"Stale Brain Sessions (> {stale_days}d)", "files": [], "size": 0},
-        "stale_deps": {"name": "Stale Project Dependencies (> 14d)", "files": [], "size": 0}
-    }
-
-    g_dir = categories["global_scratch"]["path"]
-    if os.path.exists(g_dir):
-        _, _, fl = get_dir_size(g_dir)
-        for fp in fl:
-            try:
-                categories["global_scratch"]["files"].append(fp)
-                categories["global_scratch"]["size"] += os.path.getsize(fp)
-            except Exception: pass
-
-    brain_dir = os.path.join(base_dir, "brain")
-    if os.path.exists(brain_dir):
-        for conv_id in os.listdir(brain_dir):
-            if active_session_id and conv_id == active_session_id:
-                continue
-            conv_p = os.path.join(brain_dir, conv_id)
-            if not os.path.isdir(conv_p): continue
-
-            s_p = os.path.join(conv_p, "scratch")
-            if os.path.exists(s_p):
-                _, _, fl = get_dir_size(s_p)
-                for fp in fl:
-                    try:
-                        categories["session_scratch"]["files"].append(fp)
-                        categories["session_scratch"]["size"] += os.path.getsize(fp)
-                    except Exception: pass
-
-            l_p = os.path.join(conv_p, ".system_generated")
-            if os.path.exists(l_p):
-                _, _, fl = get_dir_size(l_p)
-                for fp in fl:
-                    try:
-                        categories["session_logs"]["files"].append(fp)
-                        categories["session_logs"]["size"] += os.path.getsize(fp)
-                    except Exception: pass
-
-            if include_stale_brain:
-                try:
-                    mtime = os.path.getctime(conv_p)
-                    if (now - mtime) > stale_sec:
-                        _, _, fl = get_dir_size(conv_p)
-                        for fp in fl:
-                            try:
-                                categories["stale_brain"]["files"].append(fp)
-                                categories["stale_brain"]["size"] += os.path.getsize(fp)
-                            except Exception: pass
-                except Exception: pass
-
-    rec_p = categories["browser_recordings"]["path"]
-    if os.path.exists(rec_p):
-        _, _, fl = get_dir_size(rec_p)
-        for fp in fl:
-            try:
-                categories["browser_recordings"]["files"].append(fp)
-                categories["browser_recordings"]["size"] += os.path.getsize(fp)
-            except Exception: pass
-
-    ann_p = categories["annotations"]["path"]
-    if os.path.exists(ann_p):
-        _, _, fl = get_dir_size(ann_p)
-        for fp in fl:
-            try:
-                categories["annotations"]["files"].append(fp)
-                categories["annotations"]["size"] += os.path.getsize(fp)
-            except Exception: pass
-
-    for cat_k, key_name in [("crashes", "crashes"), ("implicit", "implicit")]:
-        p = os.path.join(base_dir, key_name)
-        if os.path.exists(p):
-            _, _, fl = get_dir_size(p)
-            for fp in fl:
-                try:
-                    categories[cat_k]["files"].append(fp)
-                    categories[cat_k]["size"] += os.path.getsize(fp)
-                except Exception: pass
-
-    sys_temp = categories["system_temp"]["path"]
-    if sys_temp and os.path.exists(sys_temp):
-        for f in os.listdir(sys_temp):
-            if any(f.lower().startswith(p) for p in ["tmp", "antigravity", "repomix", "agent"]) and (
-                f.endswith(".py") or f.endswith(".js") or f.endswith(".json") or f.endswith(".log") or f.endswith(".tmp") or f.endswith(".xml")
-            ):
-                fp = os.path.join(sys_temp, f)
-                if os.path.isfile(fp):
-                    try:
-                        sz = os.path.getsize(fp)
-                        categories["system_temp"]["files"].append(fp)
-                        categories["system_temp"]["size"] += sz
-                    except Exception: pass
-
-    for cp in categories["package_caches"]["paths"]:
-        if os.path.exists(cp):
-            _, _, fl = get_dir_size(cp)
-            for fp in fl:
-                try:
-                    categories["package_caches"]["files"].append(fp)
-                    categories["package_caches"]["size"] += os.path.getsize(fp)
-                except Exception: pass
-
-    if include_stale_deps:
-        tools_dir = os.path.expanduser("~/tools")
-        if os.path.exists(tools_dir):
-            for item in os.listdir(tools_dir):
-                fp = os.path.join(tools_dir, item)
-                if os.path.isdir(fp):
-                    try:
-                        mtime = os.path.getmtime(fp)
-                        if (now - mtime) > (14 * 86400):
-                            for dep_sub in ["node_modules", ".venv", "venv"]:
-                                dep_p = os.path.join(fp, dep_sub)
-                                if os.path.exists(dep_p):
-                                    _, _, fl = get_dir_size(dep_p)
-                                    for df in fl:
-                                        try:
-                                            categories["stale_deps"]["files"].append(df)
-                                            categories["stale_deps"]["size"] += os.path.getsize(df)
-                                        except Exception: pass
-                    except Exception: pass
-
-    return categories
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Antigravity Compact Workstation Audit & Cleanup Engine",
+        description="Antigravity Workstation Audit & Safe Cleanup Utility (v5.5)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  antigravity-check                          Run compact 3-tier audit scan
+  antigravity-check                          Run comprehensive 3-tier deletion audit
+  antigravity-find-temp                      Scan and preview candidate temp files
   antigravity-clean --all                    Purge all Tier 1 safe temporary categories
-  antigravity-clean --stale                  Purge Tier 1 safe + stale brain sessions (> 7 days)
-  antigravity-clean --deep                   Deep clean (Tier 1 safe + stale brain + stale project deps)
-  antigravity-clean --days 3                 Custom age threshold (e.g., stale items > 3 days)
+  antigravity-clean --stale                  Purge Tier 1 safe + stale brain/conversations (> 7 days)
+  antigravity-clean --deep                   Deep clean (Tier 1 safe + stale brain + temp workspaces + deps)
+  antigravity-clean --browser-cache          Purge Antigravity browser profile web caches
+  antigravity-clean --tmp                    Purge ~/.gemini/tmp cloned workspaces
+  antigravity-clean --history                Purge ~/.gemini/history snapshots
+  antigravity-clean --days 3                 Custom age threshold (e.g. stale items > 3 days)
 """
     )
 
     parser.add_argument("--check", action="store_true", help="Run 3-tier audit scan (default)")
-    parser.add_argument("--scan", action="store_true", help="Scan and list temp files")
+    parser.add_argument("--scan", action="store_true", help="Scan and preview individual candidate files")
+    parser.add_argument("--json", action="store_true", help="Output audit or scan metrics as JSON")
+    parser.add_argument("--limit", type=int, default=35, help="Number of files to display in --scan preview (default: 35)")
+
+    # Selective cleanup flags
     parser.add_argument("--scratch", action="store_true", help="Clean global & session scratch files")
     parser.add_argument("--logs", action="store_true", help="Clean session transcripts & task logs")
     parser.add_argument("--recordings", action="store_true", help="Clean browser WebP video recordings")
     parser.add_argument("--annotations", action="store_true", help="Clean cached AST annotations")
     parser.add_argument("--temp", action="store_true", help="Clean system temp scripts (%TEMP%)")
     parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
-    parser.add_argument("--stale", action="store_true", help="Clean Tier 1 safe items + stale brain sessions (> 7 days)")
-    parser.add_argument("--deep", action="store_true", help="Deep clean (Tier 1 safe + stale brain + stale project deps)")
+    parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
+    parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
+    parser.add_argument("--tmp", action="store_true", help="Clean cloned temporary workspaces in ~/.gemini/tmp")
+    parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
+
+    # Bundled cleanup flags
     parser.add_argument("--all", action="store_true", help="Clean ALL Tier 1 safe temporary categories")
+    parser.add_argument("--stale", action="store_true", help="Clean Tier 1 safe items + stale brain/conversations (> 7 days)")
+    parser.add_argument("--deep", action="store_true", help="Deep clean (Tier 1 safe + stale brain + stale DBs + temp repos + deps)")
+
     parser.add_argument("--days", type=int, default=7, help="Stale age threshold in days (default: 7)")
     parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation prompt during deletion")
 
     args = parser.parse_args()
 
-    is_clean = args.scratch or args.logs or args.recordings or args.annotations or args.temp or args.caches or args.stale or args.deep or args.all
-    if args.check or not is_clean:
-        run_comprehensive_audit(stale_days=args.days)
+    # Handle scan mode
+    if args.scan:
+        run_temp_scanner(stale_days=args.days, limit=args.limit, output_json=args.json)
         return
 
-    include_stale_brain = args.stale or args.deep
-    include_stale_deps = args.deep
-    categories = scan_antigravity_temp(stale_days=args.days, include_stale_brain=include_stale_brain, include_stale_deps=include_stale_deps)
+    # Determine if cleaning action requested
+    is_clean = (
+        args.scratch or args.logs or args.recordings or args.annotations or
+        args.temp or args.caches or args.browser_cache or args.conversations or
+        args.tmp or args.history or args.stale or args.deep or args.all
+    )
 
-    targets = []
+    if args.check or not is_clean:
+        if args.json:
+            metrics = collect_audit_metrics(stale_days=args.days, collect_files=False)
+            data = {
+                "safe_bytes": metrics["safe_total_bytes"],
+                "safe_files": metrics["safe_total_files"],
+                "reclaimable_bytes": metrics["reclaimable_total_bytes"],
+                "reclaimable_files": metrics["reclaimable_total_files"],
+                "tier1_safe": {k: {"files": v["count"], "size_bytes": v["size"]} for k, v in metrics["tier1_safe"].items()},
+                "tier2_review": {k: {"files": v["count"], "size_bytes": v["size"], "advisable": v["advisable"]} for k, v in metrics["tier2_review"].items()},
+            }
+            print(json.dumps(data, indent=2))
+        else:
+            run_comprehensive_audit(stale_days=args.days)
+        return
+
+    # Collect cleanup targets
+    metrics = collect_audit_metrics(stale_days=args.days, collect_files=True)
+    raw_targets = []
     target_names = []
 
     if args.deep:
-        for k, cat in categories.items():
-            targets.extend(cat["files"])
-            target_names.append(cat["name"])
+        for k, v in metrics["tier1_safe"].items():
+            raw_targets.extend(v["files"])
+            target_names.append(k)
+        for k, v in metrics["tier2_review"].items():
+            if v["advisable"]:
+                raw_targets.extend(v["files"])
+                target_names.append(k)
     elif args.stale:
-        for k, cat in categories.items():
-            if k != "stale_deps":
-                targets.extend(cat["files"])
-                target_names.append(cat["name"])
+        for k, v in metrics["tier1_safe"].items():
+            raw_targets.extend(v["files"])
+            target_names.append(k)
+        for k, v in metrics["tier2_review"].items():
+            if "Stale Brain" in k or "Stale Conversation" in k:
+                raw_targets.extend(v["files"])
+                target_names.append(k)
     elif args.all:
-        for k, cat in categories.items():
-            if k not in ["stale_brain", "stale_deps"]:
-                targets.extend(cat["files"])
-                target_names.append(cat["name"])
+        for k, v in metrics["tier1_safe"].items():
+            raw_targets.extend(v["files"])
+            target_names.append(k)
     else:
         if args.scratch:
-            targets.extend(categories["global_scratch"]["files"])
-            targets.extend(categories["session_scratch"]["files"])
+            raw_targets.extend(metrics["tier1_safe"]["Global Scratch Scripts"]["files"])
+            raw_targets.extend(metrics["tier1_safe"]["Session Scratch Folders"]["files"])
             target_names.append("Scratch Scripts")
         if args.logs:
-            targets.extend(categories["session_logs"]["files"])
-            target_names.append("Session Logs")
+            raw_targets.extend(metrics["tier1_safe"]["Session Transcripts & Logs"]["files"])
+            target_names.append("Session Logs & Transcripts")
         if args.recordings:
-            targets.extend(categories["browser_recordings"]["files"])
-            target_names.append("Browser Recordings")
+            raw_targets.extend(metrics["tier1_safe"]["Browser WebP Recordings"]["files"])
+            target_names.append("Browser Video Recordings")
         if args.annotations:
-            targets.extend(categories["annotations"]["files"])
+            raw_targets.extend(metrics["tier1_safe"]["Cached AST Annotations"]["files"])
             target_names.append("Cached Annotations")
         if args.temp:
-            targets.extend(categories["system_temp"]["files"])
+            raw_targets.extend(metrics["tier1_safe"]["System Temp Scripts"]["files"])
             target_names.append("System Temp Scripts")
         if args.caches:
-            targets.extend(categories["package_caches"]["files"])
-            target_names.append("NPM/Pip/UV Caches")
+            raw_targets.extend(metrics["tier1_safe"]["Package Manager Caches (UV/NPM/Pip)"]["files"])
+            target_names.append("Package Manager Caches")
+        if args.browser_cache:
+            raw_targets.extend(metrics["tier1_safe"]["Browser Profile Web Caches"]["files"])
+            target_names.append("Browser Profile Web Caches")
+        if args.conversations:
+            raw_targets.extend(metrics["tier2_review"][f"Stale Conversation DBs (> {args.days}d)"]["files"])
+            target_names.append("Stale Conversation DBs")
+        if args.tmp:
+            raw_targets.extend(metrics["tier2_review"]["Temporary Cloned Workspaces (~/.gemini/tmp)"]["files"])
+            target_names.append("Temporary Cloned Workspaces")
+        if args.history:
+            raw_targets.extend(metrics["tier2_review"]["Workspace History Snapshots (~/.gemini/history)"]["files"])
+            target_names.append("Workspace History Snapshots")
+
+    # Extract file paths from (path, sz, mtime)
+    targets = [item[0] for item in raw_targets]
+
+    # Filter out active session artifacts
+    active_id = get_active_session_id()
+    if active_id:
+        targets = [t for t in targets if active_id not in t]
+
+    targets = list(dict.fromkeys(targets))
 
     if not targets:
         print(f"\n{BOLD}{GREEN}No files found for selected cleanup targets. Everything is clean!{RESET}\n")
@@ -494,10 +781,18 @@ def main():
     print(f"\n{BOLD}{CYAN}Deleting temporary & stale files...{RESET}")
     del_count, del_bytes, err_count = purge_files(targets)
 
-    base_dir = os.path.expanduser("~/.gemini/antigravity-ide")
-    purge_empty_dirs(os.path.join(base_dir, "scratch"))
-    purge_empty_dirs(os.path.join(base_dir, "brain"))
-    purge_empty_dirs(os.path.join(base_dir, "browser_recordings"))
+    # Clean up empty directories across all roots
+    for r in get_antigravity_roots():
+        purge_empty_dirs(os.path.join(r, "scratch"))
+        purge_empty_dirs(os.path.join(r, "brain"))
+        purge_empty_dirs(os.path.join(r, "browser_recordings"))
+        purge_empty_dirs(os.path.join(r, "annotations"))
+        purge_empty_dirs(os.path.join(r, "implicit"))
+        purge_empty_dirs(os.path.join(r, "context_state"))
+        purge_empty_dirs(os.path.join(r, "html_artifacts"))
+
+    purge_empty_dirs(os.path.expanduser("~/.gemini/tmp"))
+    purge_empty_dirs(os.path.expanduser("~/.gemini/history"))
 
     print(f"\n{BOLD}{GREEN}✓ Cleanup Complete!{RESET}")
     print(f"  Files Removed : {del_count:,}")

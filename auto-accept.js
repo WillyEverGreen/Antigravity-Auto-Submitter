@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const readline = require('readline');
+const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
 let PKG_VERSION = '1.3.0';
@@ -301,6 +302,10 @@ ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept doctor${C.reset}        Diagnose Antigravity connection & print setup guide
   ${C.green}auto-accept add-ask <kw>${C.reset}    Add keyword to Ask list (manual permission)
   ${C.green}auto-accept add-skip <kw>${C.reset}   Add keyword to Skip list (direct skip)
+  ${C.green}auto-accept check${C.reset}         Run 3-tier deletion audit scan (Safe / Review / Protected)
+  ${C.green}auto-accept find-temp${C.reset}     Scan & preview candidate temporary files for cleanup
+  ${C.green}auto-accept clean [flags]${C.reset} Purge safe temp files (--all, --stale, --deep, etc.)
+  ${C.green}auto-accept brain [flags]${C.reset} Inspect session brain disk distribution & delete sessions
   ${C.green}auto-accept rm <kw>${C.reset}         Remove keyword from active rules
   ${C.green}auto-accept rm-ask <kw>${C.reset}     Remove keyword from Ask list
   ${C.green}auto-accept rm-skip <kw>${C.reset}    Remove keyword from Skip list
@@ -507,6 +512,54 @@ function resolveConfig() {
   if (firstArg === '-v' || firstArg === '--version') {
     console.log(`v${PKG_VERSION}`);
     process.exit(0);
+  }
+
+  // ── Subcommand: check / agy-check ──
+  if (firstArg === 'check' || firstArg === 'agy-check') {
+    const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
+    const pyArgs = ['--check', ...args.slice(1)];
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    if (res.error && res.error.code === 'ENOENT') {
+      res = spawnSync('python', [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    }
+    process.exit(res.status !== null ? res.status : 0);
+  }
+
+  // ── Subcommand: find-temp / agy-find-temp ──
+  if (firstArg === 'find-temp' || firstArg === 'agy-find-temp') {
+    const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
+    const pyArgs = ['--scan', ...args.slice(1)];
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    if (res.error && res.error.code === 'ENOENT') {
+      res = spawnSync('python', [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    }
+    process.exit(res.status !== null ? res.status : 0);
+  }
+
+  // ── Subcommand: clean / agy-clean ──
+  if (firstArg === 'clean' || firstArg === 'agy-clean') {
+    const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
+    const pyArgs = [...args.slice(1)];
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    if (res.error && res.error.code === 'ENOENT') {
+      res = spawnSync('python', [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    }
+    process.exit(res.status !== null ? res.status : 0);
+  }
+
+  // ── Subcommand: brain / agy-brain ──
+  if (firstArg === 'brain' || firstArg === 'agy-brain') {
+    const scriptPath = path.join(__dirname, 'scripts', 'antigravity_brain.py');
+    const pyArgs = [...args.slice(1)];
+    const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+    let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    if (res.error && res.error.code === 'ENOENT') {
+      res = spawnSync('python', [scriptPath, ...pyArgs], { stdio: 'inherit' });
+    }
+    process.exit(res.status !== null ? res.status : 0);
   }
 
   let explicitConfig = null;
