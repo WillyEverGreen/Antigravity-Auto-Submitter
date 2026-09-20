@@ -293,16 +293,25 @@ function handleSetup() {
 
     const { execSync } = require('child_process');
     const psScript = `
-      $desktop = [Environment]::GetFolderPath('Desktop');
-      $linkPath = Join-Path $desktop 'Antigravity IDE.lnk';
-      $shell = New-Object -ComObject WScript.Shell;
-      $sc = $shell.CreateShortcut($linkPath);
-      $sc.TargetPath = '${exe.replace(/\\/g, '\\\\')}';
-      $sc.Arguments = '--remote-debugging-port=9333';
-      $sc.Save();
+      $shell = New-Object -ComObject WScript.Shell
+      $desktop = [Environment]::GetFolderPath('Desktop')
+      $shortcuts = @('Antigravity IDE.lnk', 'Antigravity.lnk', 'Start Antigravity (CDP 9000).lnk')
+      foreach ($name in $shortcuts) {
+        $linkPath = Join-Path $desktop $name
+        if (Test-Path $linkPath) {
+          $sc = $shell.CreateShortcut($linkPath)
+          $sc.Arguments = '--remote-debugging-port=9333'
+          $sc.Save()
+        }
+      }
+      $mainLink = Join-Path $desktop 'Antigravity IDE.lnk'
+      $scMain = $shell.CreateShortcut($mainLink)
+      $scMain.TargetPath = '${exe.replace(/\\/g, '\\\\')}'
+      $scMain.Arguments = '--remote-debugging-port=9333'
+      $scMain.Save()
     `;
     try {
-      execSync(`powershell -Command "${psScript.replace(/[\r\n]+/g, ' ')}"`, { stdio: 'ignore' });
+      execSync(`powershell -NoProfile -Command "${psScript.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
       console.log(`  ${C.bold}${C.green}✔ Successfully created / updated Desktop shortcut for Antigravity IDE!${C.reset}`);
       console.log(`  Target:    ${C.cyan}${exe}${C.reset}`);
       console.log(`  Arguments: ${C.yellow}--remote-debugging-port=9333${C.reset}\n`);
