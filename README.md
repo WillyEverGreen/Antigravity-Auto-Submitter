@@ -39,6 +39,21 @@ When working with Google Antigravity IDE on long-running AI workflows (like `/go
 
 ---
 
+## 🪟 Multi-Window & Multi-Port Engine (Zero Conflicts)
+
+The daemon provides **first-class concurrent multi-window support**:
+
+- **Concurrent Window Monitoring**: If you have multiple Antigravity IDE workspaces open (e.g., `BEACON` and `antigravity-auto-submit`), `auto-accept` monitors **ALL** windows simultaneously without race conditions, cross-talk, or click collisions.
+- **Dedicated Isolated Sessions**: Each window connects via its own `WindowSession` with an isolated WebSocket connection, dedicated CDP request tracking (`reqId`), and distinct keyword block state.
+- **Dynamic Auto-Attach & Detach**: When you open a new Antigravity window, the daemon auto-attaches to it within 2 seconds. When you close a window, it cleanly detaches without restarting or affecting your other open windows.
+- **Flexible Port Architecture**: 
+  - **Auto-Discovery (Default)**: Automatically detects Antigravity across common ports (`9333`, `9334`, `9335`, etc.) and system listening ports.
+  - **Explicit Single Port**: `auto-accept -p 9334` locks onto and manages only port 9334.
+  - **Multiple Explicit Ports**: `auto-accept --ports 9333,9334` monitors specific ports concurrently.
+- **Per-Port Lockfiles**: Lockfiles are scoped per port (`daemon_<port>.pid`). Multiple daemons can manage separate ports in parallel without blocking each other.
+
+---
+
 ## ⚡ Quick Setup (3 Easy Steps)
 
 ### 📦 Step 1: Install CLI

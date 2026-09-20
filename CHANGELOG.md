@@ -5,6 +5,26 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-09-20
+
+### Added
+- **Multi-Window Concurrent Monitoring Engine**:
+  - `selectAllWorkbenchTargets` detects all active Antigravity IDE workbench windows concurrently on the same or multiple DevTools ports.
+  - Dedicated `WindowSession` architecture isolates WebSocket connections, request IDs (`reqId`), and keyword block states per window target.
+  - Dynamic window lifecycle management: automatically attaches to newly opened windows within 2s, and cleanly detaches closed windows without interrupting active sessions.
+  - Per-window logging prefixes (`[Window Title] APPROVE ...`) for clear visibility into which workspace received an approval or block.
+- **Flexible Port Architecture & Lock Isolation**:
+  - Supports explicit single ports (`-p 9333`), multi-port candidate lists (`--ports 9333,9334` or `-p 9333,9334`), and automatic multi-port discovery.
+  - Replaced global lockfile with per-port lockfiles (`daemon_<port>.pid`), allowing separate daemons to manage distinct ports simultaneously without false collision.
+  - Automatic stale lockfile cleanup across all ports.
+- **Upgraded Status & Diagnostic Tooling**:
+  - `auto-accept status` returns detailed multi-window array (`windows`), active port list (`ports`), and total `windowCount` while maintaining 100% backward compatibility with single-window consumers (`port`, `targetTitle`).
+  - `auto-accept doctor` scans and outputs connection status for all active ports and attached windows.
+- **Global Wrapper Priority & Conflict Resolution**:
+  - Synchronized `C:\tools\auto-accept.cmd` and `C:\tools\antigravity-auto-accept.cmd` to prioritize the active workspace first, eliminating outdated daemon execution conflicts.
+- **Comprehensive Automated Test Coverage**:
+  - Added unit test coverage for multi-target selection, per-port lockfile isolation, WindowSession lifecycle, and daemon session aggregation (18/18 tests passing).
+
 ## [1.5.0] - 2026-09-20
 
 ### Added

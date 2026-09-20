@@ -1,5 +1,5 @@
 /**
- * Automated test suite for auto-accept.js CLI
+ * Automated test suite for auto-accept.js CLI & Multi-Window Engine
  */
 
 'use strict';
@@ -14,6 +14,12 @@ const {
   buildScannerScript,
   StatsManager,
   selectWorkbenchTarget,
+  selectAllWorkbenchTargets,
+  WindowSession,
+  AutoSubmitDaemon,
+  getPidFilePath,
+  acquireDaemonLock,
+  releaseDaemonLock,
   DEFAULTS
 } = require('../auto-accept.js');
 
@@ -42,6 +48,7 @@ it('DEFAULTS has expected safety configurations', () => {
   assert(DEFAULTS.askKeywords.includes('git push'));
   assert(DEFAULTS.skipKeywords.includes('rm -rf'));
   assert(DEFAULTS.skipKeywords.includes('drop table'));
+  assert(Array.isArray(DEFAULTS.cdpPorts));
 });
 
 // ── 2. Scanner Script Syntax & Features ──
@@ -127,7 +134,6 @@ it('buildScannerScript detects "git push" from enclosing card and blocks auto-ap
   };
   const script = buildScannerScript(cfg);
 
-  // Setup simulated DOM in Node VM context
   let clicked = false;
   let option1Selected = false;
 
@@ -189,7 +195,6 @@ it('buildScannerScript detects "git push" from enclosing card and blocks auto-ap
 
   const result = vm.runInNewContext(script, sandbox);
 
-  // Verification:
   assert(result !== null, 'Scanner should return an outcome');
   assert.strictEqual(result.blocked, true, 'git push MUST be blocked');
   assert.strictEqual(result.blockedType, 'ask', 'Should be an Ask permission block');
@@ -268,7 +273,6 @@ it('buildScannerScript auto-approves safe commands and selects Option 1 (Allow t
 
   const result = vm.runInNewContext(script, sandbox);
 
-  // Verification:
   assert(result !== null, 'Scanner should return an outcome');
   assert.strictEqual(result.blocked, false, 'git status should NOT be blocked');
   assert.strictEqual(clicked, true, 'Continue button MUST be clicked for safe commands');
@@ -316,7 +320,6 @@ it('allows adding and removing rules programmatically and via subcommands', () =
 
 // ── 7. Interactive Hotkeys Support ──
 it('AutoSubmitDaemon supports interactive hotkeys a and r for live rule management', () => {
-  const { AutoSubmitDaemon, DEFAULTS } = require('../auto-accept.js');
   const daemon = new AutoSubmitDaemon(DEFAULTS, 'default');
   assert.strictEqual(daemon.isPrompting, false);
   assert.strictEqual(typeof daemon.promptAddRule, 'function');
@@ -329,14 +332,10 @@ it('AutoSubmitDaemon supports interactive hotkeys a and r for live rule manageme
 
 // ── 8. Stdin Resumption and Prompt Lifecycle ──
 it('guarantees process.stdin.resume() and clean prompt teardown upon prompt completion', () => {
-  const readline = require('readline');
-  const { AutoSubmitDaemon, DEFAULTS } = require('../auto-accept.js');
   const daemon = new AutoSubmitDaemon(DEFAULTS, 'default');
 
-  // Verify initial state
   assert.strictEqual(daemon.isPrompting, false);
 
-  // Simulate prompt completion finish function logic
   let finished = false;
   const finish = () => {
     if (finished) return;
@@ -367,15 +366,12 @@ it('correctly normalizes upper-case characters and symbol keys like ?', () => {
     else if (char === 'm') lastTriggered = 'mode';
   };
 
-  // Test '?' where key.name is undefined
   handler('?', { sequence: '?', name: undefined });
   assert.strictEqual(lastTriggered, 'help');
 
-  // Test Shift+P
   handler('P', { sequence: 'P', name: 'p', shift: true });
   assert.strictEqual(lastTriggered, 'pause');
 
-  // Test Shift+M
   handler('M', { sequence: 'M', name: 'm', shift: true });
   assert.strictEqual(lastTriggered, 'mode');
 });
@@ -413,6 +409,118 @@ it('python cleaner and brain scripts exist and compile cleanly', () => {
   assert.doesNotThrow(() => {
     execSync(`${pythonCmd} -m py_compile "${pyCleaner}" "${pyBrain}"`, { stdio: 'pipe' });
   });
+});
+
+// ── 11. Multi-Window Target Selection & Filtering ──
+it('selectAllWorkbenchTargets accurately returns ALL workbench pages and ignores workers/iframes', () => {
+  const mockTargets = [
+    { id: '1', type: 'iframe', title: 'Preview Frame', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/1', url: 'vscode-webview://...' },
+    { id: '2', type: 'worker', title: 'Extension Host Worker', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/2', url: '' },
+    { id: '3', type: 'page', title: 'antigravity-auto-submit - Antigravity IDE', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/3', url: 'vscode-file://vscode-app/workbench.html' },
+    { id: '4', type: 'page', title: 'BEACON - Antigravity IDE', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/4', url: 'vscode-file://vscode-app/workbench.html' },
+    { id: '5', type: 'page', title: 'Chrome DevTools Internal', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/5', url: 'devtools://devtools/bundled/inspector.html' }
+  ];
+
+  const all = selectAllWorkbenchTargets(mockTargets);
+  assert.strictEqual(all.length, 2, 'Should select exactly the 2 Antigravity workbench windows');
+  assert.strictEqual(all[0].id, '3');
+  assert.strictEqual(all[1].id, '4');
+  assert.strictEqual(all[0].title, 'antigravity-auto-submit - Antigravity IDE');
+  assert.strictEqual(all[1].title, 'BEACON - Antigravity IDE');
+
+  // selectWorkbenchTarget backward compatibility
+  const single = selectWorkbenchTarget(mockTargets);
+  assert.strictEqual(single.id, '3');
+});
+
+// ── 12. Flexible Port Locking & Non-Conflicting PIDs ──
+it('getPidFilePath produces isolated lock paths per port preventing conflicts', () => {
+  const autoLock = getPidFilePath('auto');
+  const port9333Lock = getPidFilePath('9333');
+  const port9334Lock = getPidFilePath(9334);
+
+  assert(autoLock.endsWith('daemon_auto.pid'));
+  assert(port9333Lock.endsWith('daemon_9333.pid'));
+  assert(port9334Lock.endsWith('daemon_9334.pid'));
+  assert.notStrictEqual(port9333Lock, port9334Lock);
+
+  // Acquire and release test for port 9999
+  const testPort = 9999;
+  const lock = acquireDaemonLock(testPort);
+  assert.strictEqual(lock, null, 'Should successfully acquire lock on unused port');
+  assert(fs.existsSync(getPidFilePath(testPort)));
+
+  // Re-acquiring with same process ID succeeds
+  const second = acquireDaemonLock(testPort);
+  assert.strictEqual(second, null);
+
+  // Release lock
+  releaseDaemonLock(testPort);
+  assert(!fs.existsSync(getPidFilePath(testPort)), 'Lockfile should be cleanly unlinked upon release');
+});
+
+// ── 13. WindowSession Lifecycle & Message Isolation ──
+it('WindowSession manages its own reqId, block states, and approvals independently', () => {
+  const stats = new StatsManager();
+  const mockTargetA = { id: 'win-a', title: 'Window Alpha', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/a' };
+  const mockTargetB = { id: 'win-b', title: 'Window Beta', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/b' };
+
+  let eventsA = [];
+  let eventsB = [];
+
+  const sessionA = new WindowSession(mockTargetA, 9333, DEFAULTS, stats, (type, badge, action) => {
+    eventsA.push({ type, badge, action });
+  });
+  const sessionB = new WindowSession(mockTargetB, 9334, DEFAULTS, stats, (type, badge, action) => {
+    eventsB.push({ type, badge, action });
+  });
+
+  assert.strictEqual(sessionA.title, 'Window Alpha');
+  assert.strictEqual(sessionB.title, 'Window Beta');
+  assert.strictEqual(sessionA.port, 9333);
+  assert.strictEqual(sessionB.port, 9334);
+
+  // Simulate outcome on Session A
+  sessionA.handleScanResult({ action: 'Allow this time', blocked: false, context: 'cmd 1' });
+  assert.strictEqual(sessionA.sessionApprovals, 1);
+  assert.strictEqual(sessionB.sessionApprovals, 0, 'Session B approvals must remain isolated');
+
+  // Simulate outcome on Session B
+  sessionB.handleScanResult({ action: 'Submit', blocked: true, blockedType: 'ask', matchedKeyword: 'git push', context: 'cmd 2' });
+  assert.strictEqual(sessionB.sessionBlocks, 1);
+  assert.strictEqual(sessionA.sessionBlocks, 0, 'Session A blocks must remain isolated');
+  assert.strictEqual(sessionB.lastReportedBlock.includes('git push'), true);
+  assert.strictEqual(sessionA.lastReportedBlock, '');
+});
+
+// ── 14. Multi-Window Concurrent State Aggregation in AutoSubmitDaemon ──
+it('AutoSubmitDaemon aggregates multi-window sessions and computes collective status', () => {
+  const daemon = new AutoSubmitDaemon(DEFAULTS, 'default');
+  assert.strictEqual(daemon.isConnected, false);
+  assert.strictEqual(daemon.targetTitle, '');
+
+  const stats = daemon.stats;
+  const session1 = new WindowSession({ id: 'w1', title: 'Workspace 1', webSocketDebuggerUrl: 'ws://1' }, 9333, DEFAULTS, stats, () => {});
+  const session2 = new WindowSession({ id: 'w2', title: 'Workspace 2', webSocketDebuggerUrl: 'ws://2' }, 9334, DEFAULTS, stats, () => {});
+
+  session1.isConnected = true;
+  daemon.sessions.set('w1', session1);
+
+  assert.strictEqual(daemon.isConnected, true);
+  assert.strictEqual(daemon.activePort, 9333);
+  assert.strictEqual(daemon.targetTitle, 'Workspace 1');
+
+  session2.isConnected = true;
+  daemon.sessions.set('w2', session2);
+
+  assert.strictEqual(daemon.isConnected, true);
+  assert.strictEqual(daemon.targetTitle, 'Workspace 1, Workspace 2');
+
+  // Clean up
+  session1.isConnected = false;
+  session2.isConnected = false;
+  daemon.sessions.clear();
+  assert.strictEqual(daemon.isConnected, false);
 });
 
 console.log(`\nResults: ${passed}/${total} passed.`);

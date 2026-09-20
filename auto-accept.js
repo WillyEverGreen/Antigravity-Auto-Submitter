@@ -32,16 +32,25 @@ try {
 const GLOBAL_DIR = path.join(os.homedir(), '.antigravity-auto-submit');
 const STATS_FILE = path.join(GLOBAL_DIR, 'stats.json');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_DIR, 'config.json');
-const PID_FILE = path.join(GLOBAL_DIR, 'daemon.pid');
 const LOCAL_CONFIG_FILES = ['.auto-accept.json', 'auto-accept.config.json'];
 
-function acquireDaemonLock(force = false) {
+function getPidFilePath(portKey = 'auto') {
+  const safeKey = String(portKey).replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(GLOBAL_DIR, `daemon_${safeKey}.pid`);
+}
+
+function acquireDaemonLock(portKey = 'auto', force = false) {
+  if (typeof portKey === 'boolean') {
+    force = portKey;
+    portKey = 'auto';
+  }
   if (!fs.existsSync(GLOBAL_DIR)) {
     try { fs.mkdirSync(GLOBAL_DIR, { recursive: true }); } catch (e) {}
   }
-  if (!force && fs.existsSync(PID_FILE)) {
+  const pidFile = getPidFilePath(portKey);
+  if (!force && fs.existsSync(pidFile)) {
     try {
-      const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+      const existingPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
       if (existingPid && existingPid !== process.pid) {
         try {
           process.kill(existingPid, 0);
@@ -52,16 +61,28 @@ function acquireDaemonLock(force = false) {
       }
     } catch (e) {}
   }
-  try { fs.writeFileSync(PID_FILE, String(process.pid), 'utf8'); } catch (e) {}
+
+  // Clean up legacy daemon.pid if present and stale
+  try {
+    const legacy = path.join(GLOBAL_DIR, 'daemon.pid');
+    if (fs.existsSync(legacy)) {
+      const legPid = parseInt(fs.readFileSync(legacy, 'utf8').trim(), 10);
+      try { process.kill(legPid, 0); } catch (e) { fs.unlinkSync(legacy); }
+    }
+  } catch (e) {}
+
+  try { fs.writeFileSync(pidFile, String(process.pid), 'utf8'); } catch (e) {}
   return null;
 }
 
-function releaseDaemonLock() {
+function releaseDaemonLock(portKey = 'auto') {
+  if (typeof portKey !== 'string' && typeof portKey !== 'number') portKey = 'auto';
   try {
-    if (fs.existsSync(PID_FILE)) {
-      const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+    const pidFile = getPidFilePath(portKey);
+    if (fs.existsSync(pidFile)) {
+      const existingPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
       if (existingPid === process.pid) {
-        fs.unlinkSync(PID_FILE);
+        fs.unlinkSync(pidFile);
       }
     }
   } catch (e) {}
@@ -72,6 +93,7 @@ const DEFAULTS = {
   enabled: true,
   mode: 'autonomous', // 'autonomous' | 'autopilot'
   cdpPort: 0,         // 0 = auto-detect 9333 / scan 9000-9400
+  cdpPorts: [],       // explicit candidate ports e.g. [9333, 9334]
   safetyDelayMs: 200,
   pollIntervalMs: 250,
   autoSelectAlwaysAllow: false, // Default false: preserves per-command keyword gating
@@ -193,14 +215,21 @@ async function handleDoctor(cfg, shouldExit = true) {
   console.log(`  ${C.bold}Operating System:${C.reset}   ${process.platform} (${os.type()} ${os.release()})`);
 
   // 2. CDP Port check
-  process.stdout.write(`  ${C.bold}CDP Port Status:${C.reset}    Scanning ports (9333, 9222, 9000-9400)...\r`);
-  const endpoint = await findCdpEndpoint(cfg.cdpPort);
+  process.stdout.write(`  ${C.bold}CDP Port Status:${C.reset}    Scanning active ports & windows...\r`);
+  const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
 
-  if (endpoint) {
-    const target = selectWorkbenchTarget(endpoint.targets);
-    console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.green}Connected on port ${endpoint.port} ✔${C.reset}                                 `);
-    console.log(`  ${C.bold}Target Window:${C.reset}      ${C.cyan}"${cleanStr(target ? target.title : 'Antigravity IDE', 60)}"${C.reset} ✔`);
-    console.log(`  ${C.bold}Confirmation Engine:${C.reset}${C.green} Ready for auto-approvals! ✔${C.reset}\n`);
+  if (endpoints.length > 0) {
+    const portsStr = endpoints.map(e => e.port).join(', ');
+    console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.green}Connected on port(s): ${portsStr} ✔${C.reset}                                 `);
+    let winCount = 0;
+    endpoints.forEach(ep => {
+      const targets = selectAllWorkbenchTargets(ep.targets);
+      targets.forEach(t => {
+        winCount++;
+        console.log(`  ${C.bold}Window [${winCount}]:${C.reset}         ${C.cyan}"${cleanStr(t.title || 'Antigravity IDE', 60)}"${C.reset} (Port ${ep.port}) ✔`);
+      });
+    });
+    console.log(`  ${C.bold}Confirmation Engine:${C.reset}${C.green} Ready for multi-window auto-approvals! (${winCount} window(s)) ✔${C.reset}\n`);
     console.log(`  ${C.bold}${C.green}Status:${C.reset} All systems operational! Run ${C.bold}auto-accept${C.reset} to start the daemon.\n`);
   } else {
     console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.yellow}No active port detected ⚠️${C.reset}                                     \n`);
@@ -648,7 +677,16 @@ function resolveConfig() {
       const val = args[++i].toLowerCase();
       if (val === 'autopilot' || val === 'autonomous') cfg.mode = val;
     } else if ((a === '-p' || a === '--port') && args[i + 1]) {
-      cfg.cdpPort = parseInt(args[++i], 10) || 0;
+      const pVal = args[++i];
+      if (pVal.includes(',')) {
+        cfg.cdpPorts = pVal.split(',').map(p => parseInt(p.trim(), 10)).filter(p => !isNaN(p) && p > 0);
+        cfg.cdpPort = cfg.cdpPorts[0] || 0;
+      } else {
+        cfg.cdpPort = parseInt(pVal, 10) || 0;
+      }
+    } else if (a === '--ports' && args[i + 1]) {
+      cfg.cdpPorts = args[++i].split(',').map(p => parseInt(p.trim(), 10)).filter(p => !isNaN(p) && p > 0);
+      cfg.cdpPort = cfg.cdpPorts[0] || 0;
     } else if ((a === '-d' || a === '--delay') && args[i + 1]) {
       cfg.safetyDelayMs = Math.max(0, parseInt(args[++i], 10) || 0);
     } else if (a === '--poll' && args[i + 1]) {
@@ -982,57 +1020,261 @@ function findSystemListeningPorts() {
   return Array.from(ports);
 }
 
-async function findCdpEndpoint(preferredPort) {
-  if (preferredPort > 0) {
-    const targets = await fetchTargets(preferredPort);
-    if (targets && targets.length > 0) return { port: preferredPort, targets };
-  }
+// ── Discovery & Multi-Window Target Selection ──
+function selectAllWorkbenchTargets(targets) {
+  if (!targets || !Array.isArray(targets)) return [];
+  
+  // Prefer workbench / Antigravity editor page targets
+  const pages = targets.filter(t => 
+    t && t.type === 'page' &&
+    t.webSocketDebuggerUrl &&
+    (
+      (t.url && (t.url.includes('workbench') || t.url.includes('vscode-file'))) ||
+      (t.title && t.title.toLowerCase().includes('antigravity'))
+    )
+  );
 
-  const commonPorts = [9333, 9222, 9229, 9300];
-  for (const p of commonPorts) {
-    if (p === preferredPort) continue;
-    const targets = await fetchTargets(p);
-    if (targets && targets.length > 0) return { port: p, targets };
-  }
+  if (pages.length > 0) return pages;
 
-  const activePorts = findSystemListeningPorts();
-  for (const p of activePorts) {
-    if (commonPorts.includes(p) || p === preferredPort) continue;
-    const targets = await fetchTargets(p);
-    if (targets && targets.length > 0) return { port: p, targets };
-  }
-
-  return await scanPortRange(9000, 9400);
+  // Fallback to any active page target with debugger WebSocket
+  return targets.filter(t => t && t.type === 'page' && t.webSocketDebuggerUrl);
 }
 
 function selectWorkbenchTarget(targets) {
-  if (!targets || !targets.length) return null;
-  const page = targets.find(t =>
-    t.type === 'page' &&
-    t.webSocketDebuggerUrl &&
-    (t.url.includes('workbench') || t.title.toLowerCase().includes('antigravity'))
-  );
-  if (page) return page;
-
-  return targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl) || null;
+  const all = selectAllWorkbenchTargets(targets);
+  return all.length > 0 ? all[0] : null;
 }
 
-// ── Ultra-Modern Terminal Daemon ──
+async function findCdpEndpoints(preferredPort = 0, candidatePorts = []) {
+  const results = [];
+  const portsToCheck = new Set();
+
+  if (Array.isArray(candidatePorts) && candidatePorts.length > 0) {
+    candidatePorts.forEach(p => portsToCheck.add(p));
+  } else if (preferredPort > 0) {
+    portsToCheck.add(preferredPort);
+  } else {
+    // Auto-discovery mode:
+    [9333, 9334, 9335, 9336, 9222, 9229, 9300].forEach(p => portsToCheck.add(p));
+    const active = findSystemListeningPorts();
+    active.forEach(p => {
+      if ((p >= 9200 && p <= 9400) || (p >= 9000 && p <= 9500)) {
+        portsToCheck.add(p);
+      }
+    });
+  }
+
+  const checkPromises = Array.from(portsToCheck).map(async (port) => {
+    const targets = await fetchTargets(port);
+    if (targets && targets.length > 0) {
+      const workbenchTargets = selectAllWorkbenchTargets(targets);
+      if (workbenchTargets.length > 0) {
+        return { port, targets };
+      }
+    }
+    return null;
+  });
+
+  const checked = await Promise.all(checkPromises);
+  checked.forEach(res => {
+    if (res) results.push(res);
+  });
+
+  if (results.length === 0 && preferredPort === 0 && (!candidatePorts || candidatePorts.length === 0)) {
+    const scanned = await scanPortRange(9000, 9400);
+    if (scanned) results.push(scanned);
+  }
+
+  return results;
+}
+
+async function findCdpEndpoint(preferredPort) {
+  const endpoints = await findCdpEndpoints(preferredPort);
+  return endpoints.length > 0 ? endpoints[0] : null;
+}
+
+// ── Multi-Window Connection Session ──
+class WindowSession {
+  constructor(target, port, config, stats, onEvent) {
+    this.target = target;
+    this.id = target.id || target.webSocketDebuggerUrl;
+    this.port = port;
+    this.url = target.webSocketDebuggerUrl;
+    this.title = cleanStr(target.title || 'Antigravity IDE', 45);
+    this.config = config;
+    this.stats = stats;
+    this.onEvent = onEvent;
+    this.ws = null;
+    this.isConnected = false;
+    this.isScanning = false;
+    this.pollTimer = null;
+    this.reqId = 1;
+    this.lastReportedBlock = '';
+    this.sessionApprovals = 0;
+    this.sessionBlocks = 0;
+  }
+
+  connect() {
+    if (this.ws) {
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
+    try {
+      this.ws = new WebSocket(this.url);
+    } catch (e) {
+      return;
+    }
+
+    this.ws.onopen = () => {
+      this.isConnected = true;
+      this.onEvent('info', ` READY `, `Connected to window: "${this.title}" (Port ${this.port})`, `Target ID: ${this.id}`, C.pillGreen);
+      this.startScanner();
+    };
+
+    this.ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.id === this.reqId - 1 && msg.result && msg.result.result) {
+          this.handleScanResult(msg.result.result.value);
+        }
+      } catch (e) {}
+    };
+
+    this.ws.onerror = () => {
+      this.destroy();
+    };
+
+    this.ws.onclose = () => {
+      this.destroy();
+    };
+  }
+
+  startScanner() {
+    this.stopScanner();
+    this.pollTimer = setInterval(() => this.scanTick(), this.config.pollIntervalMs);
+  }
+
+  stopScanner() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.isScanning = false;
+  }
+
+  scanTick() {
+    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.config.enabled || this.isScanning) return;
+
+    this.isScanning = true;
+    const script = buildScannerScript(this.config);
+    const id = this.reqId++;
+
+    try {
+      this.ws.send(JSON.stringify({
+        id: id,
+        method: 'Runtime.evaluate',
+        params: {
+          expression: script,
+          returnByValue: true
+        }
+      }));
+    } catch (e) {
+      this.isScanning = false;
+    }
+  }
+
+  handleScanResult(outcome) {
+    this.isScanning = false;
+    if (!outcome) {
+      this.lastReportedBlock = '';
+      return;
+    }
+
+    const actionClean = cleanStr(outcome.action, 40);
+    const contextClean = cleanStr(outcome.context, 60);
+
+    if (outcome.blocked) {
+      const blockKey = `${outcome.blockedType}:${outcome.matchedKeyword}:${actionClean}`;
+      if (blockKey !== this.lastReportedBlock) {
+        this.lastReportedBlock = blockKey;
+        this.sessionBlocks++;
+        this.stats.recordBlock();
+        if (outcome.blockedType === 'ask') {
+          try { process.stdout.write('\x07'); } catch(e) {}
+          this.onEvent('warn', ` PAUSED `, `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Awaiting your manual click in chat)`, C.pillYellow);
+        } else {
+          this.onEvent('warn', ` SKIPPED `, `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Direct Skip Guard)`, C.pillMagenta);
+        }
+      }
+    } else {
+      this.lastReportedBlock = '';
+      this.sessionApprovals++;
+      this.stats.recordApproval(outcome.action);
+      this.onEvent('info', ` APPROVE `, `[${this.title}] ${actionClean}`, `Lifetime: ${this.stats.lifetimeClicks} (+${this.sessionApprovals} window / +${this.stats.sessionApprovals} session) | ${contextClean}`, C.pillGreen);
+    }
+  }
+
+  destroy() {
+    this.stopScanner();
+    if (this.isConnected) {
+      this.onEvent('warn', ` DISCON `, `Window disconnected: "${this.title}" (Port ${this.port})`, '', C.pillYellow);
+    }
+    this.isConnected = false;
+    if (this.ws) {
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
+  }
+}
+
+// ── Ultra-Modern Terminal Daemon (Multi-Window Concurrent Engine) ──
 class AutoSubmitDaemon {
   constructor(config, configSource) {
     this.config = config;
     this.configSource = configSource;
     this.stats = new StatsManager();
-    this.ws = null;
+    this.sessions = new Map();
     this.pollTimer = null;
-    this.isScanning = false;
-    this.isConnected = false;
-    this.activePort = config.cdpPort || 9333;
-    this.targetTitle = '';
-    this.reqId = 1;
-    this.lastReportedBlock = '';
+    this.portKey = config.cdpPort > 0 ? String(config.cdpPort) : 'auto';
     this.isPrompting = false;
     this.isInteractive = process.stdout.isTTY && !this.config.daemon;
+  }
+
+  get isConnected() {
+    for (const s of this.sessions.values()) {
+      if (s.isConnected) return true;
+    }
+    return false;
+  }
+
+  get activePort() {
+    for (const s of this.sessions.values()) {
+      if (s.isConnected) return s.port;
+    }
+    return this.config.cdpPort || 9333;
+  }
+
+  get targetTitle() {
+    const titles = [];
+    for (const s of this.sessions.values()) {
+      if (s.isConnected) titles.push(s.title);
+    }
+    return titles.join(', ') || '';
+  }
+
+  get ws() {
+    for (const s of this.sessions.values()) {
+      if (s.ws) return s.ws;
+    }
+    return null;
+  }
+
+  get isScanning() {
+    for (const s of this.sessions.values()) {
+      if (s.isScanning) return true;
+    }
+    return false;
   }
 
   logEvent(type, badge, action, details = '', color = C.green) {
@@ -1057,17 +1299,19 @@ class AutoSubmitDaemon {
       ? `${C.pillMagenta} 🚀 AUTOPILOT ${C.reset}`
       : `${C.pillCyan} 🛡️ AUTONOMOUS ${C.reset}`;
 
-    const portStr = this.isConnected
-      ? `${C.brightGreen}http://127.0.0.1:${this.activePort} (Connected)${C.reset}`
+    const connectedSessions = Array.from(this.sessions.values()).filter(s => s.isConnected);
+    const ports = Array.from(new Set(connectedSessions.map(s => s.port)));
+    const portStr = connectedSessions.length > 0
+      ? `${C.brightGreen}${connectedSessions.length} window(s) connected (${ports.map(p => 'Port ' + p).join(', ')})${C.reset}`
       : `${C.yellow}Searching ports 9000..9400...${C.reset}`;
 
     console.log(`
   ${C.bold}${C.brightCyan}⚡ ANTIGRAVITY AUTO-SUBMITTER${C.reset} ${C.gray}v${PKG_VERSION}${C.reset}
-  ${C.dim}Autonomous confirmation engine for Google Antigravity IDE${C.reset}
+  ${C.dim}Multi-window autonomous confirmation engine for Google Antigravity IDE${C.reset}
 
   ${C.dim}╭─────────────────────────────────────────────────────────────╮${C.reset}
   ${C.dim}│${C.reset}  ${C.bold}Status:${C.reset}    ${statusPill}   ${C.bold}Mode:${C.reset} ${modePill}
-  ${C.dim}│${C.reset}  ${C.bold}CDP Port:${C.reset}  ${portStr}
+  ${C.dim}│${C.reset}  ${C.bold}Windows:${C.reset}   ${portStr}
   ${C.dim}│${C.reset}  ${C.bold}Approvals:${C.reset} ${C.bold}${C.white}${this.stats.lifetimeClicks}${C.reset} lifetime (${this.stats.sessionApprovals} session)   ${C.bold}Blocks:${C.reset} ${this.stats.sessionBlocks}
   ${C.dim}│${C.reset}  ${C.bold}Guard:${C.reset}     ${C.yellow}${this.config.askKeywords.length} Ask rules${C.reset}  ${C.gray}|${C.reset}  ${C.magenta}${this.config.skipKeywords.length} Skip rules${C.reset}
   ${C.dim}╰─────────────────────────────────────────────────────────────╯${C.reset}
@@ -1086,136 +1330,77 @@ class AutoSubmitDaemon {
 
   async connectLoop() {
     while (true) {
-      if (!this.isConnected) {
-        const endpoint = await findCdpEndpoint(this.config.cdpPort);
-        if (endpoint) {
-          const target = selectWorkbenchTarget(endpoint.targets);
-          if (target) {
-            this.activePort = endpoint.port;
-            this.targetTitle = cleanStr(target.title || 'Antigravity IDE', 50);
-            await this.openWebSocket(target.webSocketDebuggerUrl);
-          }
-        }
-      }
+      try {
+        await this.syncWindows();
+      } catch (e) {}
       await new Promise(r => setTimeout(r, 2000));
     }
   }
 
-  async openWebSocket(url) {
-    if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
-      this.ws = null;
-    }
+  async syncWindows() {
+    const endpoints = await findCdpEndpoints(this.config.cdpPort, this.config.cdpPorts);
+    const activeKeys = new Set();
 
-    try {
-      this.ws = new WebSocket(url);
-    } catch (e) {
-      return;
-    }
+    for (const ep of endpoints) {
+      const targets = selectAllWorkbenchTargets(ep.targets);
+      for (const t of targets) {
+        const key = t.id || t.webSocketDebuggerUrl;
+        activeKeys.add(key);
 
-    this.ws.onopen = () => {
-      this.isConnected = true;
-      this.logEvent('info', ` READY `, `Connected to Antigravity IDE (Port ${this.activePort})`, `Target: "${this.targetTitle}"`, C.pillGreen);
-      this.startScanner();
-    };
-
-    this.ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data);
-        if (msg.id === this.reqId - 1 && msg.result && msg.result.result) {
-          this.handleScanResult(msg.result.result.value);
+        if (!this.sessions.has(key)) {
+          const session = new WindowSession(t, ep.port, this.config, this.stats, (type, badge, action, details, color) => {
+            this.logEvent(type, badge, action, details, color);
+          });
+          this.sessions.set(key, session);
+          session.connect();
+        } else {
+          const session = this.sessions.get(key);
+          if (!session.isConnected && !session.ws) {
+            session.connect();
+          }
         }
-      } catch (e) {}
-    };
-
-    this.ws.onerror = () => {
-      this.cleanupConnection();
-    };
-
-    this.ws.onclose = () => {
-      this.cleanupConnection();
-    };
-  }
-
-  cleanupConnection() {
-    this.stopScanner();
-    if (this.isConnected) {
-      this.logEvent('warn', ` DISCON `, `Antigravity IDE disconnected. Reconnecting...`, '', C.pillYellow);
+      }
     }
-    this.isConnected = false;
-    this.ws = null;
+
+    // Prune closed sessions
+    for (const [key, session] of this.sessions.entries()) {
+      if (!activeKeys.has(key)) {
+        session.destroy();
+        this.sessions.delete(key);
+      }
+    }
   }
 
   startScanner() {
-    this.stopScanner();
-    this.pollTimer = setInterval(() => this.scanTick(), this.config.pollIntervalMs);
+    for (const session of this.sessions.values()) {
+      session.startScanner();
+    }
   }
 
   stopScanner() {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-    this.isScanning = false;
-  }
-
-  scanTick() {
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    if (!this.config.enabled || this.isScanning) return;
-
-    this.isScanning = true;
-    const script = buildScannerScript(this.config);
-    const id = this.reqId++;
-
-    this.ws.send(JSON.stringify({
-      id: id,
-      method: 'Runtime.evaluate',
-      params: {
-        expression: script,
-        returnByValue: true
-      }
-    }));
-  }
-
-  handleScanResult(outcome) {
-    this.isScanning = false;
-    if (!outcome) {
-      this.lastReportedBlock = '';
-      return;
-    }
-
-    const actionClean = cleanStr(outcome.action, 40);
-    const contextClean = cleanStr(outcome.context, 60);
-
-    if (outcome.blocked) {
-      const blockKey = `${outcome.blockedType}:${outcome.matchedKeyword}:${actionClean}`;
-      if (blockKey !== this.lastReportedBlock) {
-        this.lastReportedBlock = blockKey;
-        this.stats.recordBlock();
-        if (outcome.blockedType === 'ask') {
-          try { process.stdout.write('\x07'); } catch(e) {}
-        this.logEvent('warn', ` PAUSED `, actionClean, `Command contains: "${outcome.matchedKeyword}" (Awaiting your manual click in chat)`, C.pillYellow);
-        } else {
-          this.logEvent('warn', ` SKIPPED `, actionClean, `Command contains: "${outcome.matchedKeyword}" (Direct Skip Guard)`, C.pillMagenta);
-        }
-      }
-    } else {
-      this.lastReportedBlock = '';
-      this.stats.recordApproval(outcome.action);
-      this.logEvent('info', ` APPROVE `, actionClean, `Lifetime: ${this.stats.lifetimeClicks} (+${this.stats.sessionApprovals} session) | ${contextClean}`, C.pillGreen);
+    for (const session of this.sessions.values()) {
+      session.stopScanner();
     }
   }
 
   showStats() {
+    const activeSessions = Array.from(this.sessions.values());
     console.log(`
-  ${C.bold}--- Live Statistics ---${C.reset}
-  Connection:         ${this.isConnected ? `${C.green}Connected (Port ${this.activePort})${C.reset}` : `${C.yellow}Disconnected${C.reset}`}
-  Target Window:      ${this.targetTitle || 'N/A'}
-  Session Approvals:  ${C.bold}${this.stats.sessionApprovals}${C.reset}
+  ${C.bold}--- Live Multi-Window Statistics ---${C.reset}
+  Windows Attached:   ${activeSessions.length > 0 ? `${C.green}${activeSessions.length} connected${C.reset}` : `${C.yellow}0 (Searching...)${C.reset}`}
+  Session Approvals:  ${C.bold}${this.stats.sessionApprovals}${C.reset} total
   Lifetime Approvals: ${C.bold}${this.stats.lifetimeClicks}${C.reset}
   Intercepted Blocks: ${C.bold}${this.stats.sessionBlocks}${C.reset}
   Last Action:        ${this.stats.lastAction || 'None'} (${this.stats.lastClicked || 'N/A'})
 `);
+    if (activeSessions.length > 0) {
+      console.log(`  ${C.bold}Active Window Breakdown:${C.reset}`);
+      activeSessions.forEach((s, idx) => {
+        const status = s.isConnected ? `${C.green}Connected${C.reset}` : `${C.yellow}Reconnecting${C.reset}`;
+        console.log(`    [${idx + 1}] "${s.title}" (Port ${s.port}) — ${status} — Approvals: ${s.sessionApprovals}, Blocks: ${s.sessionBlocks}`);
+      });
+      console.log('');
+    }
   }
 
   showConfig() {
@@ -1223,6 +1408,7 @@ class AutoSubmitDaemon {
   ${C.bold}--- Active Configuration ---${C.reset}
   Source:         ${this.configSource}
   Mode:           ${this.config.mode}
+  Port Policy:    ${this.config.cdpPort > 0 ? `Port ${this.config.cdpPort}` : 'Auto-Discover (All Windows & Ports)'}
   Click Delay:    ${this.config.safetyDelayMs}ms
   Poll Interval:  ${this.config.pollIntervalMs}ms
   Ask List:       ${this.config.askKeywords.join(', ') || '(none)'}
@@ -1481,12 +1667,12 @@ class AutoSubmitDaemon {
 
   shutdown() {
     console.log(`\n  ${C.yellow}Shutting down auto-submit daemon...${C.reset}\n`);
-    releaseDaemonLock();
+    releaseDaemonLock(this.portKey);
     this.stopScanner();
-    if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
-      this.ws = null;
+    for (const session of this.sessions.values()) {
+      session.destroy();
     }
+    this.sessions.clear();
     if (process.stdin.isTTY) {
       try { process.stdin.setRawMode(false); } catch (e) {}
     }
@@ -1502,12 +1688,29 @@ if (require.main === module) {
   // JSON Status Check
   if (process.argv.includes('status') || process.argv.includes('--status')) {
     (async () => {
-      const endpoint = await findCdpEndpoint(config.cdpPort);
+      const endpoints = await findCdpEndpoints(config.cdpPort, config.cdpPorts);
       const stats = new StatsManager();
+      const allWindows = [];
+      endpoints.forEach(ep => {
+        const targets = selectAllWorkbenchTargets(ep.targets);
+        targets.forEach(t => {
+          allWindows.push({
+            id: t.id || t.webSocketDebuggerUrl,
+            port: ep.port,
+            title: cleanStr(t.title || 'Antigravity IDE', 50),
+            url: t.url
+          });
+        });
+      });
+      const primaryEndpoint = endpoints[0] || null;
+      const primaryTarget = allWindows[0] || null;
       const output = {
-        connected: !!endpoint,
-        port: endpoint ? endpoint.port : null,
-        targetTitle: endpoint ? selectWorkbenchTarget(endpoint.targets)?.title || null : null,
+        connected: allWindows.length > 0,
+        port: primaryEndpoint ? primaryEndpoint.port : null,
+        ports: endpoints.map(e => e.port),
+        targetTitle: primaryTarget ? primaryTarget.title : null,
+        windows: allWindows,
+        windowCount: allWindows.length,
         mode: config.mode,
         enabled: config.enabled,
         sessionApprovals: 0,
@@ -1515,24 +1718,25 @@ if (require.main === module) {
         lastClicked: stats.lastClicked
       };
       console.log(JSON.stringify(output, null, 2));
-      process.exit(endpoint ? 0 : 1);
+      process.exit(allWindows.length > 0 ? 0 : 1);
     })();
   } else {
+    const portKey = config.cdpPort > 0 ? String(config.cdpPort) : 'auto';
     const isForce = process.argv.includes('--force') || process.argv.includes('-f');
-    const runningPid = acquireDaemonLock(isForce);
+    const runningPid = acquireDaemonLock(portKey, isForce);
     if (runningPid) {
-      console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running.${C.reset}`);
-      console.log(`  ${C.dim}Only one daemon should manage CDP port ${config.cdpPort || 9333} to prevent race conditions.${C.reset}`);
+      console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.${C.reset}`);
+      console.log(`  ${C.dim}Only one daemon should manage ${portKey === 'auto' ? 'auto-detection mode' : 'port ' + portKey} to prevent duplicate submissions.${C.reset}`);
       console.log(`  ${C.dim}To override or replace it, stop PID ${runningPid} or run with: ${C.bold}auto-accept --force${C.reset}\n`);
       process.exit(0);
     }
-    process.on('exit', releaseDaemonLock);
-    process.on('SIGINT', () => { releaseDaemonLock(); process.exit(0); });
-    process.on('SIGTERM', () => { releaseDaemonLock(); process.exit(0); });
+    process.on('exit', () => releaseDaemonLock(portKey));
+    process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
+    process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
 
     const daemon = new AutoSubmitDaemon(config, configSource);
     daemon.start().catch((err) => {
-      releaseDaemonLock();
+      releaseDaemonLock(portKey);
       console.error(`${C.red}Fatal daemon error:${C.reset}`, err);
       process.exit(1);
     });
@@ -1541,10 +1745,16 @@ if (require.main === module) {
 
 module.exports = {
   AutoSubmitDaemon,
+  WindowSession,
   StatsManager,
   buildScannerScript,
   findCdpEndpoint,
+  findCdpEndpoints,
   selectWorkbenchTarget,
+  selectAllWorkbenchTargets,
+  acquireDaemonLock,
+  releaseDaemonLock,
+  getPidFilePath,
   cleanStr,
   DEFAULTS,
   handleAddRuleCli,
