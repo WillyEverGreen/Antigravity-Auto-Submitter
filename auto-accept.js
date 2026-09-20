@@ -32,7 +32,40 @@ try {
 const GLOBAL_DIR = path.join(os.homedir(), '.antigravity-auto-submit');
 const STATS_FILE = path.join(GLOBAL_DIR, 'stats.json');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_DIR, 'config.json');
+const PID_FILE = path.join(GLOBAL_DIR, 'daemon.pid');
 const LOCAL_CONFIG_FILES = ['.auto-accept.json', 'auto-accept.config.json'];
+
+function acquireDaemonLock(force = false) {
+  if (!fs.existsSync(GLOBAL_DIR)) {
+    try { fs.mkdirSync(GLOBAL_DIR, { recursive: true }); } catch (e) {}
+  }
+  if (!force && fs.existsSync(PID_FILE)) {
+    try {
+      const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+      if (existingPid && existingPid !== process.pid) {
+        try {
+          process.kill(existingPid, 0);
+          return existingPid;
+        } catch (e) {
+          // Process not active, stale lock
+        }
+      }
+    } catch (e) {}
+  }
+  try { fs.writeFileSync(PID_FILE, String(process.pid), 'utf8'); } catch (e) {}
+  return null;
+}
+
+function releaseDaemonLock() {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+      if (existingPid === process.pid) {
+        fs.unlinkSync(PID_FILE);
+      }
+    }
+  } catch (e) {}
+}
 
 // ── Default Safety Profile ──
 const DEFAULTS = {
@@ -1448,6 +1481,7 @@ class AutoSubmitDaemon {
 
   shutdown() {
     console.log(`\n  ${C.yellow}Shutting down auto-submit daemon...${C.reset}\n`);
+    releaseDaemonLock();
     this.stopScanner();
     if (this.ws) {
       try { this.ws.close(); } catch (e) {}
@@ -1484,8 +1518,21 @@ if (require.main === module) {
       process.exit(endpoint ? 0 : 1);
     })();
   } else {
+    const isForce = process.argv.includes('--force') || process.argv.includes('-f');
+    const runningPid = acquireDaemonLock(isForce);
+    if (runningPid) {
+      console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running.${C.reset}`);
+      console.log(`  ${C.dim}Only one daemon should manage CDP port ${config.cdpPort || 9333} to prevent race conditions.${C.reset}`);
+      console.log(`  ${C.dim}To override or replace it, stop PID ${runningPid} or run with: ${C.bold}auto-accept --force${C.reset}\n`);
+      process.exit(0);
+    }
+    process.on('exit', releaseDaemonLock);
+    process.on('SIGINT', () => { releaseDaemonLock(); process.exit(0); });
+    process.on('SIGTERM', () => { releaseDaemonLock(); process.exit(0); });
+
     const daemon = new AutoSubmitDaemon(config, configSource);
     daemon.start().catch((err) => {
+      releaseDaemonLock();
       console.error(`${C.red}Fatal daemon error:${C.reset}`, err);
       process.exit(1);
     });

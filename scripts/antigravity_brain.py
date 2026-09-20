@@ -63,16 +63,26 @@ def get_dir_size_and_mtime(path):
     count = 0
     ctime = 0
     if os.path.exists(path):
-        ctime = os.path.getctime(path)
-        for root, _, files in os.walk(path):
-            for f in files:
-                fp = os.path.join(root, f)
-                try:
-                    sz = os.path.getsize(fp)
-                    total += sz
-                    count += 1
-                except Exception:
-                    pass
+        try:
+            ctime = os.path.getctime(path)
+        except Exception:
+            pass
+        stack = [path]
+        while stack:
+            curr = stack.pop()
+            try:
+                with os.scandir(curr) as it:
+                    for entry in it:
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                total += entry.stat(follow_symlinks=False).st_size
+                                count += 1
+                            elif entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     return count, total, ctime
 
 

@@ -345,6 +345,27 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pkg_cnt += c; pkg_sz += s; pkg_fl.extend(fl)
     add_tier1("Package Manager Caches (UV/NPM/Pip)", pkg_cnt, pkg_sz, pkg_fl)
 
+    # 13. Loose Gemini Root Scratch Scripts (~/.gemini/*.js, *.py, *.tmp)
+    gemini_root = os.path.expanduser("~/.gemini")
+    protected_root_files = {
+        "gemini.md", "google_accounts.json", "installation_id", "memory_graph.json",
+        "oauth_creds.json", "projects.json", "settings.json", "state.json", "trustedfolders.json"
+    }
+    loose_cnt, loose_sz, loose_fl = 0, 0, []
+    if os.path.exists(gemini_root):
+        try:
+            with os.scandir(gemini_root) as it:
+                for entry in it:
+                    if entry.is_file(follow_symlinks=False):
+                        if entry.name.lower() not in protected_root_files and entry.name.lower().endswith((".js", ".py", ".tmp", ".log")):
+                            stat = entry.stat(follow_symlinks=False)
+                            loose_cnt += 1; loose_sz += stat.st_size
+                            if collect_files:
+                                loose_fl.append((entry.path, stat.st_size, stat.st_mtime))
+        except Exception:
+            pass
+    add_tier1("Gemini Root Loose Scratch Files", loose_cnt, loose_sz, loose_fl)
+
     # 13. Conversations SQLite Databases & State (.db, .db-shm, .db-wal, .pb)
     stale_conv_cnt, stale_conv_sz, stale_conv_fl = 0, 0, []
     active_conv_cnt, active_conv_sz, active_conv_fl = 0, 0, []
@@ -429,19 +450,40 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             t_cnt += c; t_sz += s; t_fl.extend(fl)
     add_tier2("IDE Code Tracker History", t_cnt, t_sz, t_fl, is_advisable=False)
 
-    # 19. Protected Tier 3 Systems
-    tier_critical_paths = [
-        ("Global Config, Rules & Skills", os.path.expanduser("~/.gemini/config")),
-        ("Built-in Core Skills & Assets", os.path.expanduser("~/.gemini/antigravity-ide/builtin")),
-        ("MCP Configuration Files", os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json")),
-        ("User Settings State", os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb")),
-        ("Installation Identifier", os.path.expanduser("~/.gemini/antigravity-ide/installation_id")),
-        ("Gemini Account Auth Creds", os.path.expanduser("~/.gemini/google_accounts.json")),
-        ("OAuth Tokens State", os.path.expanduser("~/.gemini/oauth_creds.json")),
+    # 19. Protected Tier 3 Systems (Strictly shielded from deletion)
+    tier_critical_definitions = [
+        ("Global Config, Rules & Skills", [os.path.expanduser("~/.gemini/config")]),
+        ("Built-in Core Skills & Assets", [os.path.expanduser("~/.gemini/antigravity-ide/builtin")]),
+        ("MCP Configuration & Schemas", [
+            os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json"),
+            os.path.expanduser("~/.gemini/antigravity/mcp_config.json"),
+            os.path.expanduser("~/.gemini/antigravity-ide/mcp"),
+            os.path.expanduser("~/.gemini/antigravity/mcp"),
+        ]),
+        ("IDE & Root Settings State", [
+            os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb"),
+            os.path.expanduser("~/.gemini/antigravity/user_settings.pb"),
+            os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt"),
+            os.path.expanduser("~/.gemini/settings.json"),
+            os.path.expanduser("~/.gemini/state.json"),
+            os.path.expanduser("~/.gemini/trustedFolders.json"),
+            os.path.expanduser("~/.gemini/memory_graph.json"),
+        ]),
+        ("Installation Identifiers", [
+            os.path.expanduser("~/.gemini/antigravity-ide/installation_id"),
+            os.path.expanduser("~/.gemini/antigravity/installation_id"),
+            os.path.expanduser("~/.gemini/installation_id"),
+        ]),
+        ("Gemini Account Auth Creds", [os.path.expanduser("~/.gemini/google_accounts.json")]),
+        ("OAuth Tokens State", [os.path.expanduser("~/.gemini/oauth_creds.json")]),
     ]
-    for name, p in tier_critical_paths:
-        c, s, fl = fast_scan_dir(p, collect_files)
-        add_tier3(name, c, s, fl)
+    for name, p_list in tier_critical_definitions:
+        t3_cnt, t3_sz, t3_fl = 0, 0, []
+        for p in p_list:
+            if os.path.exists(p):
+                c, s, fl = fast_scan_dir(p, collect_files)
+                t3_cnt += c; t3_sz += s; t3_fl.extend(fl)
+        add_tier3(name, t3_cnt, t3_sz, t3_fl)
 
     metrics["reclaimable_total_bytes"] += metrics["safe_total_bytes"]
     metrics["reclaimable_total_files"] += metrics["safe_total_files"]
