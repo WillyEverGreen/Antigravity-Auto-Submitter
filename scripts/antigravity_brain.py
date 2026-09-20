@@ -362,7 +362,7 @@ def main():
     )
 
     parser.add_argument("-l", "--list", action="store_true", help="List brain sessions distribution (default)")
-    parser.add_argument("-n", "--top", type=int, default=20, help="Number of sessions to show in distribution (default: 20)")
+    parser.add_argument("-n", "--top", "--limit", dest="top", type=int, default=20, help="Number of sessions to show in distribution (default: 20)")
     parser.add_argument("--sort", choices=["size", "age"], default="size", help="Sort order (size or age)")
     parser.add_argument("--full-id", action="store_true", help="Display full 36-character Session UUIDs")
     parser.add_argument("-i", "--interactive", action="store_true", help="Run interactive deletion picker")
