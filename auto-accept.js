@@ -1024,20 +1024,23 @@ function findSystemListeningPorts() {
 function selectAllWorkbenchTargets(targets) {
   if (!targets || !Array.isArray(targets)) return [];
   
-  // Prefer workbench / Antigravity editor page targets
-  const pages = targets.filter(t => 
+  // Explicitly exclude non-page targets and internal devtools inspector windows
+  const validPages = targets.filter(t => 
     t && t.type === 'page' &&
     t.webSocketDebuggerUrl &&
-    (
-      (t.url && (t.url.includes('workbench') || t.url.includes('vscode-file'))) ||
-      (t.title && t.title.toLowerCase().includes('antigravity'))
-    )
+    (!t.url || !t.url.startsWith('devtools://'))
   );
 
-  if (pages.length > 0) return pages;
+  // Prefer workbench / Antigravity editor page targets
+  const workbenchPages = validPages.filter(t => 
+    (t.url && (t.url.includes('workbench') || t.url.includes('vscode-file'))) ||
+    (t.title && t.title.toLowerCase().includes('antigravity'))
+  );
 
-  // Fallback to any active page target with debugger WebSocket
-  return targets.filter(t => t && t.type === 'page' && t.webSocketDebuggerUrl);
+  if (workbenchPages.length > 0) return workbenchPages;
+
+  // Fallback to any active page target with debugger WebSocket (excluding devtools://)
+  return validPages;
 }
 
 function selectWorkbenchTarget(targets) {
@@ -1108,6 +1111,7 @@ class WindowSession {
     this.isConnected = false;
     this.isScanning = false;
     this.pollTimer = null;
+    this.scanTimeout = null;
     this.reqId = 1;
     this.lastReportedBlock = '';
     this.sessionApprovals = 0;
@@ -1159,6 +1163,10 @@ class WindowSession {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = null;
+    }
     this.isScanning = false;
   }
 
@@ -1167,6 +1175,11 @@ class WindowSession {
     if (!this.config.enabled || this.isScanning) return;
 
     this.isScanning = true;
+    if (this.scanTimeout) clearTimeout(this.scanTimeout);
+    this.scanTimeout = setTimeout(() => {
+      this.isScanning = false;
+    }, 5000);
+
     const script = buildScannerScript(this.config);
     const id = this.reqId++;
 
@@ -1180,11 +1193,19 @@ class WindowSession {
         }
       }));
     } catch (e) {
+      if (this.scanTimeout) {
+        clearTimeout(this.scanTimeout);
+        this.scanTimeout = null;
+      }
       this.isScanning = false;
     }
   }
 
   handleScanResult(outcome) {
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = null;
+    }
     this.isScanning = false;
     if (!outcome) {
       this.lastReportedBlock = '';
@@ -1211,7 +1232,7 @@ class WindowSession {
       this.lastReportedBlock = '';
       this.sessionApprovals++;
       this.stats.recordApproval(outcome.action);
-      this.onEvent('info', ` APPROVE `, `[${this.title}] ${actionClean}`, `Lifetime: ${this.stats.lifetimeClicks} (+${this.sessionApprovals} window / +${this.stats.sessionApprovals} session) | ${contextClean}`, C.pillGreen);
+      this.onEvent('info', ` APPROVE `, `[${this.title}] ${actionClean}`, `Lifetime: ${this.stats.lifetimeClicks} (+${this.sessionApprovals} window / +${this.stats.sessionApprovals} total) | ${contextClean}`, C.pillGreen);
     }
   }
 
@@ -1355,6 +1376,8 @@ class AutoSubmitDaemon {
           session.connect();
         } else {
           const session = this.sessions.get(key);
+          session.title = cleanStr(t.title || 'Antigravity IDE', 45);
+          session.url = t.webSocketDebuggerUrl;
           if (!session.isConnected && !session.ws) {
             session.connect();
           }
