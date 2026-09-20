@@ -713,7 +713,6 @@ function resolveConfig() {
   if (firstArg === 'launch' || firstArg === 'start-ide') handleLaunch();
   if (firstArg === 'setup' || firstArg === 'patch') handleSetup();
   if (firstArg === 'list' || firstArg === 'rules') handleList(cfg);
-  if (firstArg === 'doctor' || firstArg === 'check' || firstArg === 'setup') handleDoctor(cfg);
   if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') handleAddRuleCli('ask', args.slice(1), cfg, configSource);
   if (firstArg === 'add-skip' || firstArg === 'skip') handleAddRuleCli('skip', args.slice(1), cfg, configSource);
   if (firstArg === 'rm-ask' || firstArg === 'remove-ask') handleRemoveRuleCli('ask', args.slice(1), cfg, configSource);
@@ -1707,6 +1706,15 @@ class AutoSubmitDaemon {
 // ── Main Entry ──
 if (require.main === module) {
   const { config, configSource } = resolveConfig();
+
+  const firstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
+  if (firstArg === 'doctor' || firstArg === 'check') {
+    handleDoctor(config).catch(err => {
+      console.error('Doctor error:', err);
+      process.exit(1);
+    });
+    return;
+  }
 
   // JSON Status Check
   if (process.argv.includes('status') || process.argv.includes('--status')) {
