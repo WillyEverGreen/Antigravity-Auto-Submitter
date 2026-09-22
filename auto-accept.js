@@ -588,6 +588,82 @@ function handleSetup(cfg) {
   process.exit(0);
 }
 
+function handleUpdate() {
+  console.log(`\n${C.bold}${C.brightCyan}🔄 Updating Antigravity Auto-Submitter to latest version from GitHub...${C.reset}\n`);
+  const { execSync } = require('child_process');
+  try {
+    execSync('npm install -g WillyEverGreen/Antigravity-Auto-Submitter', { stdio: 'inherit' });
+    console.log(`\n${C.bold}${C.green}✔ Successfully updated Antigravity Auto-Submitter to the latest version!${C.reset}\n`);
+  } catch (e) {
+    console.error(`\n${C.red}✗ Update failed: ${e.message}${C.reset}`);
+    console.log(`\n  You can run manually:\n  ${C.cyan}npm install -g WillyEverGreen/Antigravity-Auto-Submitter${C.reset}\n`);
+    process.exit(1);
+  }
+}
+
+function handleUninstall() {
+  console.log(`\n${C.bold}${C.yellow}🗑️  Uninstalling Antigravity Auto-Submitter & Cleaning System Shortcuts...${C.reset}\n`);
+  const { execSync } = require('child_process');
+
+  // 1. Remove local .auto-accept.json if present
+  const localConfig = path.join(process.cwd(), '.auto-accept.json');
+  if (fs.existsSync(localConfig)) {
+    try {
+      fs.unlinkSync(localConfig);
+      console.log(`  ${C.green}✔ Removed local project config:${C.reset} ${localConfig}`);
+    } catch (e) {}
+  }
+
+  // 2. Remove global config directory ~/.antigravity-auto-submit
+  const globalDir = path.join(os.homedir(), '.antigravity-auto-submit');
+  if (fs.existsSync(globalDir)) {
+    try {
+      fs.rmSync(globalDir, { recursive: true, force: true });
+      console.log(`  ${C.green}✔ Removed global config directory:${C.reset} ${globalDir}`);
+    } catch (e) {}
+  }
+
+  // 3. Revert shortcut debugging flags on Windows
+  if (process.platform === 'win32') {
+    const psRevert = `
+      \$shell = New-Object -ComObject WScript.Shell
+      \$desktop = [Environment]::GetFolderPath('Desktop')
+      \$commonDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+      \$startMenu = [Environment]::GetFolderPath('Programs')
+      \$commonPrograms = [Environment]::GetFolderPath('CommonPrograms')
+      \$taskbar = Join-Path \$env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
+      \$scanDirs = @(\$desktop, \$commonDesktop, \$startMenu, \$commonPrograms, \$taskbar)
+      foreach (\$d in \$scanDirs) {
+        if (Test-Path \$d) {
+          Get-ChildItem -Path \$d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+              \$sc = \$shell.CreateShortcut(\$_.FullName)
+              if (\$sc.Arguments -like "*--remote-debugging-port*") {
+                \$sc.Arguments = ''
+                \$sc.Save()
+              }
+            } catch {}
+          }
+        }
+      }
+    `;
+    try {
+      execSync(`powershell -NoProfile -Command "${psRevert.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
+      console.log(`  ${C.green}✔ Reverted Antigravity shortcut arguments to default.${C.reset}`);
+    } catch (e) {}
+  }
+
+  // 4. Uninstall global package
+  console.log(`\n  ${C.cyan}Uninstalling global npm package...${C.reset}`);
+  try {
+    execSync('npm uninstall -g antigravity-auto-submit WillyEverGreen/Antigravity-Auto-Submitter', { stdio: 'inherit' });
+    console.log(`\n${C.bold}${C.green}✔ Antigravity Auto-Submitter completely uninstalled!${C.reset}\n`);
+  } catch (e) {
+    console.log(`\n  ${C.dim}To remove npm package manually, run:${C.reset}`);
+    console.log(`  ${C.cyan}npm uninstall -g antigravity-auto-submit${C.reset}\n`);
+  }
+}
+
 function printSetupInstructions() {
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}`);
   console.log(`  ${C.bold}${C.brightCyan}👉 HOW TO CONNECT ANTIGRAVITY IDE (1-Minute Setup):${C.reset}`);
@@ -631,6 +707,9 @@ ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept restart${C.reset}       Restart Antigravity IDE with remote debugging port enabled
   ${C.green}auto-accept launch${C.reset}        Auto-launch Antigravity IDE with remote debugging port
   ${C.green}auto-accept setup${C.reset}         Auto-patch Desktop & Taskbar shortcut with --remote-debugging-port=9333
+  ${C.green}auto-accept restart${C.reset}       Restart Antigravity IDE with remote debugging port enabled
+  ${C.green}auto-accept update${C.reset}        Update CLI globally to latest version from GitHub
+  ${C.green}auto-accept uninstall${C.reset}     Uninstall CLI, restore shortcuts & remove configs
   ${C.green}auto-accept kill${C.reset}          Close all running Antigravity IDE processes
   ${C.green}auto-accept init${C.reset}          Generate .auto-accept.json in the current directory
   ${C.green}auto-accept status${C.reset}        Query live Antigravity IDE status as JSON
@@ -1035,6 +1114,8 @@ function resolveConfig() {
   if (!Array.isArray(cfg.cdpPorts)) cfg.cdpPorts = [...DEFAULTS.cdpPorts];
 
   if (firstArg === 'setup' || firstArg === 'patch') { handleSetup(cfg); process.exit(0); }
+  if (firstArg === 'update' || firstArg === 'upgrade') { handleUpdate(); process.exit(0); }
+  if (firstArg === 'uninstall' || firstArg === 'remove-all') { handleUninstall(); process.exit(0); }
   if (firstArg === 'restart') { handleRestart(cfg).catch(err => { console.error('Restart error:', err); process.exit(1); }); return; }
   if (firstArg === 'kill' || firstArg === 'stop-ide') { killAntigravity(); console.log(`\n  ${C.green}✔ Terminated all Antigravity IDE processes.${C.reset}\n`); process.exit(0); }
   if (firstArg === 'list' || firstArg === 'rules') { handleList(cfg); process.exit(0); }
@@ -2252,6 +2333,8 @@ if (require.main === module) {
     binName.includes('doctor') ? 'doctor' :
     binName.includes('setup') ? 'setup' :
     binName.includes('restart') ? 'restart' :
+    binName.includes('update') ? 'update' :
+    binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
   if (firstArg === 'doctor') {
@@ -2267,6 +2350,16 @@ if (require.main === module) {
       console.error('Restart error:', err);
       process.exit(1);
     });
+    return;
+  }
+
+  if (firstArg === 'update' || firstArg === 'upgrade') {
+    handleUpdate();
+    return;
+  }
+
+  if (firstArg === 'uninstall' || firstArg === 'remove-all') {
+    handleUninstall();
     return;
   }
 
@@ -2363,6 +2456,8 @@ module.exports = {
   handleLaunch,
   handleSetup,
   handleRestart,
+  handleUpdate,
+  handleUninstall,
   killAntigravity,
   isAntigravityRunning,
   findAntigravityExecutable,

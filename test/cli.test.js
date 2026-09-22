@@ -625,7 +625,7 @@ it('findAntigravityExecutable executes cleanly without errors', () => {
 // ── 21. Package.json Setup & Script Integrity ──
 it('package.json contains all required setup, doctor, and cleanup scripts', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-  const requiredScripts = ['start', 'cli', 'doctor', 'setup', 'launch', 'restart', 'check', 'find-temp', 'clean', 'brain', 'sync', 'test'];
+  const requiredScripts = ['start', 'cli', 'doctor', 'setup', 'launch', 'restart', 'update', 'uninstall-all', 'check', 'find-temp', 'clean', 'brain', 'sync', 'test'];
   for (const s of requiredScripts) {
     assert(pkg.scripts[s], `Missing script: ${s}`);
   }
@@ -636,6 +636,8 @@ it('package.json contains all required setup, doctor, and cleanup scripts', () =
     'antigravity-setup', 'agy-setup',
     'antigravity-launch', 'agy-launch',
     'antigravity-restart', 'agy-restart',
+    'antigravity-update', 'agy-update',
+    'antigravity-uninstall', 'agy-uninstall',
     'antigravity-check', 'agy-check',
     'antigravity-find-temp', 'agy-find-temp',
     'antigravity-clean', 'agy-clean',
@@ -659,11 +661,13 @@ it('bin scripts use spawnSync for process exit code propagation and interactive 
 
 // ── 23. Subcommand Resolution & Helper Functions ──
 it('resolves firstArg correctly from binary alias path and exports process helpers', () => {
-  const { resolveConfig, isAntigravityRunning, killAntigravity, handleRestart } = require('../auto-accept.js');
+  const { resolveConfig, isAntigravityRunning, killAntigravity, handleRestart, handleUpdate, handleUninstall } = require('../auto-accept.js');
   assert.strictEqual(typeof resolveConfig, 'function');
   assert.strictEqual(typeof isAntigravityRunning, 'function');
   assert.strictEqual(typeof killAntigravity, 'function');
   assert.strictEqual(typeof handleRestart, 'function');
+  assert.strictEqual(typeof handleUpdate, 'function');
+  assert.strictEqual(typeof handleUninstall, 'function');
   const running = isAntigravityRunning();
   assert.strictEqual(typeof running, 'boolean');
 });

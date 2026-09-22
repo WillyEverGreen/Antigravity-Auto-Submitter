@@ -16,6 +16,8 @@
 
   <p>
     <a href="#quick-setup">Quick Setup</a> •
+    <a href="#updating">Updating</a> •
+    <a href="#uninstalling">Uninstalling / Delete</a> •
     <a href="#quick-start">Quick Start</a> •
     <a href="#instant-hotkeys">Instant Hotkeys</a> •
     <a href="#plugin-folder">Plugin to Any Project</a> •
@@ -160,6 +162,83 @@ auto-accept doctor
 # Start default Autonomous daemon (auto-approves safe tools, pauses for plan review)
 auto-accept
 ```
+
+---
+
+<a id="updating"></a>
+## 🔄 Updating to the Latest Version
+
+To update Antigravity Auto-Submitter to the newest release with the latest bugfixes, Taskbar auto-patching, and features:
+
+### Option A: 1-Command CLI Update (Recommended)
+```bash
+auto-accept update
+```
+*(Automatically pulls and installs the latest version globally from GitHub).*
+
+### Option B: Via npm Global Command
+```bash
+npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+```
+
+### Option C: If You Cloned the Repository Locally
+```bash
+cd antigravity-auto-submit
+git pull
+npm install -g .
+```
+
+After updating, restart Antigravity with the debug port enabled:
+```bash
+auto-accept restart
+auto-accept
+```
+
+---
+
+<a id="uninstalling"></a>
+## 🗑️ Uninstalling & Removing the Project
+
+If you ever need to completely uninstall the tool, delete the project, revert shortcuts back to standard, or clear cached configs:
+
+### Option A: 1-Command Automatic Uninstall (Fastest)
+```bash
+auto-accept uninstall
+```
+*This automatically:*
+1. Removes local project config (`.auto-accept.json`)
+2. Removes global user directory (`~/.antigravity-auto-submit`)
+3. Reverts Windows shortcuts (removes `--remote-debugging-port` from Desktop, Taskbar & Start Menu)
+4. Uninstalls global npm CLI binaries
+
+---
+
+### Option B: Manual Step-by-Step Removal
+
+#### 1. Uninstall the Global npm Package
+```bash
+npm uninstall -g antigravity-auto-submit WillyEverGreen/Antigravity-Auto-Submitter
+```
+
+#### 2. Remove Configuration Files
+- **Local Project Config (`.auto-accept.json`)**:
+  - **Windows (PowerShell)**: `Remove-Item -Force .auto-accept.json`
+  - **Windows (CMD)**: `del .auto-accept.json`
+  - **macOS / Linux**: `rm -f .auto-accept.json`
+- **Global User Config (`~/.antigravity-auto-submit`)**:
+  - **Windows (PowerShell)**: `Remove-Item -Recurse -Force "$env:USERPROFILE\.antigravity-auto-submit"`
+  - **Windows (CMD)**: `rmdir /s /q "%USERPROFILE%\.antigravity-auto-submit"`
+  - **macOS / Linux**: `rm -rf ~/.antigravity-auto-submit`
+
+#### 3. Delete Cloned Repository Folder (If you cloned from Git)
+- **Windows (PowerShell)**: `Remove-Item -Recurse -Force .\antigravity-auto-submit`
+- **Windows (CMD)**: `rmdir /s /q antigravity-auto-submit`
+- **macOS / Linux**: `rm -rf antigravity-auto-submit`
+
+#### 4. Revert Antigravity Shortcut Flags (Optional)
+If you want to manually remove the debugging port flag:
+- Right-click your **Antigravity IDE** Desktop or Taskbar shortcut → **Properties**.
+- In the **Target** field, remove ` --remote-debugging-port=9333` from the end and click **OK**.
 
 ---
 
@@ -319,6 +398,8 @@ auto-accept list
 | `auto-accept launch` | 🚀 Auto-launch Antigravity IDE with remote debugging port enabled |
 | `auto-accept restart` | 🔄 Gracefully close running Antigravity instances & relaunch with debug port |
 | `auto-accept setup` | ⚡ 1-Click auto-patch Desktop, Taskbar & Start Menu shortcuts with `--remote-debugging-port=9333` |
+| `auto-accept update` | 🔄 Update CLI globally to latest release from GitHub |
+| `auto-accept uninstall` | 🗑️ Fully uninstall CLI, restore shortcuts & remove configs |
 | `auto-accept kill` | 🛑 Terminate all running Antigravity IDE processes |
 | `auto-accept doctor` | 🩺 System diagnostic & connection verification (Node, Python, CDP, windows) |
 | `auto-accept init` | Create `.auto-accept.json` in the current folder |
@@ -344,6 +425,8 @@ auto-accept list
 > All subcommands support direct standalone binary aliases. You can run any of these identically from any terminal on your PC:
 > - `auto-accept setup` ⬌ `antigravity-setup` ⬌ `agy-setup`
 > - `auto-accept restart` ⬌ `antigravity-restart` ⬌ `agy-restart`
+> - `auto-accept update` ⬌ `antigravity-update` ⬌ `agy-update`
+> - `auto-accept uninstall` ⬌ `antigravity-uninstall` ⬌ `agy-uninstall`
 > - `auto-accept launch` ⬌ `antigravity-launch` ⬌ `agy-launch`
 > - `auto-accept doctor` ⬌ `antigravity-doctor` ⬌ `agy-doctor`
 > - `auto-accept check` ⬌ `antigravity-check` ⬌ `agy-check`
