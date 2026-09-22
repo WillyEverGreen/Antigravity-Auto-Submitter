@@ -52,7 +52,9 @@ fs.writeFileSync('C:/tools/agy-doctor.cmd', buildSubcommandWrapper('doctor'), 'u
 fs.writeFileSync('C:/tools/antigravity-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
 fs.writeFileSync('C:/tools/agy-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
 fs.writeFileSync('C:/tools/antigravity-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
-console.log('  ✔ Updated C:/tools auto-accept, doctor, setup, and launch wrappers');
+fs.writeFileSync('C:/tools/agy-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
+fs.writeFileSync('C:/tools/antigravity-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
+console.log('  ✔ Updated C:/tools auto-accept, doctor, setup, launch, and restart wrappers');
 
 // 2. Helper to build resilient Python wrapper
 function buildPyWrapper(scriptName, extraArgs = '') {

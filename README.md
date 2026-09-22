@@ -60,15 +60,24 @@ The daemon provides **first-class concurrent multi-window support**:
 
 ### ⏱️ The 30-Second Fast Track
 ```bash
-# 1. Install CLI globally direct from GitHub (works on any device)
+# 1. Install CLI globally direct from GitHub (works on any PC)
 npm install -g WillyEverGreen/Antigravity-Auto-Submitter
 
-# 2. Configure Antigravity shortcuts (patches Desktop & Start Menu)
+# 2. Configure Antigravity shortcuts (patches Desktop, Taskbar & Start Menu)
 auto-accept setup
 
-# 3. Start auto-approvals!
+# 3. Restart Antigravity IDE (required so the port flag takes effect):
+#    Close Antigravity IDE completely and reopen it from your Desktop/Taskbar
+#    OR simply run this one command to auto-restart it with debugging enabled:
+auto-accept restart
+
+# 4. Start auto-approvals!
 auto-accept
 ```
+
+> [!IMPORTANT]
+> **Why do I need to restart Antigravity IDE after `auto-accept setup`?**
+> Chromium/Electron only enables `--remote-debugging-port=9333` when the application is launched from scratch. It cannot attach a port to an already-running process. If you run `auto-accept setup` while Antigravity is open, you **must close and re-open** Antigravity (or run `auto-accept restart`) before running `auto-accept`.
 
 ---
 
@@ -104,9 +113,16 @@ Run once in your terminal:
 ```bash
 auto-accept setup
 ```
-*Automatically configures your **Desktop Shortcuts** and Windows **Start Menu shortcuts** (or Linux `.desktop` entries) to append `--remote-debugging-port=9333`.*
+*Automatically configures your **Desktop Shortcuts**, Windows **Taskbar pinned shortcuts**, and **Start Menu shortcuts** (or Linux `.desktop` entries) to append `--remote-debugging-port=9333`.*
 
-#### 🚀 Option B: 1-Click Launch (Cross-Platform)
+#### 🔄 Option B: 1-Command Auto-Restart (Instant)
+If Antigravity IDE is already open without debugging enabled:
+```bash
+auto-accept restart
+```
+*Gracefully closes existing Antigravity IDE processes and relaunches with `--remote-debugging-port=9333` active.*
+
+#### 🚀 Option C: 1-Click Launch (Cross-Platform)
 Launch Antigravity IDE with the remote debugging port enabled in one command:
 ```bash
 auto-accept launch
@@ -301,7 +317,9 @@ auto-accept list
 | :--- | :--- |
 | `auto-accept` | Start auto-submit confirmation daemon (default) |
 | `auto-accept launch` | 🚀 Auto-launch Antigravity IDE with remote debugging port enabled |
-| `auto-accept setup` | ⚡ 1-Click auto-patch Desktop & Start Menu shortcuts with `--remote-debugging-port=9333` |
+| `auto-accept restart` | 🔄 Gracefully close running Antigravity instances & relaunch with debug port |
+| `auto-accept setup` | ⚡ 1-Click auto-patch Desktop, Taskbar & Start Menu shortcuts with `--remote-debugging-port=9333` |
+| `auto-accept kill` | 🛑 Terminate all running Antigravity IDE processes |
 | `auto-accept doctor` | 🩺 System diagnostic & connection verification (Node, Python, CDP, windows) |
 | `auto-accept init` | Create `.auto-accept.json` in the current folder |
 | `auto-accept mode [mode]` | Inspect or switch operating mode (`autonomous` or `autopilot`) |
@@ -325,8 +343,9 @@ auto-accept list
 > **Universal Command Aliases:**
 > All subcommands support direct standalone binary aliases. You can run any of these identically from any terminal on your PC:
 > - `auto-accept setup` ⬌ `antigravity-setup` ⬌ `agy-setup`
-> - `auto-accept doctor` ⬌ `antigravity-doctor` ⬌ `agy-doctor`
+> - `auto-accept restart` ⬌ `antigravity-restart` ⬌ `agy-restart`
 > - `auto-accept launch` ⬌ `antigravity-launch` ⬌ `agy-launch`
+> - `auto-accept doctor` ⬌ `antigravity-doctor` ⬌ `agy-doctor`
 > - `auto-accept check` ⬌ `antigravity-check` ⬌ `agy-check`
 > - `auto-accept clean` ⬌ `antigravity-clean` ⬌ `agy-clean`
 > - `auto-accept brain` ⬌ `antigravity-brain` ⬌ `agy-brain`
