@@ -14,7 +14,7 @@ const path = require('path');
 
 console.log('🔄 Synchronizing Master Workstation Tools & Wrappers...\n');
 
-// 1. auto-accept & antigravity-auto-accept wrappers
+// 1. auto-accept, antigravity-auto-accept, & antigravity-auto-submit wrappers
 const autoAcceptWrapper = [
   '@echo off',
   'if exist "%USERPROFILE%\\tools\\antigravity-auto-submit\\auto-accept.js" (',
@@ -29,9 +29,30 @@ const autoAcceptWrapper = [
   ''
 ].join('\r\n');
 
+function buildSubcommandWrapper(subcmd) {
+  return [
+    '@echo off',
+    'if exist "%USERPROFILE%\\tools\\antigravity-auto-submit\\auto-accept.js" (',
+    `  node "%USERPROFILE%\\tools\\antigravity-auto-submit\\auto-accept.js" ${subcmd} %*`,
+    ') else if exist "%~dp0daemon\\auto-accept\\auto-accept.js" (',
+    `  node "%~dp0daemon\\auto-accept\\auto-accept.js" ${subcmd} %*`,
+    ') else (',
+    `  auto-accept ${subcmd} %*`,
+    ')',
+    ''
+  ].join('\r\n');
+}
+
 fs.writeFileSync('C:/tools/auto-accept.cmd', autoAcceptWrapper, 'utf8');
 fs.writeFileSync('C:/tools/antigravity-auto-accept.cmd', autoAcceptWrapper, 'utf8');
-console.log('  ✔ Updated C:/tools/auto-accept.cmd & antigravity-auto-accept.cmd');
+fs.writeFileSync('C:/tools/antigravity-auto-submit.cmd', autoAcceptWrapper, 'utf8');
+fs.writeFileSync('C:/tools/agy-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
+fs.writeFileSync('C:/tools/antigravity-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
+fs.writeFileSync('C:/tools/agy-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
+fs.writeFileSync('C:/tools/antigravity-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
+fs.writeFileSync('C:/tools/agy-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
+fs.writeFileSync('C:/tools/antigravity-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
+console.log('  ✔ Updated C:/tools auto-accept, doctor, setup, and launch wrappers');
 
 // 2. Helper to build resilient Python wrapper
 function buildPyWrapper(scriptName, extraArgs = '') {

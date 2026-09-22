@@ -218,7 +218,25 @@ async function handleDoctor(cfg, shouldExit = true) {
   console.log(`  ${C.bold}Node.js Version:${C.reset}     ${nodeVer} ${nodeOk ? `${C.green}✔ (Supported: >=18.0.0)${C.reset}` : `${C.red}✗ (Requires Node.js 18+)${C.reset}`}`);
   console.log(`  ${C.bold}Operating System:${C.reset}   ${process.platform} (${os.type()} ${os.release()})`);
 
-  // 2. CDP Port check
+  // 2. Python Runtime check (for cleanup & audit suite)
+  let pyVersion = null;
+  const pyCmds = process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python'];
+  for (const cmd of pyCmds) {
+    try {
+      const pyOut = execSync(`${cmd} --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (pyOut) {
+        pyVersion = `${cmd} (${pyOut})`;
+        break;
+      }
+    } catch (e) {}
+  }
+  console.log(`  ${C.bold}Python Runtime:${C.reset}     ${pyVersion ? `${pyVersion} ${C.green}✔${C.reset}` : `${C.yellow}Not found ⚠️ (Needed for audit & clean suite)${C.reset}`}`);
+
+  // 3. IDE Executable check
+  const exe = findAntigravityExecutable();
+  console.log(`  ${C.bold}IDE Executable:${C.reset}     ${exe ? `${C.cyan}${cleanStr(exe, 60)}${C.reset} ${C.green}✔${C.reset}` : `${C.yellow}Not detected in standard paths ⚠️${C.reset}`}`);
+
+  // 4. CDP Port check
   process.stdout.write(`  ${C.bold}CDP Port Status:${C.reset}    Scanning active ports & windows...\r`);
   const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
 
@@ -243,6 +261,13 @@ async function handleDoctor(cfg, shouldExit = true) {
 }
 
 function findAntigravityExecutable() {
+  if (process.env.ANTIGRAVITY_PATH && fs.existsSync(process.env.ANTIGRAVITY_PATH)) {
+    return process.env.ANTIGRAVITY_PATH;
+  }
+  if (process.env.ANTIGRAVITY_EXE && fs.existsSync(process.env.ANTIGRAVITY_EXE)) {
+    return process.env.ANTIGRAVITY_EXE;
+  }
+
   if (process.platform === 'win32') {
     const candidates = [
       path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
@@ -250,20 +275,102 @@ function findAntigravityExecutable() {
       path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
       path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity', 'Antigravity.exe'),
       path.join(process.env.PROGRAMFILES || '', 'Antigravity', 'Antigravity.exe'),
+      path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe')
     ];
-    return candidates.find(c => fs.existsSync(c)) || null;
+    const found = candidates.find(c => fs.existsSync(c));
+    if (found) return found;
+
+    try {
+      const out = execSync('where antigravity 2>nul', { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
+    try {
+      const out = execSync('where "Antigravity IDE" 2>nul', { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
+
+    // Fallback: Check existing Desktop and Start Menu shortcuts for target executable
+    try {
+      const psFind = `
+        $shell = New-Object -ComObject WScript.Shell
+        $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('CommonPrograms'))
+        foreach ($d in $dirs) {
+          if (Test-Path $d) {
+            Get-ChildItem -Path $d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                $target = $shell.CreateShortcut($_.FullName).TargetPath
+                if ($target -and (Test-Path $target) -and ($target -like "*Antigravity*.exe")) {
+                  Write-Output $target
+                  exit 0
+                }
+              } catch {}
+            }
+          }
+        }
+      `;
+      const out = execSync(`powershell -NoProfile -Command "${psFind.replace(/[\r\n]+/g, '; ')}"`, { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
+
+    return null;
   } else if (process.platform === 'darwin') {
-    const app = '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE';
-    const app2 = '/Applications/Antigravity.app/Contents/MacOS/Antigravity';
-    if (fs.existsSync(app)) return app;
-    if (fs.existsSync(app2)) return app2;
+    const candidates = [
+      '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE',
+      '/Applications/Antigravity.app/Contents/MacOS/Antigravity',
+      path.join(os.homedir(), 'Applications', 'Antigravity IDE.app', 'Contents', 'MacOS', 'Antigravity IDE'),
+      path.join(os.homedir(), 'Applications', 'Antigravity.app', 'Contents', 'MacOS', 'Antigravity'),
+      '/Applications/Antigravity IDE.app',
+      '/Applications/Antigravity.app'
+    ];
+    const found = candidates.find(c => fs.existsSync(c));
+    if (found) return found;
+    try {
+      const out = execSync('which antigravity 2>/dev/null', { encoding: 'utf8' }).trim();
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
+    try {
+      const out = execSync('mdfind "kMDItemFSName == \'Antigravity*.app\'" 2>/dev/null', { encoding: 'utf8' }).trim().split('\n')[0];
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
     return null;
   } else {
+    // Linux
+    const candidates = [
+      '/usr/bin/antigravity',
+      '/usr/local/bin/antigravity',
+      '/opt/Antigravity/antigravity',
+      '/opt/Antigravity IDE/antigravity',
+      path.join(os.homedir(), '.local', 'bin', 'antigravity'),
+      '/snap/bin/antigravity'
+    ];
+    const found = candidates.find(c => fs.existsSync(c));
+    if (found) return found;
+    try {
+      const out = execSync('which antigravity 2>/dev/null', { encoding: 'utf8' }).trim();
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
+    try {
+      const out = execSync('which antigravity-ide 2>/dev/null', { encoding: 'utf8' }).trim();
+      if (out && fs.existsSync(out)) return out;
+    } catch (e) {}
     return 'antigravity';
   }
 }
 
-function handleLaunch() {
+async function handleLaunch(cfg) {
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  const isForce = process.argv.includes('--force') || process.argv.includes('-f');
+
+  if (!isForce) {
+    const endpoints = await findCdpEndpoints(port, []);
+    if (endpoints.length > 0) {
+      console.log(`\n  ${C.yellow}ℹ Antigravity IDE is already running and connected on port ${port}!${C.reset}`);
+      console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to start the confirmation daemon.${C.reset}`);
+      console.log(`  ${C.dim}(To force launch another instance anyway, run: ${C.bold}auto-accept launch --force${C.reset}${C.dim})${C.reset}\n`);
+      process.exit(0);
+    }
+  }
+
   const exe = findAntigravityExecutable();
   if (!exe) {
     console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this machine.${C.reset}\n`);
@@ -271,21 +378,30 @@ function handleLaunch() {
     process.exit(1);
   }
 
-  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port 9333...${C.reset}`);
+  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
   console.log(`  Executable: ${C.green}${exe}${C.reset}`);
 
   const { spawn } = require('child_process');
-  const child = spawn(exe, ['--remote-debugging-port=9333'], {
-    detached: true,
-    stdio: 'ignore'
-  });
+  let child;
+  if (process.platform === 'darwin' && exe.includes('.app')) {
+    child = spawn('open', ['-a', exe, '--args', `--remote-debugging-port=${port}`], {
+      detached: true,
+      stdio: 'ignore'
+    });
+  } else {
+    child = spawn(exe, [`--remote-debugging-port=${port}`], {
+      detached: true,
+      stdio: 'ignore'
+    });
+  }
   child.unref();
 
   console.log(`\n${C.bold}${C.green}✔ Antigravity IDE process spawned successfully!${C.reset}\n`);
   process.exit(0);
 }
 
-function handleSetup() {
+function handleSetup(cfg) {
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
   console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submitter — Automatic Environment Setup${C.reset}\n`);
 
   if (process.platform === 'win32') {
@@ -300,32 +416,77 @@ function handleSetup() {
     const psScript = `
       $shell = New-Object -ComObject WScript.Shell
       $desktop = [Environment]::GetFolderPath('Desktop')
-      $shortcuts = @('Antigravity IDE.lnk', 'Antigravity.lnk', 'Start Antigravity (CDP 9000).lnk')
-      foreach ($name in $shortcuts) {
-        $linkPath = Join-Path $desktop $name
-        if (Test-Path $linkPath) {
-          $sc = $shell.CreateShortcut($linkPath)
-          $sc.Arguments = '--remote-debugging-port=9333'
-          $sc.Save()
+      $startMenu = [Environment]::GetFolderPath('Programs')
+      $commonPrograms = [Environment]::GetFolderPath('CommonPrograms')
+      $updatedCount = 0
+
+      # Scan Desktop and Start Menu for existing Antigravity shortcuts
+      $scanDirs = @($desktop, $startMenu, $commonPrograms)
+      foreach ($dir in $scanDirs) {
+        if (Test-Path $dir) {
+          Get-ChildItem -Path $dir -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+              $sc = $shell.CreateShortcut($_.FullName)
+              if ($sc.TargetPath -like "*Antigravity*.exe" -or $_.Name -like "*Antigravity*") {
+                $sc.Arguments = '--remote-debugging-port=${port}'
+                $sc.Save()
+                $updatedCount++
+              }
+            } catch {}
+          }
         }
       }
+
+      # Guarantee primary Desktop shortcut
       $mainLink = Join-Path $desktop 'Antigravity IDE.lnk'
       $scMain = $shell.CreateShortcut($mainLink)
       $scMain.TargetPath = '${exe.replace(/\\/g, '\\\\')}'
-      $scMain.Arguments = '--remote-debugging-port=9333'
+      $scMain.Arguments = '--remote-debugging-port=${port}'
+      $scMain.IconLocation = '${exe.replace(/\\/g, '\\\\')},0'
       $scMain.Save()
     `;
     try {
       execSync(`powershell -NoProfile -Command "${psScript.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
-      console.log(`  ${C.bold}${C.green}✔ Successfully created / updated Desktop shortcut for Antigravity IDE!${C.reset}`);
+      console.log(`  ${C.bold}${C.green}✔ Successfully configured Desktop & Start Menu shortcuts for Antigravity IDE!${C.reset}`);
       console.log(`  Target:    ${C.cyan}${exe}${C.reset}`);
-      console.log(`  Arguments: ${C.yellow}--remote-debugging-port=9333${C.reset}\n`);
+      console.log(`  Arguments: ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
     } catch (e) {
       console.log(`  ${C.yellow}⚠️ Shortcut auto-patch error: ${e.message}${C.reset}\n`);
       printSetupInstructions();
     }
+  } else if (process.platform === 'linux') {
+    const desktopDirs = [
+      path.join(os.homedir(), '.local', 'share', 'applications'),
+      path.join(os.homedir(), 'Desktop')
+    ];
+    let patched = false;
+    for (const d of desktopDirs) {
+      if (fs.existsSync(d)) {
+        const files = fs.readdirSync(d);
+        for (const file of files) {
+          if (file.toLowerCase().includes('antigravity') && file.endsWith('.desktop')) {
+            const fPath = path.join(d, file);
+            try {
+              let content = fs.readFileSync(fPath, 'utf8');
+              if (!content.includes('--remote-debugging-port')) {
+                content = content.replace(/(Exec=[^\r\n]+)/, `$1 --remote-debugging-port=${port}`);
+                fs.writeFileSync(fPath, content, 'utf8');
+                console.log(`  ${C.bold}${C.green}✔ Updated Linux desktop entry:${C.reset} ${fPath}`);
+                patched = true;
+              } else {
+                console.log(`  ${C.bold}${C.green}✔ Linux desktop entry already configured:${C.reset} ${fPath}`);
+                patched = true;
+              }
+            } catch (e) {}
+          }
+        }
+      }
+    }
+    if (!patched) {
+      console.log(`  ${C.bold}${C.green}✔ On Linux, launch with: ${C.cyan}auto-accept launch${C.reset} or pass ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
+    }
   } else {
-    console.log(`  ${C.bold}${C.green}✔ On macOS/Linux, simply run: ${C.cyan}auto-accept launch${C.reset}\n`);
+    console.log(`  ${C.bold}${C.green}✔ On macOS, launch with: ${C.cyan}auto-accept launch${C.reset} or pass ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
   }
   process.exit(0);
 }
@@ -584,7 +745,13 @@ ${C.bold}${C.green}✔ Removed ${removed.length} rule(s)!${C.reset}
 // ── Config Resolution (Local -> Global -> Defaults) ──
 function resolveConfig() {
   const args = process.argv.slice(2);
-  const firstArg = args[0] ? args[0].toLowerCase() : '';
+  const rawFirstArg = args[0] ? args[0].toLowerCase() : '';
+  const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
+  const firstArg = rawFirstArg || (
+    binName.includes('doctor') ? 'doctor' :
+    binName.includes('setup') ? 'setup' :
+    binName.includes('launch') ? 'launch' : ''
+  );
 
   if (firstArg === 'init') handleInit();
   if (firstArg === '-h' || firstArg === '--help' || firstArg === 'help') printHelp();
@@ -768,8 +935,7 @@ function resolveConfig() {
   if (!Array.isArray(cfg.skipKeywords)) cfg.skipKeywords = [...DEFAULTS.skipKeywords];
   if (!Array.isArray(cfg.cdpPorts)) cfg.cdpPorts = [...DEFAULTS.cdpPorts];
 
-  if (firstArg === 'launch' || firstArg === 'start-ide') { handleLaunch(); process.exit(0); }
-  if (firstArg === 'setup' || firstArg === 'patch') { handleSetup(); process.exit(0); }
+  if (firstArg === 'setup' || firstArg === 'patch') { handleSetup(cfg); process.exit(0); }
   if (firstArg === 'list' || firstArg === 'rules') { handleList(cfg); process.exit(0); }
   if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') { handleAddRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
   if (firstArg === 'add-skip' || firstArg === 'skip') { handleAddRuleCli('skip', args.slice(1), cfg, configSource); process.exit(0); }
@@ -1960,10 +2126,24 @@ class AutoSubmitDaemon {
 if (require.main === module) {
   const { config, configSource } = resolveConfig();
 
-  const firstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
-  if (firstArg === 'doctor' || firstArg === 'check') {
+  const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
+  const rawFirstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
+  const firstArg = rawFirstArg || (
+    binName.includes('doctor') ? 'doctor' :
+    binName.includes('setup') ? 'setup' :
+    binName.includes('launch') ? 'launch' : ''
+  );
+  if (firstArg === 'doctor') {
     handleDoctor(config).catch(err => {
       console.error('Doctor error:', err);
+      process.exit(1);
+    });
+    return;
+  }
+
+  if (firstArg === 'launch' || firstArg === 'start-ide') {
+    handleLaunch(config).catch(err => {
+      console.error('Launch error:', err);
       process.exit(1);
     });
     return;
@@ -2043,5 +2223,10 @@ module.exports = {
   DEFAULTS,
   handleAddRuleCli,
   handleRemoveRuleCli,
-  getSaveTarget
+  getSaveTarget,
+  handleDoctor,
+  handleLaunch,
+  handleSetup,
+  findAntigravityExecutable,
+  resolveConfig
 };

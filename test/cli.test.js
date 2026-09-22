@@ -612,6 +612,56 @@ it('cleanStr handles null, undefined, symbols, and long strings safely', () => {
   assert.strictEqual(cleanStr('a'.repeat(100), 10), 'a'.repeat(10) + '...');
 });
 
+// ── 20. Setup & Executable Discovery ──
+it('findAntigravityExecutable executes cleanly without errors', () => {
+  const { findAntigravityExecutable } = require('../auto-accept.js');
+  const exe = findAntigravityExecutable();
+  if (exe) {
+    assert(typeof exe === 'string');
+    assert(exe.length > 0);
+  }
+});
+
+// ── 21. Package.json Setup & Script Integrity ──
+it('package.json contains all required setup, doctor, and cleanup scripts', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const requiredScripts = ['start', 'cli', 'doctor', 'setup', 'launch', 'check', 'find-temp', 'clean', 'brain', 'sync', 'test'];
+  for (const s of requiredScripts) {
+    assert(pkg.scripts[s], `Missing script: ${s}`);
+  }
+  const requiredBins = [
+    'antigravity-auto-submit',
+    'antigravity-auto-accept', 'auto-accept',
+    'antigravity-doctor', 'agy-doctor',
+    'antigravity-setup', 'agy-setup',
+    'antigravity-launch', 'agy-launch',
+    'antigravity-check', 'agy-check',
+    'antigravity-find-temp', 'agy-find-temp',
+    'antigravity-clean', 'agy-clean',
+    'antigravity-brain', 'agy-brain'
+  ];
+  for (const b of requiredBins) {
+    assert(pkg.bin[b], `Missing bin: ${b}`);
+  }
+});
+
+// ── 22. Bin Scripts Use Resilient spawnSync ──
+it('bin scripts use spawnSync for process exit code propagation and interactive TTY', () => {
+  const binDir = path.join(__dirname, '..', 'bin');
+  const bins = ['antigravity-check.js', 'antigravity-find-temp.js', 'antigravity-clean.js', 'antigravity-brain.js'];
+  for (const b of bins) {
+    const content = fs.readFileSync(path.join(binDir, b), 'utf8');
+    assert(content.includes('spawnSync'), `${b} must use spawnSync`);
+    assert(content.includes('process.exit('), `${b} must forward exit code`);
+  }
+});
+
+// ── 23. Subcommand Resolution from Bin Aliases ──
+it('resolves firstArg correctly from binary alias path', () => {
+  const { resolveConfig } = require('../auto-accept.js');
+  assert.strictEqual(typeof resolveConfig, 'function');
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

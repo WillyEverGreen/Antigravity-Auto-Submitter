@@ -15,13 +15,14 @@
   </p>
 
   <p>
-    <a href="#-quick-setup-3-easy-steps">Quick Setup</a> •
-    <a href="#-quick-start">Quick Start</a> •
-    <a href="#-instant-hotkeys">Instant Hotkeys</a> •
-    <a href="#-plugin-to-any-project-folder">Plugin to Any Project</a> •
-    <a href="#-operating-modes">Modes</a> •
-    <a href="#-safety-keyword-guardrails">Keyword Guardrails</a> •
-    <a href="#-cli-commands--flags">Commands & Flags</a>
+    <a href="#quick-setup">Quick Setup</a> •
+    <a href="#quick-start">Quick Start</a> •
+    <a href="#instant-hotkeys">Instant Hotkeys</a> •
+    <a href="#plugin-folder">Plugin to Any Project</a> •
+    <a href="#operating-modes">Modes</a> •
+    <a href="#safety-guardrails">Keyword Guardrails</a> •
+    <a href="#cli-commands">Commands & Flags</a> •
+    <a href="#cleanup-suite">Cleanup Suite</a>
   </p>
 
 </div>
@@ -54,24 +55,42 @@ The daemon provides **first-class concurrent multi-window support**:
 
 ---
 
-## ⚡ Quick Setup (3 Easy Steps)
+<a id="quick-setup"></a>
+## ⚡ Quick Setup (Works on Any PC in 30 Seconds)
+
+### ⏱️ The 30-Second Fast Track
+```bash
+# 1. Install CLI globally direct from GitHub (works on any device)
+npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+
+# 2. Configure Antigravity shortcuts (patches Desktop & Start Menu)
+auto-accept setup
+
+# 3. Start auto-approvals!
+auto-accept
+```
+
+---
 
 ### 📦 Step 1: Install CLI
 
-Install globally or run zero-install via `npx`:
+Choose any of these methods depending on your workflow:
 
 ```bash
-# Option A: Global Install (Recommended)
+# Option A: Direct from GitHub (Works immediately on ANY PC)
+npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+
+# Option B: From npm Registry (Once published)
 npm install -g antigravity-auto-submit
 
-# Option B: Zero-Install (npx)
-npx antigravity-auto-submit
+# Option C: From Local Clone (Your current PC)
+cd antigravity-auto-submit
+npm install -g .
+# (or 'npm link')
 
-# Option C: From Source Repository
-git clone https://github.com/WillyEverGreen/Antigravity-Auto-Submitter.git
-cd Antigravity-Auto-Submitter
-npm install
-npm link
+# Option D: Zero-Install via npx
+npx github:WillyEverGreen/Antigravity-Auto-Submitter setup
+npx github:WillyEverGreen/Antigravity-Auto-Submitter
 ```
 
 ---
@@ -80,18 +99,19 @@ npm link
 
 Antigravity IDE needs to launch with remote debugging enabled on port `9333`:
 
-#### ⚡ Option A: Automated Desktop Shortcut Setup (Windows - Recommended)
+#### ⚡ Option A: Automated Shortcut Setup (Windows & Linux - Recommended)
 Run once in your terminal:
 ```bash
 auto-accept setup
 ```
-*This automatically creates or patches your Antigravity IDE Desktop Shortcut to append `--remote-debugging-port=9333`.*
+*Automatically configures your **Desktop Shortcuts** and Windows **Start Menu shortcuts** (or Linux `.desktop` entries) to append `--remote-debugging-port=9333`.*
 
 #### 🚀 Option B: 1-Click Launch (Cross-Platform)
 Launch Antigravity IDE with the remote debugging port enabled in one command:
 ```bash
 auto-accept launch
 ```
+*Automatically locates your Antigravity executable, verifies whether an instance is already running on port 9333, and spawns the IDE with remote debugging enabled.*
 
 #### 🛠️ Option C: Manual Launch
 - **Windows (PowerShell)**:
@@ -117,7 +137,7 @@ auto-accept launch
 ```bash
 auto-accept doctor
 ```
-*Checks your Node.js version, CDP port availability, and target Antigravity IDE workbench.*
+*Checks your Node.js version, Python runtime, Antigravity IDE binary path, CDP port availability, and target Antigravity IDE workbench windows.*
 
 #### 2. Start Approval Daemon
 ```bash
@@ -127,6 +147,7 @@ auto-accept
 
 ---
 
+<a id="quick-start"></a>
 ## 🚀 Quick Start
 
 Run directly from any terminal:
@@ -144,23 +165,26 @@ auto-accept --daemon
 
 ---
 
+<a id="instant-hotkeys"></a>
 ## ⚡ Instant Hotkeys (Vite-Style)
 
 No need to press Enter! Simply press any of these keys while the daemon is running in your terminal:
 
 | Key | Action | Description |
 | :---: | :--- | :--- |
-| **`p`** | **Pause / Resume** | Instantly toggles auto-approvals on or off. |
+| **`p`** | **Pause / Resume** | Instantly toggles auto-approvals on or off without restarting. |
 | **`m`** | **Toggle Mode** | Cycles between **Autonomous** (reviews plans) and **Autopilot** (100% hands-free). |
 | **`a`** | **Add Rule** | Interactively add a keyword rule to Ask or Skip list without restarting. |
 | **`r`** | **Remove Rule** | Interactively remove a keyword rule from Ask or Skip list. |
 | **`s`** | **Live Stats** | Displays live session approvals, lifetime approvals, blocks, and target window. |
 | **`c`** | **Show Config** | Prints active configuration source, ports, and guardrail lists. |
+| **`d`** | **Doctor Diagnostic** | Runs immediate connection, runtime & workbench diagnostic check. |
 | **`h`** / **`?`** | **Help Banner** | Redisplays the dashboard banner and hotkeys. |
 | **`q`** | **Quit** | Cleanly disconnects from Antigravity and exits (`Ctrl + C` also works). |
 
 ---
 
+<a id="plugin-folder"></a>
 ## 🔌 Plugin to Any Project Folder
 
 You can drop custom safety rules into any repository or folder:
@@ -194,6 +218,7 @@ Whenever you run `auto-accept` inside that folder, it **automatically loads that
 
 ---
 
+<a id="operating-modes"></a>
 ## 🎯 Operating Modes
 
 ### 1. Autonomous (Recommended Default)
@@ -202,6 +227,8 @@ Whenever you run `auto-accept` inside that folder, it **automatically loads that
 
 ```bash
 auto-accept --mode autonomous
+# or configure persistent mode:
+auto-accept mode autonomous
 ```
 
 ### 2. Autopilot (100% Hands-Free)
@@ -211,10 +238,19 @@ auto-accept --mode autonomous
 
 ```bash
 auto-accept --mode autopilot
+# or configure persistent mode:
+auto-accept mode autopilot
+```
+
+### 3. Quick Mode Toggle
+```bash
+# Instantly toggles between Autonomous and Autopilot
+auto-accept m
 ```
 
 ---
 
+<a id="safety-guardrails"></a>
 ## 🛡️ Safety Keyword Guardrails
 
 Easily manage two independent safety lists with dedicated subcommands or interactive hotkeys:
@@ -255,6 +291,9 @@ While the daemon is running in your terminal, press:
 auto-accept list
 ```
 
+---
+
+<a id="cli-commands"></a>
 ## 📋 CLI Commands & Flags
 
 ### Subcommands
@@ -262,26 +301,42 @@ auto-accept list
 | :--- | :--- |
 | `auto-accept` | Start auto-submit confirmation daemon (default) |
 | `auto-accept launch` | 🚀 Auto-launch Antigravity IDE with remote debugging port enabled |
-| `auto-accept setup` | ⚡ 1-Click auto-patch Desktop shortcut with `--remote-debugging-port=9333` |
+| `auto-accept setup` | ⚡ 1-Click auto-patch Desktop & Start Menu shortcuts with `--remote-debugging-port=9333` |
+| `auto-accept doctor` | 🩺 System diagnostic & connection verification (Node, Python, CDP, windows) |
 | `auto-accept init` | Create `.auto-accept.json` in the current folder |
-| `auto-accept doctor` | System diagnostic & connection verification |
+| `auto-accept mode [mode]` | Inspect or switch operating mode (`autonomous` or `autopilot`) |
+| `auto-accept m` | ⚡ Quick-toggle between Autonomous and Autopilot mode |
+| `auto-accept pause` | Pause auto-approvals without stopping daemon |
+| `auto-accept resume` | Resume active auto-approvals |
 | `auto-accept list` | Display active Ask and Skip guardrail rules |
+| `auto-accept config` | Display active configuration JSON |
 | `auto-accept status` | Query connection and approval statistics as JSON |
 | `auto-accept add-ask <kw>` | Add keyword(s) requiring manual permission |
 | `auto-accept add-skip <kw>` | Add keyword(s) to directly skip |
 | `auto-accept rm <kw>` | Remove keyword(s) from any active list |
 | `auto-accept rm-ask <kw>` | Remove keyword(s) from Ask list |
 | `auto-accept rm-skip <kw>` | Remove keyword(s) from Skip list |
-| `antigravity-check` / `agy-check` | 🔍 Run 3-tier deletion audit scan (Safe / Review / Do Not Delete) |
-| `antigravity-find-temp` / `agy-find-temp` | 🔎 Preview individual candidate temporary files before deletion (dry-run) |
-| `antigravity-clean` / `agy-clean` | 🧹 Purge safe temporary scratch scripts, browser recordings, and caches |
-| `antigravity-brain` / `agy-brain` | 🧠 Inspect session brain disk distribution and delete specific sessions |
+| `antigravity-check` / `auto-accept check` | 🔍 Run 3-tier deletion audit scan (Safe / Review / Do Not Delete) |
+| `antigravity-find-temp` / `auto-accept find-temp` | 🔎 Preview individual candidate temporary files before deletion (dry-run) |
+| `antigravity-clean` / `auto-accept clean` | 🧹 Purge safe temporary scratch scripts, browser recordings, and caches |
+| `antigravity-brain` / `auto-accept brain` | 🧠 Inspect session brain disk distribution and delete specific sessions |
+
+> [!TIP]
+> **Universal Command Aliases:**
+> All subcommands support direct standalone binary aliases. You can run any of these identically from any terminal on your PC:
+> - `auto-accept setup` ⬌ `antigravity-setup` ⬌ `agy-setup`
+> - `auto-accept doctor` ⬌ `antigravity-doctor` ⬌ `agy-doctor`
+> - `auto-accept launch` ⬌ `antigravity-launch` ⬌ `agy-launch`
+> - `auto-accept check` ⬌ `antigravity-check` ⬌ `agy-check`
+> - `auto-accept clean` ⬌ `antigravity-clean` ⬌ `agy-clean`
+> - `auto-accept brain` ⬌ `antigravity-brain` ⬌ `agy-brain`
 
 ### Flags
 ```
 OPTIONS:
   -m, --mode <mode>       Operating mode: autonomous or autopilot
   -p, --port <port>       CDP port (default: auto-detect 9333 / 9000-9400)
+  --ports <ports>         Comma-separated candidate CDP ports (e.g. 9333,9334)
   -d, --delay <ms>        Safety delay in ms before clicking (default: 200)
   --poll <ms>             DOM scanner frequency in ms (default: 250)
   --ask <patterns>        Comma-separated commands requiring permission
@@ -298,6 +353,7 @@ OPTIONS:
 
 ---
 
+<a id="cleanup-suite"></a>
 ## 🧹 Workstation Audit & Temp Cleanup Suite
 
 The **Antigravity Auto-Submitter** suite provides unified CLI tools (`antigravity-check`, `antigravity-find-temp`, `antigravity-clean`, `antigravity-brain`, and `auto-accept <cmd>`) to audit and safely purge temporary files, caches, recordings, conversation databases, and orphan sandboxes across the entire workstation.
@@ -421,7 +477,7 @@ antigravity-brain --interactive
 ## 🔍 Frequently Asked Questions (FAQ & Search Index)
 
 #### Q: How do I automatically approve tool permissions in Google Antigravity IDE?
-> Run `npm install -g antigravity-auto-submit` and launch your IDE with `auto-accept setup` or `auto-accept launch`. The background daemon automatically approves terminal execution and file modification prompts in real time.
+> Run `npm install -g WillyEverGreen/Antigravity-Auto-Submitter` and launch your IDE with `auto-accept setup` or `auto-accept launch`. The background daemon automatically approves terminal execution and file modification prompts in real time.
 
 #### Q: How do I run Antigravity IDE on 100% hands-free autopilot overnight?
 > Run `auto-accept --mode autopilot`. In Autopilot mode, the daemon auto-approves both tool execution prompts AND implementation plan dialogs (*Proceed* / *Proceed with plan*).
