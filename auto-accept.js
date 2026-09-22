@@ -704,7 +704,6 @@ ${C.bold}USAGE:${C.reset}
 
 ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept${C.reset}               Start the auto-approval daemon (default)
-  ${C.green}auto-accept restart${C.reset}       Restart Antigravity IDE with remote debugging port enabled
   ${C.green}auto-accept launch${C.reset}        Auto-launch Antigravity IDE with remote debugging port
   ${C.green}auto-accept setup${C.reset}         Auto-patch Desktop & Taskbar shortcut with --remote-debugging-port=9333
   ${C.green}auto-accept restart${C.reset}       Restart Antigravity IDE with remote debugging port enabled
