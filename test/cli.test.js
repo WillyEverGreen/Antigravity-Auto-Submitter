@@ -523,6 +523,95 @@ it('AutoSubmitDaemon aggregates multi-window sessions and computes collective st
   assert.strictEqual(daemon.isConnected, false);
 });
 
+// ── 15. Mode Validation and Normalization in buildScannerScript ──
+it('buildScannerScript normalizes uppercase and missing mode values without error', () => {
+  const scriptUpper = buildScannerScript({ mode: 'AUTOPILOT' });
+  assert(scriptUpper.includes('mode = "autopilot"'));
+
+  const scriptInvalid = buildScannerScript({ mode: 'invalid_mode' });
+  assert(scriptInvalid.includes('mode = "autonomous"'));
+
+  const scriptEmpty = buildScannerScript({});
+  assert(scriptEmpty.includes('mode = "autonomous"'));
+  assert.doesNotThrow(() => new vm.Script(scriptUpper));
+  assert.doesNotThrow(() => new vm.Script(scriptInvalid));
+});
+
+// ── 16. Defensive Handling of Missing or Null Keywords ──
+it('buildScannerScript handles null or undefined keywords gracefully', () => {
+  const script = buildScannerScript({
+    askKeywords: null,
+    skipKeywords: null,
+    mode: null
+  });
+  assert(typeof script === 'string');
+  assert.doesNotThrow(() => new vm.Script(script));
+});
+
+// ── 17. Double-Click Debouncing via data-agy-clicked ──
+it('buildScannerScript debounces previously clicked buttons using isClicked', () => {
+  const script = buildScannerScript({ mode: 'autopilot' });
+  const mockBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Proceed',
+    className: 'btn',
+    _attrs: { 'data-agy-clicked': 'true' },
+    hasAttribute: function(attr) { return Boolean(this._attrs[attr]); },
+    getAttribute: function(attr) { return this._attrs[attr] || null; },
+    setAttribute: function(attr, val) { this._attrs[attr] = val; },
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    parentElement: null
+  };
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: (sel) => sel.includes('button') ? [mockBtn] : [],
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' })
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const outcome = vm.runInNewContext(script, sandbox);
+  assert.strictEqual(outcome, null, 'Already-clicked button must be debounced and ignored');
+});
+
+// ── 18. AutoSubmitDaemon Dynamic Config Hot-Reload ──
+it('AutoSubmitDaemon reloads mode and enabled state from disk when config file changes', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-daemon-test-'));
+  const tmpConfig = path.join(tmpDir, '.auto-accept.json');
+  fs.writeFileSync(tmpConfig, JSON.stringify({ mode: 'autonomous', enabled: true }, null, 2), 'utf8');
+
+  const daemon = new AutoSubmitDaemon({ mode: 'autonomous', enabled: true }, tmpConfig);
+  assert.strictEqual(daemon.config.mode, 'autonomous');
+  assert.strictEqual(daemon.config.enabled, true);
+
+  // Advance time and modify file
+  const futureTime = (Date.now() + 5000) / 1000;
+  fs.writeFileSync(tmpConfig, JSON.stringify({ mode: 'autopilot', enabled: false }, null, 2), 'utf8');
+  fs.utimesSync(tmpConfig, futureTime, futureTime);
+
+  daemon.checkConfigReload();
+  assert.strictEqual(daemon.config.mode, 'autopilot', 'Mode should reload to autopilot');
+  assert.strictEqual(daemon.config.enabled, false, 'Enabled should reload to false');
+
+  // Clean up
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+});
+
+// ── 19. cleanStr Fault Tolerance ──
+it('cleanStr handles null, undefined, symbols, and long strings safely', () => {
+  const { cleanStr } = require('../auto-accept.js');
+  assert.strictEqual(cleanStr(null), '');
+  assert.strictEqual(cleanStr(undefined), '');
+  assert.strictEqual(cleanStr('  hello\nworld\t  '), 'hello world');
+  assert.strictEqual(cleanStr('a'.repeat(100), 10), 'a'.repeat(10) + '...');
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

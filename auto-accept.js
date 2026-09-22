@@ -142,13 +142,17 @@ const C = {
 };
 
 function cleanStr(s, maxLen = 70) {
-  if (!s) return '';
-  const cleaned = String(s)
-    .replace(/[\r\n\t\u21b5\u23ce\u21a9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (cleaned.length <= maxLen) return cleaned;
-  return cleaned.slice(0, maxLen) + '...';
+  if (s == null) return '';
+  try {
+    const cleaned = String(s)
+      .replace(/[\r\n\t\u21b5\u23ce\u21a9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (cleaned.length <= maxLen) return cleaned;
+    return cleaned.slice(0, maxLen) + '...';
+  } catch (e) {
+    return '';
+  }
 }
 
 // ── Subcommand: init ──
@@ -278,6 +282,7 @@ function handleLaunch() {
   child.unref();
 
   console.log(`\n${C.bold}${C.green}✔ Antigravity IDE process spawned successfully!${C.reset}\n`);
+  process.exit(0);
 }
 
 function handleSetup() {
@@ -377,6 +382,9 @@ ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept find-temp${C.reset}     Scan & preview candidate temporary files for cleanup
   ${C.green}auto-accept clean [flags]${C.reset} Purge safe temp files (--all, --stale, --deep, etc.)
   ${C.green}auto-accept brain [flags]${C.reset} Inspect session brain disk distribution & delete sessions
+  ${C.green}auto-accept mode [mode]${C.reset}   Get or switch operating mode (autonomous | autopilot)
+  ${C.green}auto-accept pause${C.reset}         Pause auto-approvals without stopping daemon
+  ${C.green}auto-accept resume${C.reset}        Resume active auto-approvals
   ${C.green}auto-accept rm <kw>${C.reset}         Remove keyword from active rules
   ${C.green}auto-accept rm-ask <kw>${C.reset}     Remove keyword from Ask list
   ${C.green}auto-accept rm-skip <kw>${C.reset}    Remove keyword from Skip list
@@ -670,21 +678,57 @@ function resolveConfig() {
     }
   }
 
-  // 4. Environment Variables
+  // 4. Normalize loaded mode & Environment Variables
+  if (cfg.mode && typeof cfg.mode === 'string') {
+    cfg.mode = cfg.mode.toLowerCase().trim();
+  }
+  if (cfg.mode !== 'autopilot' && cfg.mode !== 'autonomous') {
+    cfg.mode = 'autonomous';
+  }
+
   if (process.env.ANTIGRAVITY_CDP_PORT) {
     cfg.cdpPort = parseInt(process.env.ANTIGRAVITY_CDP_PORT, 10) || cfg.cdpPort;
   }
   if (process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE) {
-    cfg.mode = process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE;
+    const envMode = process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE.toLowerCase().trim();
+    if (envMode === 'autopilot' || envMode === 'autonomous') {
+      cfg.mode = envMode;
+    }
   }
 
   // 5. CLI Flags
   let shouldSave = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if ((a === '-m' || a === '--mode') && args[i + 1]) {
-      const val = args[++i].toLowerCase();
-      if (val === 'autopilot' || val === 'autonomous') cfg.mode = val;
+    if (a.startsWith('--mode=')) {
+      const val = a.split('=')[1].toLowerCase().trim();
+      if (val === 'autopilot' || val === 'autonomous') {
+        cfg.mode = val;
+      } else {
+        console.error(`${C.red}✗ Invalid mode: "${val}". Allowed modes: autonomous, autopilot${C.reset}`);
+        process.exit(1);
+      }
+    } else if (a.startsWith('-m=')) {
+      const val = a.split('=')[1].toLowerCase().trim();
+      if (val === 'autopilot' || val === 'autonomous') {
+        cfg.mode = val;
+      } else {
+        console.error(`${C.red}✗ Invalid mode: "${val}". Allowed modes: autonomous, autopilot${C.reset}`);
+        process.exit(1);
+      }
+    } else if (a === '-m' || a === '--mode') {
+      if (args[i + 1] && !args[i + 1].startsWith('-')) {
+        const val = args[++i].toLowerCase().trim();
+        if (val === 'autopilot' || val === 'autonomous') {
+          cfg.mode = val;
+        } else {
+          console.error(`${C.red}✗ Invalid mode: "${val}". Allowed modes: autonomous, autopilot${C.reset}`);
+          process.exit(1);
+        }
+      } else {
+        console.error(`${C.red}✗ Missing mode argument for ${a}. Allowed modes: autonomous, autopilot${C.reset}`);
+        process.exit(1);
+      }
     } else if ((a === '-p' || a === '--port') && args[i + 1]) {
       const pVal = args[++i];
       if (pVal.includes(',')) {
@@ -719,41 +763,125 @@ function resolveConfig() {
     }
   }
 
-  if (firstArg === 'launch' || firstArg === 'start-ide') handleLaunch();
-  if (firstArg === 'setup' || firstArg === 'patch') handleSetup();
-  if (firstArg === 'list' || firstArg === 'rules') handleList(cfg);
-  if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') handleAddRuleCli('ask', args.slice(1), cfg, configSource);
-  if (firstArg === 'add-skip' || firstArg === 'skip') handleAddRuleCli('skip', args.slice(1), cfg, configSource);
-  if (firstArg === 'rm-ask' || firstArg === 'remove-ask') handleRemoveRuleCli('ask', args.slice(1), cfg, configSource);
-  if (firstArg === 'rm-skip' || firstArg === 'remove-skip') handleRemoveRuleCli('skip', args.slice(1), cfg, configSource);
-  if (firstArg === 'rm' || firstArg === 'remove') handleRemoveRuleCli('all', args.slice(1), cfg, configSource);
+  // Ensure arrays and primitives are fully valid
+  if (!Array.isArray(cfg.askKeywords)) cfg.askKeywords = [...DEFAULTS.askKeywords];
+  if (!Array.isArray(cfg.skipKeywords)) cfg.skipKeywords = [...DEFAULTS.skipKeywords];
+  if (!Array.isArray(cfg.cdpPorts)) cfg.cdpPorts = [...DEFAULTS.cdpPorts];
+
+  if (firstArg === 'launch' || firstArg === 'start-ide') { handleLaunch(); process.exit(0); }
+  if (firstArg === 'setup' || firstArg === 'patch') { handleSetup(); process.exit(0); }
+  if (firstArg === 'list' || firstArg === 'rules') { handleList(cfg); process.exit(0); }
+  if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') { handleAddRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
+  if (firstArg === 'add-skip' || firstArg === 'skip') { handleAddRuleCli('skip', args.slice(1), cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm-ask' || firstArg === 'remove-ask') { handleRemoveRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm-skip' || firstArg === 'remove-skip') { handleRemoveRuleCli('skip', args.slice(1), cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm' || firstArg === 'remove') { handleRemoveRuleCli('all', args.slice(1), cfg, configSource); process.exit(0); }
 
   if (firstArg === 'config') {
     console.log(`\n${C.bold}${C.cyan}Active Configuration (${configSource}):${C.reset}\n${JSON.stringify(cfg, null, 2)}\n`);
     process.exit(0);
   }
+
   if (firstArg === 'pause') {
     cfg.enabled = false;
-    shouldSave = true;
-    console.log(`${C.yellow}⏸ Auto-submit set to PAUSED${C.reset}`);
+    const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
+    try {
+      const dir = path.dirname(saveTarget);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(saveTarget, JSON.stringify(cfg, null, 2), 'utf8');
+      console.log(`${C.bold}${C.yellow}⏸ Auto-submit set to PAUSED${C.reset}`);
+      console.log(`  ${C.dim}Saved to: ${saveTarget}${C.reset}`);
+      console.log(`  ${C.dim}Running daemons will automatically pause within 2 seconds.${C.reset}`);
+    } catch (e) {
+      console.error(`${C.red}✗ Failed to save config: ${e.message}${C.reset}`);
+      process.exit(1);
+    }
+    process.exit(0);
   }
-  if (firstArg === 'resume' || firstArg === 'start-daemon') {
+
+  if (firstArg === 'resume') {
     cfg.enabled = true;
-    shouldSave = true;
-    console.log(`${C.green}✔ Auto-submit set to ACTIVE${C.reset}`);
+    const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
+    try {
+      const dir = path.dirname(saveTarget);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(saveTarget, JSON.stringify(cfg, null, 2), 'utf8');
+      console.log(`${C.bold}${C.green}✔ Auto-submit set to ACTIVE${C.reset}`);
+      console.log(`  ${C.dim}Saved to: ${saveTarget}${C.reset}`);
+      console.log(`  ${C.dim}Running daemons will automatically resume within 2 seconds.${C.reset}`);
+    } catch (e) {
+      console.error(`${C.red}✗ Failed to save config: ${e.message}${C.reset}`);
+      process.exit(1);
+    }
+    process.exit(0);
   }
-  if (firstArg === 'mode' && args[1]) {
-    const val = args[1].toLowerCase();
+
+  if (firstArg === 'mode' || firstArg === 'm') {
+    const modeArg = args.find((a, idx) => idx > 0 && !a.startsWith('-'));
+    if (!modeArg) {
+      if (firstArg === 'm') {
+        // 'auto-accept m' toggles mode directly
+        cfg.mode = cfg.mode === 'autonomous' ? 'autopilot' : 'autonomous';
+        const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
+        try {
+          const dir = path.dirname(saveTarget);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(saveTarget, JSON.stringify(cfg, null, 2), 'utf8');
+          console.log(`\n${C.bold}${C.green}✔ Operating mode toggled to: ${cfg.mode.toUpperCase()}${C.reset} (${cfg.mode === 'autopilot' ? '100% Hands-Free' : 'Reviews Plans'})`);
+          console.log(`  ${C.dim}Config saved: ${saveTarget}${C.reset}`);
+          console.log(`  ${C.dim}Running daemons will automatically reload within 2 seconds.${C.reset}\n`);
+        } catch (e) {
+          console.error(`${C.red}✗ Failed to save config: ${e.message}${C.reset}`);
+          process.exit(1);
+        }
+        process.exit(0);
+      } else {
+        // 'auto-accept mode' without args shows current mode and toggle hint
+        console.log(`
+${C.bold}${C.cyan}Antigravity Auto-Submit — Operating Mode${C.reset}
+
+  ${C.bold}Current Mode:${C.reset} ${cfg.mode === 'autopilot' ? `${C.magenta}AUTOPILOT (100% Hands-Free)${C.reset}` : `${C.cyan}AUTONOMOUS (Reviews Plans)${C.reset}`}
+  ${C.bold}Config Source:${C.reset} ${configSource}
+
+  ${C.bold}To toggle mode:${C.reset}
+    ${C.green}auto-accept m${C.reset}                 (Instantly toggles between Autonomous and Autopilot)
+
+  ${C.bold}To set a specific mode:${C.reset}
+    ${C.green}auto-accept mode autonomous${C.reset}   (Safe: auto-approves safe tools, pauses for plan review)
+    ${C.green}auto-accept mode autopilot${C.reset}    (100% hands-free: auto-approves tools AND plans)
+`);
+        process.exit(0);
+      }
+    }
+
+    const val = modeArg.toLowerCase().trim();
     if (val === 'autopilot' || val === 'autonomous') {
       cfg.mode = val;
-      shouldSave = true;
-      console.log(`${C.cyan}✔ Operating mode set to ${val.toUpperCase()}${C.reset}`);
+      const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
+      try {
+        const dir = path.dirname(saveTarget);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(saveTarget, JSON.stringify(cfg, null, 2), 'utf8');
+        console.log(`\n${C.bold}${C.green}✔ Operating mode set to ${val.toUpperCase()}${C.reset} (${val === 'autopilot' ? '100% Hands-Free' : 'Reviews Plans'})`);
+        console.log(`  ${C.dim}Saved to: ${saveTarget}${C.reset}`);
+        console.log(`  ${C.dim}Running daemons will automatically reload within 2 seconds.${C.reset}\n`);
+      } catch (e) {
+        console.error(`${C.red}✗ Failed to save config: ${e.message}${C.reset}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    } else {
+      console.error(`${C.red}✗ Invalid mode: "${modeArg}". Allowed modes: autonomous, autopilot${C.reset}`);
+      console.error(`  Example: ${C.cyan}auto-accept mode autopilot${C.reset}`);
+      process.exit(1);
     }
   }
 
   if (shouldSave) {
     const saveTarget = configSource !== 'default' ? configSource : path.join(process.cwd(), '.auto-accept.json');
     try {
+      const dir = path.dirname(saveTarget);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(saveTarget, JSON.stringify(cfg, null, 2), 'utf8');
       console.log(`${C.green}✔ Configuration saved to ${saveTarget}${C.reset}`);
     } catch (e) {
@@ -815,147 +943,186 @@ class StatsManager {
 
 // ── Injected Scanner Script ──
 function buildScannerScript(cfg) {
-  const ask = JSON.stringify(cfg.askKeywords.map(k => k.toLowerCase()));
-  const skip = JSON.stringify(cfg.skipKeywords.map(k => k.toLowerCase()));
-  const mode = JSON.stringify(cfg.mode);
-  const alwaysAllow = JSON.stringify(cfg.autoSelectAlwaysAllow);
+  const askKeywords = Array.isArray(cfg && cfg.askKeywords) ? cfg.askKeywords : DEFAULTS.askKeywords;
+  const skipKeywords = Array.isArray(cfg && cfg.skipKeywords) ? cfg.skipKeywords : DEFAULTS.skipKeywords;
+  const rawMode = typeof (cfg && cfg.mode) === 'string' ? cfg.mode.toLowerCase().trim() : 'autonomous';
+  const modeVal = (rawMode === 'autopilot' ? 'autopilot' : 'autonomous');
+
+  const ask = JSON.stringify(askKeywords.map(k => String(k || '').toLowerCase()));
+  const skip = JSON.stringify(skipKeywords.map(k => String(k || '').toLowerCase()));
+  const mode = JSON.stringify(modeVal);
+  const alwaysAllow = JSON.stringify(Boolean(cfg && cfg.autoSelectAlwaysAllow));
 
   return `(() => {
-    const askKeywords = ${ask};
-    const skipKeywords = ${skip};
-    const mode = ${mode};
-    const autoSelectAlwaysAllow = ${alwaysAllow};
+    try {
+      const askKeywords = ${ask};
+      const skipKeywords = ${skip};
+      const mode = ${mode};
+      const autoSelectAlwaysAllow = ${alwaysAllow};
 
-    const checkKeywords = (text) => {
-      for (const kw of skipKeywords) {
-        if (kw && text.includes(kw)) return { blocked: true, type: 'skip', kw: kw };
-      }
-      for (const kw of askKeywords) {
-        if (kw && text.includes(kw)) return { blocked: true, type: 'ask', kw: kw };
-      }
-      return null;
-    };
+      const checkKeywords = (text) => {
+        const t = String(text || '').toLowerCase();
+        for (const kw of skipKeywords) {
+          if (kw && t.includes(kw)) return { blocked: true, type: 'skip', kw: kw };
+        }
+        for (const kw of askKeywords) {
+          if (kw && t.includes(kw)) return { blocked: true, type: 'ask', kw: kw };
+        }
+        return null;
+      };
 
-    // Helper to extract full card context without stopping at button outline-none wrappers
-    const extractContextText = (btn) => {
-      let curr = btn.parentElement;
-      const btnLen = (btn.innerText || btn.textContent || '').trim().length;
-      while (curr && curr !== document.body) {
-        const t = (curr.innerText || curr.textContent || '').trim();
-        if (t.length > btnLen + 10) {
-          if (curr.parentElement && curr.parentElement !== document.body && curr.parentElement.innerText && curr.parentElement.innerText.length < t.length + 500) {
-            return (curr.parentElement.innerText || curr.parentElement.textContent || '').toLowerCase();
+      // Helper to extract full card context without stopping at button outline-none wrappers
+      const extractContextText = (btn) => {
+        try {
+          let curr = btn.parentElement;
+          const btnLen = (btn.innerText || btn.textContent || '').trim().length;
+          while (curr && curr !== document.body) {
+            const t = (curr.innerText || curr.textContent || '').trim();
+            if (t.length > btnLen + 10) {
+              if (curr.parentElement && curr.parentElement !== document.body && curr.parentElement.innerText && curr.parentElement.innerText.length < t.length + 500) {
+                return (curr.parentElement.innerText || curr.parentElement.textContent || '').toLowerCase();
+              }
+              return t.toLowerCase();
+            }
+            curr = curr.parentElement;
           }
-          return t.toLowerCase();
+          const dialog = document.querySelector('[role="dialog"], [role="alertdialog"], [data-testid*="interaction"], [class*="interaction"]');
+          if (dialog) {
+            return (dialog.innerText || dialog.textContent || '').toLowerCase();
+          }
+          return document.body ? (document.body.innerText || '').toLowerCase() : '';
+        } catch (e) {
+          return '';
         }
-        curr = curr.parentElement;
-      }
-      const dialog = document.querySelector('[role="dialog"], [role="alertdialog"], [data-testid*="interaction"], [class*="interaction"]');
-      if (dialog) {
-        return (dialog.innerText || dialog.textContent || '').toLowerCase();
-      }
-      return (document.body.innerText || '').toLowerCase();
-    };
+      };
 
-    // ── Tier 1: Antigravity interaction continue button ──
-    const continueBtn = document.querySelector('[data-testid="interaction-continue-button"]');
-    if (continueBtn) {
-      const rect = continueBtn.getBoundingClientRect();
-      const style = window.getComputedStyle(continueBtn);
-      if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
-        const content = extractContextText(continueBtn);
-        const match = checkKeywords(content);
-        if (match) {
-          const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
-          return {
-            action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '),
-            blocked: true,
-            blockedType: match.type,
-            matchedKeyword: match.kw,
-            blockedReason: reason,
-            context: content.substring(0, 120)
-          };
-        }
-        if (autoSelectAlwaysAllow) {
-          try {
-            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
-            const opt2 = document.querySelector('input[type="radio"][value="2"]');
-            if (opt2 && !opt2.checked) { opt2.checked = true; opt2.click(); opt2.dispatchEvent(new Event('change', { bubbles: true })); }
-          } catch(e) {}
-        } else {
-          try {
-            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
-            const opt1 = document.querySelector('input[type="radio"][value="1"]');
-            if (opt1 && !opt1.checked) { opt1.checked = true; opt1.click(); opt1.dispatchEvent(new Event('change', { bubbles: true })); }
-          } catch(e) {}
-        }
-        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-        const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
-        if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
-          try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch(e) {}
-        }
-        continueBtn.click();
-        continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-        return { action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
-      }
-    }
+      const isClicked = (el) => {
+        try {
+          return Boolean(el && ((el.hasAttribute && el.hasAttribute('data-agy-clicked')) || (el.getAttribute && el.getAttribute('data-agy-clicked'))));
+        } catch (e) { return false; }
+      };
 
-    // ── Tier 2: Autopilot mode Proceed button ──
-    if (mode === 'autopilot') {
-      const pbs = Array.from(document.querySelectorAll('button, a[role="button"]'));
-      for (const pb of pbs) {
-        const pt = (pb.innerText || pb.textContent || '').trim().toLowerCase();
-        if (pt === 'proceed' || pt.includes('proceed with')) {
-          const pr = pb.getBoundingClientRect();
-          if (pr.width > 5 && pr.height > 5 && window.getComputedStyle(pb).display !== 'none' && window.getComputedStyle(pb).visibility !== 'hidden') {
-            const fullContent = extractContextText(pb);
+      const markClicked = (el) => {
+        try {
+          if (el && el.setAttribute) el.setAttribute('data-agy-clicked', 'true');
+          setTimeout(() => { try { if (el && el.removeAttribute) el.removeAttribute('data-agy-clicked'); } catch (e) {} }, 3000);
+        } catch (e) {}
+      };
+
+      // ── Tier 1: Antigravity interaction continue button ──
+      const continueBtn = document.querySelector('[data-testid="interaction-continue-button"]');
+      if (continueBtn && !isClicked(continueBtn)) {
+        const rect = continueBtn.getBoundingClientRect();
+        const style = window.getComputedStyle(continueBtn);
+        if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
+          const content = extractContextText(continueBtn);
+          const match = checkKeywords(content);
+          if (match) {
+            const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
+            return {
+              action: (continueBtn.innerText || 'Submit').trim().replace(/\\s+/g, ' '),
+              blocked: true,
+              blockedType: match.type,
+              matchedKeyword: match.kw,
+              blockedReason: reason,
+              context: content.substring(0, 120)
+            };
+          }
+          markClicked(continueBtn);
+
+          if (autoSelectAlwaysAllow) {
+            try {
+              if (document.body) document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
+              const opt2 = document.querySelector('input[type="radio"][value="2"]');
+              if (opt2 && !opt2.checked) { opt2.checked = true; opt2.click(); opt2.dispatchEvent(new Event('change', { bubbles: true })); }
+            } catch (e) {}
+          } else {
+            try {
+              if (document.body) document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
+              const opt1 = document.querySelector('input[type="radio"][value="1"]');
+              if (opt1 && !opt1.checked) { opt1.checked = true; opt1.click(); opt1.dispatchEvent(new Event('change', { bubbles: true })); }
+            } catch (e) {}
+          }
+          if (document.body) {
+            try { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
+          }
+          const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
+          if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
+            try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
+          }
+          continueBtn.click();
+          continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          return { action: (continueBtn.innerText || 'Submit').trim().replace(/\\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
+        }
+      }
+
+      // ── Tier 2: Autopilot mode Proceed button ──
+      if (mode === 'autopilot') {
+        const pbs = Array.from(document.querySelectorAll('button, a[role="button"]'));
+        for (const pb of pbs) {
+          if (isClicked(pb)) continue;
+          const pt = (pb.innerText || pb.textContent || '').trim().toLowerCase();
+          if (pt === 'proceed' || pt.includes('proceed with') || pt.includes('proceed to execution')) {
+            const pr = pb.getBoundingClientRect();
+            if (pr.width > 5 && pr.height > 5 && window.getComputedStyle(pb).display !== 'none' && window.getComputedStyle(pb).visibility !== 'hidden') {
+              const fullContent = extractContextText(pb);
+              const match = checkKeywords(fullContent);
+              if (match) {
+                const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
+                return { action: 'Proceed (Plan)', blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
+              }
+              markClicked(pb);
+
+              const rk = Object.keys(pb).find(k => k.startsWith('__reactProps$'));
+              if (rk && pb[rk] && typeof pb[rk].onClick === 'function') {
+                try { pb[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
+              }
+              pb.click();
+              pb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+              return { action: 'Proceed (Plan Auto-Approved)', blocked: false, context: 'Plan Approved in Autopilot Mode' };
+            }
+          }
+        }
+      }
+
+      // ── Tier 3: Generic confirmation fallback ──
+      const candidates = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"]'));
+      for (const btn of candidates) {
+        if (isClicked(btn)) continue;
+        const raw = (btn.innerText || btn.textContent || '').trim();
+        const text = raw.replace(/\\s+/g, ' ').replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '').trim().toLowerCase();
+        const TOOL_BTNS = ['submit','always allow','run','run command','allow this time','allow','proceed anyway','continue','accept'];
+        const PLAN_BTNS = ['proceed','confirm','yes','ok','accept','approve','got it','start','execute'];
+        const allowed = TOOL_BTNS.includes(text) || (mode === 'autopilot' && PLAN_BTNS.includes(text));
+        if (allowed) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 5 && rect.height > 5 && window.getComputedStyle(btn).visibility !== 'hidden' && window.getComputedStyle(btn).display !== 'none') {
+            const fullContent = extractContextText(btn);
             const match = checkKeywords(fullContent);
             if (match) {
               const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
-              return { action: 'Proceed (Plan)', blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
+              return { action: raw, blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
             }
-            const rk = Object.keys(pb).find(k => k.startsWith('__reactProps$'));
-            if (rk && pb[rk] && typeof pb[rk].onClick === 'function') {
-              try { pb[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch(e) {}
+            markClicked(btn);
+
+            const rk = Object.keys(btn).find(k => k.startsWith('__reactProps$'));
+            if (rk && btn[rk] && typeof btn[rk].onClick === 'function') {
+              try { btn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
             }
-            pb.click();
-            pb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            return { action: 'Proceed (Plan Auto-Approved)', blocked: false, context: 'Plan Approved in Autopilot Mode' };
+            btn.click();
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            if (document.body) {
+              try { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
+            }
+            return { action: raw, blocked: false, context: fullContent.substring(0, 100) };
           }
         }
       }
-    }
 
-    // ── Tier 3: Generic confirmation fallback ──
-    const candidates = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"]'));
-    for (const btn of candidates) {
-      const raw = (btn.innerText || btn.textContent || '').trim();
-      const text = raw.replace(/\\s+/g, ' ').replace(/[\u21b5\u23ce\u21a9\u2022\u00b7]/gu, '').trim().toLowerCase();
-      const TOOL_BTNS = ['submit','always allow','run','run command','allow this time','allow','proceed anyway','continue','accept'];
-      const PLAN_BTNS = ['proceed','confirm','yes','ok','accept','approve','got it','start','execute'];
-      const allowed = TOOL_BTNS.includes(text) || (mode === 'autopilot' && PLAN_BTNS.includes(text));
-      if (allowed) {
-        const rect = btn.getBoundingClientRect();
-        if (rect.width > 5 && rect.height > 5 && window.getComputedStyle(btn).visibility !== 'hidden' && window.getComputedStyle(btn).display !== 'none') {
-          const fullContent = extractContextText(btn);
-          const match = checkKeywords(fullContent);
-          if (match) {
-            const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
-            return { action: raw, blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
-          }
-          const rk = Object.keys(btn).find(k => k.startsWith('__reactProps$'));
-          if (rk && btn[rk] && typeof btn[rk].onClick === 'function') {
-            try { btn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch(e) {}
-          }
-          btn.click();
-          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-          return { action: raw, blocked: false, context: fullContent.substring(0, 100) };
-        }
-      }
+      return null;
+    } catch (err) {
+      return null;
     }
-
-    return null;
   })()`;
 }
 
@@ -1146,10 +1313,16 @@ class WindowSession {
     this.ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
-        if (msg.id === this.reqId - 1 && msg.result && msg.result.result) {
-          this.handleScanResult(msg.result.result.value);
+        if (msg.id === this.reqId - 1) {
+          if (msg.result && msg.result.result) {
+            this.handleScanResult(msg.result.result.value);
+          } else {
+            this.handleScanResult(null);
+          }
         }
-      } catch (e) {}
+      } catch (e) {
+        this.isScanning = false;
+      }
     };
 
     this.ws.onerror = () => {
@@ -1268,6 +1441,68 @@ class AutoSubmitDaemon {
     this.portKey = config.cdpPort > 0 ? String(config.cdpPort) : 'auto';
     this.isPrompting = false;
     this.isInteractive = process.stdout.isTTY && !this.config.daemon;
+    this.lastConfigFileMtime = 0;
+    this.initConfigFileMtime();
+  }
+
+  initConfigFileMtime() {
+    try {
+      const target = this.configSource !== 'default' ? this.configSource : path.join(process.cwd(), '.auto-accept.json');
+      if (fs.existsSync(target)) {
+        this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
+      }
+    } catch (e) {}
+  }
+
+  checkConfigReload() {
+    try {
+      const target = this.configSource !== 'default' ? this.configSource : path.join(process.cwd(), '.auto-accept.json');
+      if (!fs.existsSync(target)) return;
+      const stat = fs.statSync(target);
+      if (stat.mtimeMs > this.lastConfigFileMtime) {
+        this.lastConfigFileMtime = stat.mtimeMs;
+        const fresh = JSON.parse(fs.readFileSync(target, 'utf8'));
+
+        // Check mode change
+        if (fresh.mode && typeof fresh.mode === 'string') {
+          const newMode = fresh.mode.toLowerCase().trim();
+          if ((newMode === 'autopilot' || newMode === 'autonomous') && newMode !== this.config.mode) {
+            this.config.mode = newMode;
+            const modeDesc = newMode === 'autopilot'
+              ? 'AUTOPILOT (100% Hands-Free — auto-approves tools & plans)'
+              : 'AUTONOMOUS (Safe — reviews plans, auto-approves safe tools)';
+            this.logEvent('info', ` MODE `, `Operating mode updated from config: ${modeDesc}`, '', newMode === 'autopilot' ? C.pillMagenta : C.pillCyan);
+          }
+        }
+
+        // Check enabled change
+        if (fresh.enabled !== undefined && fresh.enabled !== this.config.enabled) {
+          this.config.enabled = Boolean(fresh.enabled);
+          this.logEvent('info', ` TOGGLE `, `Auto-submit is now ${this.config.enabled ? 'ACTIVE' : 'PAUSED'} (from config)`, '', this.config.enabled ? C.pillGreen : C.pillYellow);
+        }
+
+        // Check keywords
+        if (Array.isArray(fresh.askKeywords)) {
+          this.config.askKeywords = fresh.askKeywords.map(k => String(k).trim()).filter(Boolean);
+        }
+        if (Array.isArray(fresh.skipKeywords)) {
+          this.config.skipKeywords = fresh.skipKeywords.map(k => String(k).trim()).filter(Boolean);
+        }
+        if (fresh.autoSelectAlwaysAllow !== undefined) {
+          this.config.autoSelectAlwaysAllow = Boolean(fresh.autoSelectAlwaysAllow);
+        }
+        if (fresh.safetyDelayMs !== undefined) {
+          this.config.safetyDelayMs = Math.max(0, parseInt(fresh.safetyDelayMs, 10) || 0);
+        }
+        if (fresh.pollIntervalMs !== undefined) {
+          const newPoll = Math.max(50, parseInt(fresh.pollIntervalMs, 10) || 250);
+          if (newPoll !== this.config.pollIntervalMs) {
+            this.config.pollIntervalMs = newPoll;
+            this.startScanner();
+          }
+        }
+      }
+    } catch (e) {}
   }
 
   get isConnected() {
@@ -1360,6 +1595,7 @@ class AutoSubmitDaemon {
   async connectLoop() {
     while (true) {
       try {
+        this.checkConfigReload();
         await this.syncWindows();
       } catch (e) {}
       await new Promise(r => setTimeout(r, 2000));
@@ -1509,12 +1745,17 @@ class AutoSubmitDaemon {
       switch (char) {
         case 'p':
           this.config.enabled = !this.config.enabled;
+          this.saveActiveConfig();
           this.logEvent('info', ` TOGGLE `, `Auto-submit is now ${this.config.enabled ? 'ACTIVE' : 'PAUSED'}`, '', this.config.enabled ? C.pillGreen : C.pillYellow);
           break;
 
         case 'm':
           this.config.mode = this.config.mode === 'autonomous' ? 'autopilot' : 'autonomous';
-          this.logEvent('info', ` MODE `, `Switched to: ${this.config.mode.toUpperCase()}`, '', C.pillCyan);
+          this.saveActiveConfig();
+          const modeDesc = this.config.mode === 'autopilot'
+            ? 'AUTOPILOT (100% Hands-Free — auto-approves tools & plans)'
+            : 'AUTONOMOUS (Safe — reviews plans, auto-approves safe tools)';
+          this.logEvent('info', ` MODE `, `Switched to: ${modeDesc}`, '', this.config.mode === 'autopilot' ? C.pillMagenta : C.pillCyan);
           break;
 
         case 'a':
@@ -1568,6 +1809,9 @@ class AutoSubmitDaemon {
       const dir = path.dirname(target);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(target, JSON.stringify(this.config, null, 2), 'utf8');
+      if (fs.existsSync(target)) {
+        this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
+      }
     } catch (e) {}
   }
 

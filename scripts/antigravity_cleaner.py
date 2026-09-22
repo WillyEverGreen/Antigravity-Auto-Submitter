@@ -692,7 +692,7 @@ def main():
     parser.add_argument("--logs", action="store_true", help="Clean session transcripts & task logs")
     parser.add_argument("--recordings", action="store_true", help="Clean browser WebP video recordings")
     parser.add_argument("--annotations", action="store_true", help="Clean cached AST annotations")
-    parser.add_argument("--temp", action="store_true", help="Clean system temp scripts (%TEMP%)")
+    parser.add_argument("--temp", action="store_true", help="Clean system temp scripts (%%TEMP%%)")
     parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
     parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
     parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
