@@ -672,6 +672,38 @@ it('resolves firstArg correctly from binary alias path and exports process helpe
   assert.strictEqual(typeof running, 'boolean');
 });
 
+// ── 24. resolveConfig Never Returns Undefined (No Destructuring TypeError) ──
+it('resolveConfig returns valid { config, configSource } object even when invoked with restart argv', () => {
+  const { resolveConfig } = require('../auto-accept.js');
+  const originalArgv = [...process.argv];
+  try {
+    process.argv = ['node', 'auto-accept.js', 'restart'];
+    const res = resolveConfig();
+    assert(res, 'resolveConfig() must not return undefined');
+    assert(res.config, 'res.config must be defined');
+    assert(res.configSource, 'res.configSource must be defined');
+    assert.strictEqual(typeof res.config.cdpPort, 'number');
+  } finally {
+    process.argv = originalArgv;
+  }
+});
+
+// ── 25. Easy Start exports and subcommand resolution ──
+it('exports handleEasyStart and launchAntigravityProcess and handles start in argv', () => {
+  const { handleEasyStart, launchAntigravityProcess, resolveConfig } = require('../auto-accept.js');
+  assert.strictEqual(typeof handleEasyStart, 'function');
+  assert.strictEqual(typeof launchAntigravityProcess, 'function');
+  const originalArgv = [...process.argv];
+  try {
+    process.argv = ['node', 'auto-accept.js', 'start'];
+    const res = resolveConfig();
+    assert(res, 'resolveConfig() must return a valid object');
+    assert(res.config, 'res.config must be defined');
+  } finally {
+    process.argv = originalArgv;
+  }
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

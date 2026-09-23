@@ -5,6 +5,29 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-23
+
+### Added
+- **Easy Start — Zero-Friction One-Command Launch (`auto-accept start` / `agy-start` / `antigravity-start`)**:
+  - Automatically checks Antigravity IDE connection on CDP port.
+  - If open without debugging port: restarts Antigravity IDE with `--remote-debugging-port=9333` and seamlessly connects the daemon.
+  - If not running: auto-spawns Antigravity IDE with remote debugging port enabled and connects the daemon directly without needing separate terminal commands.
+  - Dedicated bin aliases: `antigravity-start`, `agy-start`, and `npm start`.
+- **Live TUI IDE Restart Hotkey (`Shift+R` / `R`)**:
+  - Allows restarting Antigravity IDE with remote debugging port enabled directly from within an active daemon session without interrupting the daemon.
+  - Added warning banner hint prompting users to press `Shift+R` or run `auto-accept start` when IDE is open without port 9333.
+- **Cross-Platform Setup & Launcher Support (Windows, macOS, Linux)**:
+  - macOS: automatically creates Desktop launcher (`Antigravity IDE (Debug).command`), `~/.local/bin/antigravity` wrapper, and `~/.zshrc` alias.
+  - Linux: automatically patches `.desktop` entries in `~/.local/share/applications/` and Desktop, and creates `~/.local/bin/antigravity` wrapper.
+  - Windows: patches Desktop, Start Menu, and Taskbar shortcuts with `--remote-debugging-port=9333`.
+
+### Fixed
+- **Resolved Fatal `TypeError: Cannot destructure property 'config' of 'resolveConfig(...)' as it is undefined`**:
+  - Removed premature asynchronous `handleRestart` invocation inside `resolveConfig()` that returned `undefined`.
+  - Added defensive fallback guard in `require.main` so `resolveConfig()` can never trigger destructuring errors.
+  - Refactored `handleRestart` and `handleLaunch` with explicit force flags (`forceRestart = true` / `restart` CLI argument).
+  - Added unit test #24 and #25 verifying `resolveConfig` returns valid objects for all subcommands.
+
 ## [1.6.0] - 2026-09-20
 
 ### Added

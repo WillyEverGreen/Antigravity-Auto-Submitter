@@ -50,6 +50,8 @@ fs.writeFileSync('C:/tools/agy-setup.cmd', buildSubcommandWrapper('setup'), 'utf
 fs.writeFileSync('C:/tools/antigravity-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
 fs.writeFileSync('C:/tools/agy-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
 fs.writeFileSync('C:/tools/antigravity-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
+fs.writeFileSync('C:/tools/agy-start.cmd', buildSubcommandWrapper('start'), 'utf8');
+fs.writeFileSync('C:/tools/antigravity-start.cmd', buildSubcommandWrapper('start'), 'utf8');
 fs.writeFileSync('C:/tools/agy-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
 fs.writeFileSync('C:/tools/antigravity-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
 fs.writeFileSync('C:/tools/agy-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
@@ -130,12 +132,19 @@ const lineCapContent = [
 fs.writeFileSync('C:/tools/line-cap.js', lineCapContent, 'utf8');
 console.log('  ✔ Patched C:/tools/line-cap.js (Eliminated stdin hang on <= 20 results)');
 
-// 5. Sync updated files to C:\tools\daemon\auto-accept
+// 5. Sync updated files to C:\tools\daemon\auto-accept & global npm module
 const daemonDir = 'C:/tools/daemon/auto-accept';
 if (fs.existsSync(daemonDir)) {
   fs.copyFileSync('auto-accept.js', path.join(daemonDir, 'auto-accept.js'));
   fs.copyFileSync('package.json', path.join(daemonDir, 'package.json'));
   console.log('  ✔ Synced auto-accept.js and package.json to C:/tools/daemon/auto-accept');
+}
+
+const globalNpmDir = path.join(process.env.APPDATA || '', 'npm/node_modules/antigravity-auto-submit');
+if (fs.existsSync(globalNpmDir)) {
+  fs.copyFileSync('auto-accept.js', path.join(globalNpmDir, 'auto-accept.js'));
+  fs.copyFileSync('package.json', path.join(globalNpmDir, 'package.json'));
+  console.log('  ✔ Synced auto-accept.js and package.json to global npm directory');
 }
 
 // 6. Sync cleaner and brain scripts to C:\tools

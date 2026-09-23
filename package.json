@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submitter CLI",
   "description": "Production-grade autonomous confirmation daemon for Antigravity IDE",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "publisher": "WillyEverGreen",
   "author": {
     "name": "WillyEverGreen / advdi"
@@ -57,10 +57,12 @@
     "antigravity-clean": "./bin/antigravity-clean.js",
     "agy-clean": "./bin/antigravity-clean.js",
     "antigravity-brain": "./bin/antigravity-brain.js",
-    "agy-brain": "./bin/antigravity-brain.js"
+    "agy-brain": "./bin/antigravity-brain.js",
+    "antigravity-start": "./auto-accept.js",
+    "agy-start": "./auto-accept.js"
   },
   "scripts": {
-    "start": "node auto-accept.js",
+    "start": "node auto-accept.js start",
     "cli": "node auto-accept.js",
     "cli:autopilot": "node auto-accept.js --mode autopilot",
     "cli:status": "node auto-accept.js --status",
@@ -75,7 +77,8 @@
     "clean": "node bin/antigravity-clean.js",
     "brain": "node bin/antigravity-brain.js",
     "sync": "node scripts/sync_wrappers.js",
-    "test": "node test/cli.test.js"
+    "test": "node test/cli.test.js",
+    "easy-start": "node auto-accept.js start"
   },
   "engines": {
     "node": ">=18.0.0"

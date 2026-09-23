@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.3.0';
+let PKG_VERSION = '1.7.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -401,59 +401,13 @@ function findAntigravityExecutable() {
   }
 }
 
-async function handleRestart(cfg) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
-  console.log(`\n${C.bold}${C.brightCyan}🔄 Restarting Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
-
-  if (isAntigravityRunning()) {
-    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes...${C.reset}`);
-    killAntigravity();
-    await new Promise(r => setTimeout(r, 1500));
-  } else {
-    console.log(`  ${C.dim}No existing Antigravity IDE process running.${C.reset}`);
-  }
-
-  return handleLaunch(cfg);
-}
-
-async function handleLaunch(cfg) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
-  const isForce = process.argv.includes('--force') || process.argv.includes('-f') || process.argv.includes('--restart');
-
-  if (isForce && isAntigravityRunning()) {
-    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes (--force)...${C.reset}`);
-    killAntigravity();
-    await new Promise(r => setTimeout(r, 1200));
-  }
-
-  if (!isForce) {
-    const endpoints = await findCdpEndpoints(port, []);
-    if (endpoints.length > 0) {
-      console.log(`\n  ${C.yellow}ℹ Antigravity IDE is already running and connected on port ${port}!${C.reset}`);
-      console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to start the confirmation daemon.${C.reset}`);
-      console.log(`  ${C.dim}(To force restart anyway, run: ${C.bold}auto-accept restart${C.reset}${C.dim})${C.reset}\n`);
-      process.exit(0);
-    }
-
-    if (isAntigravityRunning()) {
-      console.log(`\n  ${C.bold}${C.yellow}⚠️ Antigravity IDE is already running WITHOUT remote debugging enabled!${C.reset}`);
-      console.log(`  ${C.dim}Chromium cannot attach port ${port} to an already-running process.${C.reset}\n`);
-      console.log(`  ${C.bold}👉 To fix this instantly:${C.reset}`);
-      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept restart${C.reset}  (closes old process and starts fresh with port ${port})`);
-      console.log(`     • OR close Antigravity IDE completely and run ${C.bold}${C.cyan}auto-accept launch${C.reset}\n`);
-      process.exit(1);
-    }
-  }
-
+function launchAntigravityProcess(port = 9333) {
   const exe = findAntigravityExecutable();
   if (!exe) {
-    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this machine.${C.reset}\n`);
+    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this device.${C.reset}\n`);
     printSetupInstructions();
-    process.exit(1);
+    return false;
   }
-
-  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
-  console.log(`  Executable: ${C.green}${exe}${C.reset}`);
 
   const { spawn } = require('child_process');
   let child;
@@ -469,10 +423,133 @@ async function handleLaunch(cfg) {
     });
   }
   child.unref();
+  return true;
+}
+
+async function handleRestart(cfg, shouldExit = true) {
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  console.log(`\n${C.bold}${C.brightCyan}🔄 Restarting Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+
+  if (isAntigravityRunning()) {
+    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes...${C.reset}`);
+    killAntigravity();
+    await new Promise(r => setTimeout(r, 1500));
+  } else {
+    console.log(`  ${C.dim}No existing Antigravity IDE process running.${C.reset}`);
+  }
+
+  return handleLaunch(cfg, true, shouldExit);
+}
+
+async function handleLaunch(cfg, forceRestart = false, shouldExit = true) {
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  const isForce = forceRestart || process.argv.includes('--force') || process.argv.includes('-f') || process.argv.includes('--restart') || process.argv.includes('restart');
+
+  if (isForce && isAntigravityRunning()) {
+    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes (--force)...${C.reset}`);
+    killAntigravity();
+    await new Promise(r => setTimeout(r, 1200));
+  }
+
+  if (!isForce) {
+    const endpoints = await findCdpEndpoints(port, []);
+    if (endpoints.length > 0) {
+      console.log(`\n  ${C.yellow}ℹ Antigravity IDE is already running and connected on port ${port}!${C.reset}`);
+      console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to start the confirmation daemon.${C.reset}`);
+      console.log(`  ${C.dim}(To force restart anyway, run: ${C.bold}auto-accept restart${C.reset}${C.dim})${C.reset}\n`);
+      if (shouldExit) process.exit(0);
+      return true;
+    }
+
+    if (isAntigravityRunning()) {
+      console.log(`\n  ${C.bold}${C.yellow}⚠️ Antigravity IDE is already running WITHOUT remote debugging enabled!${C.reset}`);
+      console.log(`  ${C.dim}Chromium cannot attach port ${port} to an already-running process.${C.reset}\n`);
+      console.log(`  ${C.bold}👉 To fix this instantly:${C.reset}`);
+      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept start${C.reset}    (one-command automatic start + daemon)`);
+      console.log(`     • OR run: ${C.bold}${C.cyan}auto-accept restart${C.reset}  (closes old process and starts fresh with port ${port})`);
+      console.log(`     • OR close Antigravity IDE completely and run ${C.bold}${C.cyan}auto-accept launch${C.reset}\n`);
+      if (shouldExit) process.exit(1);
+      return false;
+    }
+  }
+
+  const exe = findAntigravityExecutable();
+  if (!exe) {
+    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this machine.${C.reset}\n`);
+    printSetupInstructions();
+    if (shouldExit) process.exit(1);
+    return false;
+  }
+
+  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+  console.log(`  Executable: ${C.green}${exe}${C.reset}`);
+
+  const launched = launchAntigravityProcess(port);
+  if (!launched) {
+    if (shouldExit) process.exit(1);
+    return false;
+  }
 
   console.log(`\n${C.bold}${C.green}✔ Antigravity IDE process spawned successfully!${C.reset}`);
-  console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to begin auto-approvals.${C.reset}\n`);
-  process.exit(0);
+  console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} or ${C.bold}auto-accept start${C.reset}${C.dim} to begin auto-approvals.${C.reset}\n`);
+  if (shouldExit) process.exit(0);
+  return true;
+}
+
+// ── Subcommand: start (One-Command Easy Start for Any Device) ──
+async function handleEasyStart(cfg, configSource) {
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submit — Easy Start (All-in-One)${C.reset}`);
+  console.log(`  ${C.dim}Launching Antigravity IDE with remote debugging & connecting daemon...${C.reset}\n`);
+
+  process.stdout.write(`  ${C.bold}CDP Status:${C.reset} Scanning for active Antigravity IDE instances...\r`);
+  const endpoints = await findCdpEndpoints(port, cfg.cdpPorts || []);
+
+  if (endpoints.length > 0) {
+    const portsStr = endpoints.map(e => e.port).join(', ');
+    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.green}Connected on port ${portsStr} ✔${C.reset}                                 `);
+    console.log(`  ${C.dim}Antigravity IDE is already running with remote debugging enabled.${C.reset}\n`);
+  } else if (isAntigravityRunning()) {
+    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.yellow}Antigravity IDE running WITHOUT remote debugging port ⚠️${C.reset}   `);
+    console.log(`  ${C.cyan}🔄 Restarting Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+    killAntigravity();
+    await new Promise(r => setTimeout(r, 1500));
+    if (!launchAntigravityProcess(port)) {
+      process.exit(1);
+    }
+    console.log(`  ${C.green}✔ Relaunched Antigravity IDE with Port ${port}.${C.reset}`);
+    console.log(`  ${C.dim}Waiting for Antigravity IDE window to initialize...${C.reset}\n`);
+    await new Promise(r => setTimeout(r, 2500));
+  } else {
+    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.dim}Antigravity IDE is not running.${C.reset}                               `);
+    console.log(`  ${C.cyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+    if (!launchAntigravityProcess(port)) {
+      process.exit(1);
+    }
+    console.log(`  ${C.green}✔ Spawned Antigravity IDE with Port ${port}.${C.reset}`);
+    console.log(`  ${C.dim}Waiting for Antigravity IDE window to initialize...${C.reset}\n`);
+    await new Promise(r => setTimeout(r, 2500));
+  }
+
+  const portKey = cfg.cdpPort > 0 ? String(cfg.cdpPort) : 'auto';
+  const isForce = process.argv.includes('--force') || process.argv.includes('-f');
+  const runningPid = acquireDaemonLock(portKey, isForce);
+  if (runningPid) {
+    console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.${C.reset}`);
+    console.log(`  ${C.dim}Only one daemon should manage approvals to prevent duplicate submissions.${C.reset}`);
+    console.log(`  ${C.dim}To override or replace it, stop PID ${runningPid} or run with: ${C.bold}auto-accept start --force${C.reset}\n`);
+    process.exit(0);
+  }
+  process.on('exit', () => releaseDaemonLock(portKey));
+  process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
+  process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
+
+  const daemon = new AutoSubmitDaemon(cfg, configSource);
+  daemon.start().catch((err) => {
+    releaseDaemonLock(portKey);
+    console.error(`${C.red}Fatal daemon error:${C.reset}`, err);
+    process.exit(1);
+  });
 }
 
 function handleSetup(cfg) {
@@ -579,11 +656,54 @@ function handleSetup(cfg) {
         }
       }
     }
-    if (!patched) {
-      console.log(`  ${C.bold}${C.green}✔ On Linux, launch with: ${C.cyan}auto-accept launch${C.reset} or pass ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
-    }
-  } else {
-    console.log(`  ${C.bold}${C.green}✔ On macOS, launch with: ${C.cyan}auto-accept launch${C.reset} or pass ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
+    const localBin = path.join(os.homedir(), '.local', 'bin');
+    try {
+      if (!fs.existsSync(localBin)) fs.mkdirSync(localBin, { recursive: true });
+      const wrapperPath = path.join(localBin, 'antigravity');
+      const wrapperContent = `#!/bin/sh\nexec antigravity --remote-debugging-port=${port} "$@"\n`;
+      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created Linux CLI launcher:${C.reset} ${wrapperPath}`);
+      patched = true;
+    } catch (e) {}
+
+    console.log(`  ${C.bold}${C.green}✔ Linux configuration ready! Launch with: ${C.cyan}auto-accept start${C.reset}\n`);
+  } else if (process.platform === 'darwin') {
+    let macPatched = false;
+    // 1. Create ~/Desktop/Antigravity IDE (Debug).command
+    const desktopCommand = path.join(os.homedir(), 'Desktop', 'Antigravity IDE (Debug).command');
+    try {
+      const scriptContent = `#!/bin/bash\nopen -a "Antigravity IDE" --args --remote-debugging-port=${port}\n`;
+      fs.writeFileSync(desktopCommand, scriptContent, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created macOS Desktop Launcher:${C.reset} ${desktopCommand}`);
+      macPatched = true;
+    } catch (e) {}
+
+    // 2. Create ~/.local/bin/antigravity wrapper
+    const localBin = path.join(os.homedir(), '.local', 'bin');
+    try {
+      if (!fs.existsSync(localBin)) fs.mkdirSync(localBin, { recursive: true });
+      const wrapperPath = path.join(localBin, 'antigravity');
+      const wrapperContent = `#!/bin/sh\nexec open -a "Antigravity IDE" --args --remote-debugging-port=${port} "$@"\n`;
+      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created macOS CLI launcher:${C.reset} ${wrapperPath}`);
+      macPatched = true;
+    } catch (e) {}
+
+    // 3. Configure ~/.zshrc shell alias
+    const zshrc = path.join(os.homedir(), '.zshrc');
+    try {
+      let zContent = fs.existsSync(zshrc) ? fs.readFileSync(zshrc, 'utf8') : '';
+      if (!zContent.includes('alias antigravity=')) {
+        const aliasLine = `\n# Antigravity IDE with Remote Debugging (auto-accept)\nalias antigravity='open -a "Antigravity IDE" --args --remote-debugging-port=${port}'\n`;
+        fs.appendFileSync(zshrc, aliasLine, 'utf8');
+        console.log(`  ${C.bold}${C.green}✔ Configured ~/.zshrc alias:${C.reset} alias antigravity='open -a "Antigravity IDE" --args --remote-debugging-port=${port}'`);
+        macPatched = true;
+      }
+    } catch (e) {}
+
+    console.log(`\n  ${C.bold}${C.cyan}👉 macOS Setup Complete!${C.reset}`);
+    console.log(`     • Double-click ${C.green}Antigravity IDE (Debug).command${C.reset} on your Desktop`);
+    console.log(`     • Or run: ${C.bold}${C.cyan}auto-accept start${C.reset} (all-in-one easy start)\n`);
   }
   process.exit(0);
 }
@@ -704,6 +824,7 @@ ${C.bold}USAGE:${C.reset}
 
 ${C.bold}COMMANDS:${C.reset}
   ${C.green}auto-accept${C.reset}               Start the auto-approval daemon (default)
+  ${C.green}auto-accept start${C.reset}         Easy Start: launch/restart IDE with debug port & connect daemon (recommended)
   ${C.green}auto-accept launch${C.reset}        Auto-launch Antigravity IDE with remote debugging port
   ${C.green}auto-accept setup${C.reset}         Auto-patch Desktop & Taskbar shortcut with --remote-debugging-port=9333
   ${C.green}auto-accept restart${C.reset}       Restart Antigravity IDE with remote debugging port enabled
@@ -926,7 +1047,9 @@ function resolveConfig() {
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
   const firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
+    binName.includes('start') ? 'start' :
     binName.includes('setup') ? 'setup' :
+    binName.includes('start') ? 'start' :
     binName.includes('launch') ? 'launch' : ''
   );
 
@@ -1115,7 +1238,6 @@ function resolveConfig() {
   if (firstArg === 'setup' || firstArg === 'patch') { handleSetup(cfg); process.exit(0); }
   if (firstArg === 'update' || firstArg === 'upgrade') { handleUpdate(); process.exit(0); }
   if (firstArg === 'uninstall' || firstArg === 'remove-all') { handleUninstall(); process.exit(0); }
-  if (firstArg === 'restart') { handleRestart(cfg).catch(err => { console.error('Restart error:', err); process.exit(1); }); return; }
   if (firstArg === 'kill' || firstArg === 'stop-ide') { killAntigravity(); console.log(`\n  ${C.green}✔ Terminated all Antigravity IDE processes.${C.reset}\n`); process.exit(0); }
   if (firstArg === 'list' || firstArg === 'rules') { handleList(cfg); process.exit(0); }
   if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') { handleAddRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
@@ -1928,7 +2050,7 @@ class AutoSubmitDaemon {
   ${C.dim}╰─────────────────────────────────────────────────────────────╯${C.reset}
   ${C.dim}Hotkeys:${C.reset}
     ${C.yellow}p${C.reset} Pause/Resume  •  ${C.yellow}m${C.reset} Mode    •  ${C.yellow}a${C.reset} Add Rule  •  ${C.yellow}r${C.reset} Remove Rule  •  ${C.yellow}l${C.reset} List Rules
-    ${C.yellow}s${C.reset} Live Stats    •  ${C.yellow}c${C.reset} Config  •  ${C.yellow}d${C.reset} Doctor    •  ${C.yellow}h${C.reset} Help (?)     •  ${C.yellow}q${C.reset} Quit
+    ${C.yellow}s${C.reset} Live Stats    •  ${C.yellow}c${C.reset} Config  •  ${C.yellow}d${C.reset} Doctor    •  ${C.yellow}R${C.reset} Restart IDE  •  ${C.yellow}h${C.reset} Help (?)     •  ${C.yellow}q${C.reset} Quit
 `);
   }
 
@@ -1954,9 +2076,12 @@ class AutoSubmitDaemon {
           if (emptyCycles >= 4 && !warnedUnpatchedRunning) {
             if (isAntigravityRunning()) {
               warnedUnpatchedRunning = true;
-              console.log(`\n  ${C.bold}${C.yellow}⚠️  Antigravity IDE is open, but port ${this.config.cdpPort} is closed!${C.reset}`);
+              const portLabel = this.config.cdpPort > 0 ? `port ${this.config.cdpPort}` : 'remote debugging port (9333)';
+              console.log(`\n  ${C.bold}${C.yellow}⚠️  Antigravity IDE is open, but ${portLabel} is closed!${C.reset}`);
               console.log(`  ${C.dim}Did you restart the IDE after running 'auto-accept setup'?${C.reset}`);
-              console.log(`  ${C.dim}👉 Run ${C.bold}${C.cyan}auto-accept restart${C.reset}${C.dim} in another terminal or restart Antigravity IDE.${C.reset}\n`);
+              console.log(`  ${C.bold}👉 To fix this right now:${C.reset}`);
+              console.log(`     • Press ${C.bold}${C.brightCyan}Shift+R${C.reset} in this terminal to restart IDE with debugging port 9333 instantly!`);
+              console.log(`     • Or run: ${C.bold}${C.cyan}auto-accept start${C.reset} (all-in-one easy start)\n`);
             }
           }
         } else {
@@ -2016,6 +2141,17 @@ class AutoSubmitDaemon {
     }
   }
 
+  async restartIdeFromTui() {
+    const port = (this.config && this.config.cdpPort > 0) ? this.config.cdpPort : 9333;
+    console.log(`\n  ${C.bold}${C.brightCyan}🔄 Hotkey triggered: Restarting Antigravity IDE with remote debugging on Port ${port}...${C.reset}`);
+    this.logEvent('info', ' RESTART ', `Restarting Antigravity IDE with Port ${port}...`, '', C.pillYellow);
+    killAntigravity();
+    await new Promise(r => setTimeout(r, 1500));
+    launchAntigravityProcess(port);
+    this.logEvent('info', ' LAUNCH ', `Antigravity IDE spawned on Port ${port}. Awaiting window...`, '', C.pillGreen);
+    console.log(`  ${C.green}✔ Antigravity IDE relaunched! Auto-connecting when window loads...${C.reset}\n`);
+  }
+
   showStats() {
     const activeSessions = Array.from(this.sessions.values());
     console.log(`
@@ -2069,6 +2205,7 @@ class AutoSubmitDaemon {
   ${C.yellow}l${C.reset}       List Rules       Displays active Ask & Skip keyword rules
   ${C.yellow}s${C.reset}       Live Stats       Displays live session approvals, lifetime approvals, and target window
   ${C.yellow}c${C.reset}       Show Config      Prints active configuration source, ports, and guardrail lists
+  ${C.yellow}R${C.reset}  (Shift+R) Restart IDE      Restarts Antigravity IDE with remote debugging port enabled
   ${C.yellow}d${C.reset}       Doctor           Runs immediate connection & environment diagnostic check
   ${C.yellow}h${C.reset} / ${C.yellow}?${C.reset}   Help Reference   Displays this hotkey guide
   ${C.yellow}q${C.reset}       Quit             Cleanly disconnects from Antigravity and exits (or Ctrl+C)
@@ -2102,6 +2239,12 @@ class AutoSubmitDaemon {
 
       const char = (key && key.name ? key.name.toLowerCase() : (str || '')).toLowerCase();
       const rawStr = str || '';
+
+      // Shift+R or R hotkey to restart Antigravity IDE with debugging port
+      if ((key && key.name === 'r' && key.shift) || rawStr === 'R') {
+        this.restartIdeFromTui();
+        return;
+      }
 
       if (char === 'q') {
         this.shutdown();
@@ -2324,7 +2467,8 @@ class AutoSubmitDaemon {
 
 // ── Main Entry ──
 if (require.main === module) {
-  const { config, configSource } = resolveConfig();
+  const resolved = resolveConfig() || { config: { ...DEFAULTS }, configSource: 'default' };
+  const { config, configSource } = resolved;
 
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
   const rawFirstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
@@ -2339,6 +2483,14 @@ if (require.main === module) {
   if (firstArg === 'doctor') {
     handleDoctor(config).catch(err => {
       console.error('Doctor error:', err);
+      process.exit(1);
+    });
+    return;
+  }
+
+  if (firstArg === 'start' || process.argv.includes('--start')) {
+    handleEasyStart(config, configSource).catch(err => {
+      console.error('Easy Start error:', err);
       process.exit(1);
     });
     return;
@@ -2451,6 +2603,8 @@ module.exports = {
   handleAddRuleCli,
   handleRemoveRuleCli,
   getSaveTarget,
+  handleEasyStart,
+  launchAntigravityProcess,
   handleDoctor,
   handleLaunch,
   handleSetup,
