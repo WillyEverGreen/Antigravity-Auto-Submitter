@@ -5,6 +5,30 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-09-28
+
+### Added
+- **Full Antigravity Standalone App Support & Dual-Product Compatibility**:
+  - Differentiated between **Antigravity IDE** (`Antigravity IDE.exe`, VS Code fork on port `9333`) and **Antigravity App** (`Antigravity.exe`, standalone desktop interface on port `9334`).
+  - Allocated distinct default ports (IDE: `9333`, App: `9334`) ensuring both applications can run side-by-side without port collision.
+  - Multi-port concurrent discovery (`findCdpEndpoints`) now scans and attaches to all open workbench windows across both applications simultaneously.
+- **Enhanced Target Selection (`selectAllWorkbenchTargets`)**:
+  - Added support for internal language server endpoints (`https://127.0.0.1:<port>/` and `http://localhost:<port>/`) served by Antigravity App's embedded engine.
+  - Enforced strict loopback verification to guarantee external internet browser tabs and web documentation are never attached.
+- **Extended DOM Button Recognition**:
+  - Added Antigravity App specific action labels: `Always Allow`, `Allow Once`, `Run command`, `Always run`, `Run (unsandboxed)`, `Proceed with Plan`, and `Accept Step`.
+  - Added prefix-tolerant matching for dynamic compound button labels.
+- **False-Positive Task Log & Loop Immunity**:
+  - Eliminated infinite click loops on completed task accordions in conversation history (e.g. `"Run pnpm install and pnpm build finished"`).
+  - Added strict action label length validation (`<= 30` chars), negative filters for completed task states (`finished`, `completed`, `failed`, `succeeded`, `running`, `cancelled`, `timed out`, `exit code`, etc.), and accordion `aria-expanded` rejection.
+  - Replaced generic prefix matching with exact and keyboard-accelerator-normalized label matching.
+  - Removed 3-second DOM unmarking timeout so clicked elements remain permanently debounced in the DOM.
+  - Added session-level duplicate approval throttling within 4 seconds for identical actions and context.
+- **Dual-Product CLI Tools (`setup`, `doctor`, `restart`, `start`)**:
+  - `auto-accept setup`: automatically patches and creates desktop shortcuts for both `Antigravity IDE` (`--remote-debugging-port=9333`) and `Antigravity` (`--remote-debugging-port=9334`).
+  - `auto-accept doctor`: displays individual running status and port diagnostic checks for both IDE and App with actionable recovery notes.
+  - `auto-accept restart [ide|app|all]` and `auto-accept start [ide|app]`: targeted lifecycle management for individual products.
+
 ## [1.8.0] - 2026-09-28
 
 ### Added

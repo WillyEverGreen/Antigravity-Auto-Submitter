@@ -787,6 +787,109 @@ print("Brain query safety tests passed")
   assert(res.status === 0, `Python brain test failed: ${res.stderr || res.stdout}`);
 });
 
+// ── 30. Antigravity App Target Recognition & Dual-Window Support ──
+it('selectAllWorkbenchTargets accurately recognizes Antigravity App windows served over 127.0.0.1 and localhost', () => {
+  const mockTargets = [
+    // Antigravity IDE
+    { id: 'ide1', type: 'page', title: 'my-project - Antigravity IDE', url: 'vscode-file://vscode-app/workbench.html', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/ide1' },
+    // Antigravity Standalone App (served by language_server on dynamic local port)
+    { id: 'app1', type: 'page', title: 'Antigravity', url: 'https://127.0.0.1:52374/', webSocketDebuggerUrl: 'ws://127.0.0.1:9334/app1' },
+    // Browser tabs that must still be ignored
+    { id: 'web1', type: 'page', title: 'Antigravity Docs', url: 'https://antigravity.google.com/docs', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/web1' },
+    { id: 'web2', type: 'page', title: 'React App on Localhost', url: 'http://localhost:3000/', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/web2' },
+    { id: 'web3', type: 'page', title: 'Local Web Server', url: 'https://127.0.0.1:8080/dashboard', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/web3' }
+  ];
+
+  const selected = selectAllWorkbenchTargets(mockTargets);
+  assert.strictEqual(selected.length, 2, 'Should match both Antigravity IDE and Antigravity App windows');
+  assert.strictEqual(selected[0].id, 'ide1');
+  assert.strictEqual(selected[1].id, 'app1');
+});
+
+// ── 31. Antigravity App Button Matching in buildScannerScript ──
+it('buildScannerScript detects and clicks Antigravity App buttons ("Always Allow", "Run command")', () => {
+  const cfg = { mode: 'autonomous', askKeywords: [], skipKeywords: [] };
+  const script = buildScannerScript(cfg);
+
+  let clickedBtn = null;
+  const mockAlwaysAllowBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Always Allow',
+    className: 'btn-allow',
+    getBoundingClientRect: () => ({ width: 90, height: 32 }),
+    click: function() { clickedBtn = 'Always Allow'; },
+    dispatchEvent: () => {},
+    parentElement: null
+  };
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: (sel) => {
+        if (sel.includes('button')) return [mockAlwaysAllowBtn];
+        return [];
+      },
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' })
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner should find and click button');
+  assert.strictEqual(clickedBtn, 'Always Allow');
+  assert.strictEqual(result.blocked, false);
+});
+
+// ── 32. Executable Discovery for Dual Products ──
+it('findAntigravityExecutables returns detection object for ide and app', () => {
+  const { findAntigravityExecutables } = require('../auto-accept.js');
+  assert.strictEqual(typeof findAntigravityExecutables, 'function');
+  const exes = findAntigravityExecutables();
+  assert(typeof exes === 'object' && exes !== null);
+  assert('ide' in exes);
+  assert('app' in exes);
+});
+
+// ── 33. Completed Task Accordions & Log Buttons Exclusion ──
+it('buildScannerScript strictly ignores completed task logs and accordions', () => {
+  const cfg = { mode: 'autonomous', askKeywords: [], skipKeywords: [] };
+  const script = buildScannerScript(cfg);
+
+  let clicked = false;
+  const mockCompletedBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Run pnpm install and pnpm build finished',
+    className: 'terminal-header accordion-toggle',
+    disabled: false,
+    getAttribute: (attr) => attr === 'aria-expanded' ? 'false' : null,
+    getBoundingClientRect: () => ({ width: 300, height: 32 }),
+    click: () => { clicked = true; },
+    dispatchEvent: () => {},
+    parentElement: null
+  };
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: (sel) => sel.includes('button') ? [mockCompletedBtn] : [],
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' })
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const outcome = vm.runInNewContext(script, sandbox);
+  assert.strictEqual(outcome, null, 'Must ignore completed task logs');
+  assert.strictEqual(clicked, false, 'Must not click completed task logs');
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

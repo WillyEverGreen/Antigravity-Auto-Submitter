@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.8.0';
+let PKG_VERSION = '1.8.1';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -232,11 +232,18 @@ async function handleDoctor(cfg, shouldExit = true) {
   }
   console.log(`  ${C.bold}Python Runtime:${C.reset}     ${pyVersion ? `${pyVersion} ${C.green}✔${C.reset}` : `${C.yellow}Not found ⚠️ (Needed for audit & clean suite)${C.reset}`}`);
 
-  // 3. IDE Executable check
-  const exe = findAntigravityExecutable();
-  console.log(`  ${C.bold}IDE Executable:${C.reset}     ${exe ? `${C.cyan}${cleanStr(exe, 60)}${C.reset} ${C.green}✔${C.reset}` : `${C.yellow}Not detected in standard paths ⚠️${C.reset}`}`);
+  // 3. Executables check (Both IDE & App)
+  const exes = findAntigravityExecutables();
+  console.log(`  ${C.bold}Antigravity IDE:${C.reset}    ${exes.ide ? `${C.cyan}${cleanStr(exes.ide, 60)}${C.reset} ${C.green}✔${C.reset}` : `${C.dim}Not detected in standard paths${C.reset}`}`);
+  console.log(`  ${C.bold}Antigravity App:${C.reset}    ${exes.app ? `${C.cyan}${cleanStr(exes.app, 60)}${C.reset} ${C.green}✔${C.reset}` : `${C.dim}Not detected in standard paths${C.reset}`}`);
 
-  // 4. CDP Port check
+  // 4. Process Status check
+  const running = getRunningAntigravity();
+  const ideStateStr = running.ide ? `${C.green}RUNNING${C.reset}` : `${C.dim}CLOSED${C.reset}`;
+  const appStateStr = running.app ? `${C.green}RUNNING${C.reset}` : `${C.dim}CLOSED${C.reset}`;
+  console.log(`  ${C.bold}Running State:${C.reset}      IDE: ${ideStateStr}  |  App: ${appStateStr}`);
+
+  // 5. CDP Port check
   process.stdout.write(`  ${C.bold}CDP Port Status:${C.reset}    Scanning active ports & windows...\r`);
   const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
 
@@ -248,26 +255,40 @@ async function handleDoctor(cfg, shouldExit = true) {
       const targets = selectAllWorkbenchTargets(ep.targets);
       targets.forEach(t => {
         winCount++;
-        console.log(`  ${C.bold}Window [${winCount}]:${C.reset}         ${C.cyan}"${cleanStr(t.title || 'Antigravity IDE', 60)}"${C.reset} (Port ${ep.port}) ✔`);
+        console.log(`  ${C.bold}Window [${winCount}]:${C.reset}         ${C.cyan}"${cleanStr(t.title || 'Antigravity', 60)}"${C.reset} (Port ${ep.port}) ✔`);
       });
     });
     console.log(`  ${C.bold}Confirmation Engine:${C.reset}${C.green} Ready for multi-window auto-approvals! (${winCount} window(s)) ✔${C.reset}\n`);
+
+    const connectedPorts = endpoints.map(e => e.port);
+    if (running.app && !connectedPorts.includes(9334)) {
+      console.log(`  ${C.yellow}ℹ  Note: Antigravity App is running, but port 9334 is closed.${C.reset}`);
+      console.log(`     ${C.dim}To enable auto-approvals in Antigravity App: close it and launch from its Desktop/Start Menu shortcut, or run 'auto-accept restart app'.${C.reset}\n`);
+    }
+    if (running.ide && !connectedPorts.includes(9333)) {
+      console.log(`  ${C.yellow}ℹ  Note: Antigravity IDE is running, but port 9333 is closed.${C.reset}`);
+      console.log(`     ${C.dim}To enable auto-approvals in Antigravity IDE: close it and launch from its Desktop/Start Menu shortcut, or run 'auto-accept restart ide'.${C.reset}\n`);
+    }
     console.log(`  ${C.bold}${C.green}Status:${C.reset} All systems operational! Run ${C.bold}auto-accept${C.reset} to start the daemon.\n`);
   } else {
     console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.yellow}No active port detected ⚠️${C.reset}                                     \n`);
-    const isRunning = isAntigravityRunning();
-    console.log(`  ${C.bold}Process Status:${C.reset}     ${isRunning ? `${C.yellow}Antigravity IDE is RUNNING (without debug port) ⚠️${C.reset}` : `${C.dim}Antigravity IDE is not running${C.reset}`}\n`);
 
-    if (isRunning) {
+    if (running.any) {
       console.log(`  ${C.bold}${C.red}✗ ROOT CAUSE IDENTIFIED:${C.reset}`);
-      console.log(`  Antigravity IDE is currently open, but was started without ${C.yellow}--remote-debugging-port=9333${C.reset}.`);
-      console.log(`  Chromium cannot attach a debugging port to an already-running process.\n`);
+      if (running.ide && running.app) {
+        console.log(`  Both Antigravity IDE and Antigravity App are running, but their debugging ports are inactive.`);
+        console.log(`  (Note: IDE requires port ${C.yellow}9333${C.reset} and App requires port ${C.yellow}9334${C.reset} to avoid port collisions).\n`);
+      } else if (running.app) {
+        console.log(`  Antigravity App is running, but was started without ${C.yellow}--remote-debugging-port=9334${C.reset}.`);
+        console.log(`  Chromium cannot attach a debugging port to an already-running process.\n`);
+      } else {
+        console.log(`  Antigravity IDE is running, but was started without ${C.yellow}--remote-debugging-port=9333${C.reset}.`);
+        console.log(`  Chromium cannot attach a debugging port to an already-running process.\n`);
+      }
       console.log(`  ${C.bold}👉 QUICK FIX (Choose one):${C.reset}`);
-      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept restart${C.reset} (one-command automatic restart with debugging port)`);
-      console.log(`     • OR completely close Antigravity IDE and re-open it from your configured shortcut.
-     • Ghost process check: If Antigravity was closed but still detected:
-       Open Task Manager (Details tab) or run: ${C.cyan}tasklist /FI "IMAGENAME eq Antigravity.exe"${C.reset}
-       End ONLY that specific lingering PID so you never disrupt other work or browser tabs.`);
+      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept setup${C.reset}   (automatically sets Port 9333 for IDE and Port 9334 for App shortcuts)`);
+      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept restart${C.reset} (restarts with debugging ports enabled)`);
+      console.log(`     • OR reopen Antigravity from your shortcut configured with remote debugging flags.`);
       console.log(`     • Then run: ${C.bold}${C.green}auto-accept${C.reset}\n`);
     } else {
       printSetupInstructions();
@@ -276,33 +297,64 @@ async function handleDoctor(cfg, shouldExit = true) {
   if (shouldExit) process.exit(0);
 }
 
-function isAntigravityRunning() {
+function getRunningAntigravity() {
   try {
     if (process.platform === 'win32') {
       const out = execSync('tasklist /NH 2>nul', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      return /antigravity/i.test(out);
+      const ide = /antigravity ide\.exe/i.test(out);
+      const lines = out.split(/[\r\n]+/);
+      const app = lines.some(l => /^antigravity\.exe\b/i.test(l.trim()));
+      return { ide, app, any: ide || app };
+    } else if (process.platform === 'darwin') {
+      const out = execSync('ps -A -o comm= 2>/dev/null', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const ide = /Antigravity IDE/i.test(out);
+      const app = /(^|\n)[^\n]*Antigravity\.app\/Contents\/MacOS\/Antigravity(\n|$)/i.test(out);
+      return { ide, app, any: ide || app };
     } else {
-      const out = execSync('pgrep -i antigravity 2>/dev/null', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      return !!(out && out.trim());
+      const out = execSync('ps -A -o comm= 2>/dev/null', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      const ide = /antigravity-ide/i.test(out);
+      const app = /(^|\n)antigravity(\n|$)/i.test(out);
+      return { ide, app, any: ide || app };
     }
   } catch (e) {
-    return false;
+    return { ide: false, app: false, any: false };
   }
 }
 
-function killAntigravity() {
+function isAntigravityRunning(target = 'any') {
+  const r = getRunningAntigravity();
+  if (target === 'ide') return r.ide;
+  if (target === 'app') return r.app;
+  return r.any;
+}
+
+function killAntigravity(target = 'all') {
   try {
     if (process.platform === 'win32') {
-      try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
-      try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+      if (target === 'all' || target === 'ide') {
+        try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+      }
+      if (target === 'all' || target === 'app') {
+        try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+      }
       try {
         const psKillChrome = 'Get-CimInstance Win32_Process -Filter "name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*antigravity-browser-profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }';
         execSync(`powershell -NoProfile -NonInteractive -Command "${psKillChrome}" 2>nul`, { stdio: 'ignore', timeout: 3000 });
       } catch (e) {}
     } else if (process.platform === 'darwin') {
-      try { execSync('pkill -9 -f Antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      if (target === 'all' || target === 'ide') {
+        try { execSync('pkill -9 -f "Antigravity IDE" 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      }
+      if (target === 'all' || target === 'app') {
+        try { execSync('pkill -9 -f "Antigravity" 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      }
     } else {
-      try { execSync('pkill -9 -f antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      if (target === 'all' || target === 'ide') {
+        try { execSync('pkill -9 -f antigravity-ide 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      }
+      if (target === 'all' || target === 'app') {
+        try { execSync('pkill -9 -f antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+      }
     }
     return true;
   } catch (e) {
@@ -310,7 +362,100 @@ function killAntigravity() {
   }
 }
 
-function findAntigravityExecutable() {
+function findAntigravityExecutables() {
+  const result = { ide: null, app: null };
+
+  if (process.platform === 'win32') {
+    const ideCandidates = [
+      process.env.ANTIGRAVITY_IDE_EXE,
+      process.env.ANTIGRAVITY_IDE_PATH,
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe')
+    ].filter(Boolean);
+
+    const appCandidates = [
+      process.env.ANTIGRAVITY_APP_EXE,
+      process.env.ANTIGRAVITY_APP_PATH,
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity', 'Antigravity.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Antigravity', 'Antigravity.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity', 'Antigravity.exe'),
+      path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity', 'Antigravity.exe')
+    ].filter(Boolean);
+
+    result.ide = ideCandidates.find(c => fs.existsSync(c)) || null;
+    result.app = appCandidates.find(c => fs.existsSync(c)) || null;
+
+    if (!result.ide || !result.app) {
+      try {
+        const psFind = `
+          $shell = New-Object -ComObject WScript.Shell
+          $dirs = @(
+            [Environment]::GetFolderPath('Desktop'),
+            (Join-Path $env:USERPROFILE 'Desktop'),
+            (Join-Path $env:USERPROFILE 'OneDrive\\Desktop'),
+            [Environment]::GetFolderPath('Programs'),
+            [Environment]::GetFolderPath('CommonPrograms')
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          $foundIde = ''
+          $foundApp = ''
+          foreach ($d in $dirs) {
+            Get-ChildItem -Path $d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                $target = $shell.CreateShortcut($_.FullName).TargetPath
+                if ($target -and (Test-Path $target)) {
+                  if (!$foundIde -and ($target -like "*Antigravity IDE*.exe")) { $foundIde = $target }
+                  elseif (!$foundApp -and ($target -like "*Antigravity*.exe") -and ($target -notlike "*Antigravity IDE*")) { $foundApp = $target }
+                }
+              } catch {}
+            }
+          }
+          Write-Output "IDE:$foundIde"
+          Write-Output "APP:$foundApp"
+        `;
+        const lines = execSync(`powershell -NoProfile -Command "${psFind.replace(/[\r\n]+/g, '; ')}"`, { encoding: 'utf8' }).trim().split(/[\r\n]+/);
+        lines.forEach(l => {
+          if (l.startsWith('IDE:') && !result.ide) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.ide = p; }
+          if (l.startsWith('APP:') && !result.app) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.app = p; }
+        });
+      } catch (e) {}
+    }
+  } else if (process.platform === 'darwin') {
+    const ideCandidates = [
+      '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE',
+      path.join(os.homedir(), 'Applications', 'Antigravity IDE.app', 'Contents', 'MacOS', 'Antigravity IDE'),
+      '/Applications/Antigravity IDE.app'
+    ];
+    const appCandidates = [
+      '/Applications/Antigravity.app/Contents/MacOS/Antigravity',
+      path.join(os.homedir(), 'Applications', 'Antigravity.app', 'Contents', 'MacOS', 'Antigravity'),
+      '/Applications/Antigravity.app'
+    ];
+    result.ide = ideCandidates.find(c => fs.existsSync(c)) || null;
+    result.app = appCandidates.find(c => fs.existsSync(c)) || null;
+  } else {
+    // Linux
+    const ideCandidates = [
+      '/opt/Antigravity IDE/antigravity',
+      path.join(os.homedir(), '.local', 'bin', 'antigravity-ide'),
+      '/usr/bin/antigravity-ide'
+    ];
+    const appCandidates = [
+      '/usr/bin/antigravity',
+      '/usr/local/bin/antigravity',
+      '/opt/Antigravity/antigravity',
+      path.join(os.homedir(), '.local', 'bin', 'antigravity'),
+      '/snap/bin/antigravity'
+    ];
+    result.ide = ideCandidates.find(c => fs.existsSync(c)) || null;
+    result.app = appCandidates.find(c => fs.existsSync(c)) || null;
+  }
+
+  return result;
+}
+
+function findAntigravityExecutable(type = 'auto') {
   if (process.env.ANTIGRAVITY_PATH && fs.existsSync(process.env.ANTIGRAVITY_PATH)) {
     return process.env.ANTIGRAVITY_PATH;
   }
@@ -318,100 +463,16 @@ function findAntigravityExecutable() {
     return process.env.ANTIGRAVITY_EXE;
   }
 
-  if (process.platform === 'win32') {
-    const candidates = [
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
-      path.join(process.env.PROGRAMFILES || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
-      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity', 'Antigravity.exe'),
-      path.join(process.env.PROGRAMFILES || '', 'Antigravity', 'Antigravity.exe'),
-      path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe')
-    ];
-    const found = candidates.find(c => fs.existsSync(c));
-    if (found) return found;
-
-    try {
-      const out = execSync('where antigravity 2>nul', { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-    try {
-      const out = execSync('where "Antigravity IDE" 2>nul', { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-
-    // Fallback: Check existing Desktop, Start Menu, and Taskbar shortcuts for target executable
-    try {
-      const psFind = `
-        $shell = New-Object -ComObject WScript.Shell
-        $taskbar = Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
-        $dirs = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('CommonPrograms'), $taskbar)
-        foreach ($d in $dirs) {
-          if (Test-Path $d) {
-            Get-ChildItem -Path $d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-              try {
-                $target = $shell.CreateShortcut($_.FullName).TargetPath
-                if ($target -and (Test-Path $target) -and ($target -like "*Antigravity*.exe")) {
-                  Write-Output $target
-                  exit 0
-                }
-              } catch {}
-            }
-          }
-        }
-      `;
-      const out = execSync(`powershell -NoProfile -Command "${psFind.replace(/[\r\n]+/g, '; ')}"`, { encoding: 'utf8' }).trim().split(/[\r\n]+/)[0];
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-
-    return null;
-  } else if (process.platform === 'darwin') {
-    const candidates = [
-      '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE',
-      '/Applications/Antigravity.app/Contents/MacOS/Antigravity',
-      path.join(os.homedir(), 'Applications', 'Antigravity IDE.app', 'Contents', 'MacOS', 'Antigravity IDE'),
-      path.join(os.homedir(), 'Applications', 'Antigravity.app', 'Contents', 'MacOS', 'Antigravity'),
-      '/Applications/Antigravity IDE.app',
-      '/Applications/Antigravity.app'
-    ];
-    const found = candidates.find(c => fs.existsSync(c));
-    if (found) return found;
-    try {
-      const out = execSync('which antigravity 2>/dev/null', { encoding: 'utf8' }).trim();
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-    try {
-      const out = execSync('mdfind "kMDItemFSName == \'Antigravity*.app\'" 2>/dev/null', { encoding: 'utf8' }).trim().split('\n')[0];
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-    return null;
-  } else {
-    // Linux
-    const candidates = [
-      '/usr/bin/antigravity',
-      '/usr/local/bin/antigravity',
-      '/opt/Antigravity/antigravity',
-      '/opt/Antigravity IDE/antigravity',
-      path.join(os.homedir(), '.local', 'bin', 'antigravity'),
-      '/snap/bin/antigravity'
-    ];
-    const found = candidates.find(c => fs.existsSync(c));
-    if (found) return found;
-    try {
-      const out = execSync('which antigravity 2>/dev/null', { encoding: 'utf8' }).trim();
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-    try {
-      const out = execSync('which antigravity-ide 2>/dev/null', { encoding: 'utf8' }).trim();
-      if (out && fs.existsSync(out)) return out;
-    } catch (e) {}
-    return 'antigravity';
-  }
+  const { ide, app } = findAntigravityExecutables();
+  if (type === 'app') return app || ide;
+  if (type === 'ide') return ide || app;
+  return ide || app;
 }
 
-function launchAntigravityProcess(port = 9333) {
-  const exe = findAntigravityExecutable();
+function launchAntigravityProcess(port = 9333, target = 'auto') {
+  const exe = findAntigravityExecutable(target);
   if (!exe) {
-    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this device.${C.reset}\n`);
+    console.error(`\n${C.red}✗ Could not automatically locate Antigravity (${target}) executable on this device.${C.reset}\n`);
     printSetupInstructions();
     return false;
   }
@@ -435,107 +496,125 @@ function launchAntigravityProcess(port = 9333) {
 }
 
 async function handleRestart(cfg, shouldExit = true) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
-  console.log(`\n${C.bold}${C.brightCyan}🔄 Restarting Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+  const args = process.argv.slice(2).map(a => a.toLowerCase());
+  const isApp = args.includes('app') || args.includes('--app');
+  const isIde = args.includes('ide') || args.includes('--ide');
+  const target = isApp ? 'app' : (isIde ? 'ide' : 'auto');
+  const defaultPort = target === 'app' ? 9334 : 9333;
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : defaultPort;
+  const targetName = target === 'app' ? 'Antigravity App' : (target === 'ide' ? 'Antigravity IDE' : 'Antigravity');
 
-  if (isAntigravityRunning()) {
-    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes...${C.reset}`);
-    killAntigravity();
+  console.log(`\n${C.bold}${C.brightCyan}🔄 Restarting ${targetName} with remote debugging enabled on Port ${port}...${C.reset}`);
+
+  if (isAntigravityRunning(target)) {
+    console.log(`  ${C.yellow}Closing existing ${targetName} process...${C.reset}`);
+    killAntigravity(target);
     await new Promise(r => setTimeout(r, 1500));
   } else {
-    console.log(`  ${C.dim}No existing Antigravity IDE process running.${C.reset}`);
+    console.log(`  ${C.dim}No existing ${targetName} process running.${C.reset}`);
   }
 
-  return handleLaunch(cfg, true, shouldExit);
+  return handleLaunch(cfg, true, shouldExit, target, port);
 }
 
-async function handleLaunch(cfg, forceRestart = false, shouldExit = true) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
-  const isForce = forceRestart || process.argv.includes('--force') || process.argv.includes('-f') || process.argv.includes('--restart') || process.argv.includes('restart');
+async function handleLaunch(cfg, forceRestart = false, shouldExit = true, explicitTarget = null, explicitPort = null) {
+  const args = process.argv.slice(2).map(a => a.toLowerCase());
+  const target = explicitTarget || (args.includes('app') || args.includes('--app') ? 'app' : (args.includes('ide') || args.includes('--ide') ? 'ide' : 'auto'));
+  const defaultPort = target === 'app' ? 9334 : 9333;
+  const port = explicitPort || ((cfg && cfg.cdpPort > 0) ? cfg.cdpPort : defaultPort);
+  const targetName = target === 'app' ? 'Antigravity App' : (target === 'ide' ? 'Antigravity IDE' : 'Antigravity');
 
-  if (isForce && isAntigravityRunning()) {
-    console.log(`  ${C.yellow}Closing existing Antigravity IDE processes (--force)...${C.reset}`);
-    killAntigravity();
+  const isForce = forceRestart || args.includes('--force') || args.includes('-f') || args.includes('--restart') || args.includes('restart');
+
+  if (isForce && isAntigravityRunning(target)) {
+    console.log(`  ${C.yellow}Closing existing ${targetName} processes (--force)...${C.reset}`);
+    killAntigravity(target);
     await new Promise(r => setTimeout(r, 1200));
   }
 
   if (!isForce) {
     const endpoints = await findCdpEndpoints(port, []);
     if (endpoints.length > 0) {
-      console.log(`\n  ${C.yellow}ℹ Antigravity IDE is already running and connected on port ${port}!${C.reset}`);
+      console.log(`\n  ${C.yellow}ℹ ${targetName} is already running and connected on port ${port}!${C.reset}`);
       console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to start the confirmation daemon.${C.reset}`);
-      console.log(`  ${C.dim}(To force restart anyway, run: ${C.bold}auto-accept restart${C.reset}${C.dim})${C.reset}\n`);
+      console.log(`  ${C.dim}(To force restart anyway, run: ${C.bold}auto-accept restart ${target !== 'auto' ? target : ''}${C.reset}${C.dim})${C.reset}\n`);
       if (shouldExit) process.exit(0);
       return true;
     }
 
-    if (isAntigravityRunning()) {
-      console.log(`\n  ${C.bold}${C.yellow}⚠️ Antigravity IDE is already running WITHOUT remote debugging enabled!${C.reset}`);
+    if (isAntigravityRunning(target)) {
+      console.log(`\n  ${C.bold}${C.yellow}⚠️ ${targetName} is already running WITHOUT remote debugging enabled!${C.reset}`);
       console.log(`  ${C.dim}Chromium cannot attach port ${port} to an already-running process.${C.reset}\n`);
       console.log(`  ${C.bold}👉 To fix this instantly:${C.reset}`);
-      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept start${C.reset}    (one-command automatic start + daemon)`);
-      console.log(`     • OR run: ${C.bold}${C.cyan}auto-accept restart${C.reset}  (closes old process and starts fresh with port ${port})`);
-      console.log(`     • OR close Antigravity IDE completely and run ${C.bold}${C.cyan}auto-accept launch${C.reset}\n`);
+      console.log(`     • Run: ${C.bold}${C.cyan}auto-accept restart ${target !== 'auto' ? target : ''}${C.reset}  (closes old process and starts fresh with port ${port})`);
+      console.log(`     • OR close ${targetName} completely and run ${C.bold}${C.cyan}auto-accept launch ${target !== 'auto' ? target : ''}${C.reset}\n`);
       if (shouldExit) process.exit(1);
       return false;
     }
   }
 
-  const exe = findAntigravityExecutable();
+  const exe = findAntigravityExecutable(target);
   if (!exe) {
-    console.error(`\n${C.red}✗ Could not automatically locate Antigravity IDE executable on this machine.${C.reset}\n`);
+    console.error(`\n${C.red}✗ Could not automatically locate ${targetName} executable on this machine.${C.reset}\n`);
     printSetupInstructions();
     if (shouldExit) process.exit(1);
     return false;
   }
 
-  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
+  console.log(`\n${C.bold}${C.brightCyan}🚀 Auto-launching ${targetName} with remote debugging enabled on Port ${port}...${C.reset}`);
   console.log(`  Executable: ${C.green}${exe}${C.reset}`);
 
-  const launched = launchAntigravityProcess(port);
+  const launched = launchAntigravityProcess(port, target);
   if (!launched) {
     if (shouldExit) process.exit(1);
     return false;
   }
 
-  console.log(`\n${C.bold}${C.green}✔ Antigravity IDE process spawned successfully!${C.reset}`);
-  console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} or ${C.bold}auto-accept start${C.reset}${C.dim} to begin auto-approvals.${C.reset}\n`);
+  console.log(`\n${C.bold}${C.green}✔ ${targetName} process spawned successfully!${C.reset}`);
+  console.log(`  ${C.dim}Run ${C.bold}auto-accept${C.reset}${C.dim} to begin auto-approvals.${C.reset}\n`);
   if (shouldExit) process.exit(0);
   return true;
 }
 
 // ── Subcommand: start (One-Command Easy Start for Any Device) ──
 async function handleEasyStart(cfg, configSource) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
-  console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submit — Easy Start (All-in-One)${C.reset}`);
-  console.log(`  ${C.dim}Launching Antigravity IDE with remote debugging & connecting daemon...${C.reset}\n`);
+  const args = process.argv.slice(2).map(a => a.toLowerCase());
+  const isApp = args.includes('app') || args.includes('--app');
+  const isIde = args.includes('ide') || args.includes('--ide');
+  const target = isApp ? 'app' : (isIde ? 'ide' : 'auto');
+  const defaultPort = target === 'app' ? 9334 : 9333;
+  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : defaultPort;
+  const targetName = target === 'app' ? 'Antigravity App' : (target === 'ide' ? 'Antigravity IDE' : 'Antigravity');
 
-  process.stdout.write(`  ${C.bold}CDP Status:${C.reset} Scanning for active Antigravity IDE instances...\r`);
+  console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submit — Easy Start (All-in-One)${C.reset}`);
+  console.log(`  ${C.dim}Launching ${targetName} with remote debugging & connecting daemon...${C.reset}\n`);
+
+  process.stdout.write(`  ${C.bold}CDP Status:${C.reset} Scanning for active instances...\r`);
   const endpoints = await findCdpEndpoints(port, cfg.cdpPorts || []);
 
   if (endpoints.length > 0) {
     const portsStr = endpoints.map(e => e.port).join(', ');
     console.log(`  ${C.bold}CDP Status:${C.reset} ${C.green}Connected on port ${portsStr} ✔${C.reset}                                 `);
-    console.log(`  ${C.dim}Antigravity IDE is already running with remote debugging enabled.${C.reset}\n`);
-  } else if (isAntigravityRunning()) {
-    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.yellow}Antigravity IDE running WITHOUT remote debugging port ⚠️${C.reset}   `);
-    console.log(`  ${C.cyan}🔄 Restarting Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
-    killAntigravity();
+    console.log(`  ${C.dim}${targetName} is already running with remote debugging enabled.${C.reset}\n`);
+  } else if (isAntigravityRunning(target)) {
+    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.yellow}${targetName} running WITHOUT remote debugging port ⚠️${C.reset}   `);
+    console.log(`  ${C.cyan}🔄 Restarting ${targetName} with remote debugging enabled on Port ${port}...${C.reset}`);
+    killAntigravity(target);
     await new Promise(r => setTimeout(r, 1500));
-    if (!launchAntigravityProcess(port)) {
+    if (!launchAntigravityProcess(port, target)) {
       process.exit(1);
     }
-    console.log(`  ${C.green}✔ Relaunched Antigravity IDE with Port ${port}.${C.reset}`);
-    console.log(`  ${C.dim}Waiting for Antigravity IDE window to initialize...${C.reset}\n`);
+    console.log(`  ${C.green}✔ Relaunched ${targetName} with Port ${port}.${C.reset}`);
+    console.log(`  ${C.dim}Waiting for window to initialize...${C.reset}\n`);
     await new Promise(r => setTimeout(r, 2500));
   } else {
-    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.dim}Antigravity IDE is not running.${C.reset}                               `);
-    console.log(`  ${C.cyan}🚀 Auto-launching Antigravity IDE with remote debugging enabled on Port ${port}...${C.reset}`);
-    if (!launchAntigravityProcess(port)) {
+    console.log(`  ${C.bold}CDP Status:${C.reset} ${C.dim}${targetName} is not running.${C.reset}                               `);
+    console.log(`  ${C.cyan}🚀 Auto-launching ${targetName} with remote debugging enabled on Port ${port}...${C.reset}`);
+    if (!launchAntigravityProcess(port, target)) {
       process.exit(1);
     }
-    console.log(`  ${C.green}✔ Spawned Antigravity IDE with Port ${port}.${C.reset}`);
-    console.log(`  ${C.dim}Waiting for Antigravity IDE window to initialize...${C.reset}\n`);
+    console.log(`  ${C.green}✔ Spawned ${targetName} with Port ${port}.${C.reset}`);
+    console.log(`  ${C.dim}Waiting for window to initialize...${C.reset}\n`);
     await new Promise(r => setTimeout(r, 2500));
   }
 
@@ -561,75 +640,111 @@ async function handleEasyStart(cfg, configSource) {
 }
 
 function handleSetup(cfg) {
-  const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  const idePort = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9333;
+  const appPort = 9334;
   console.log(`\n${C.bold}${C.brightCyan}⚡ Antigravity Auto-Submitter — Automatic Environment Setup${C.reset}\n`);
 
   if (process.platform === 'win32') {
-    const exe = findAntigravityExecutable();
-    if (!exe) {
-      console.log(`  ${C.yellow}⚠️ Antigravity IDE executable not found in standard paths.${C.reset}`);
+    const exes = findAntigravityExecutables();
+    if (!exes.ide && !exes.app) {
+      console.log(`  ${C.yellow}⚠️ Neither Antigravity IDE nor Antigravity App executable found in standard paths.${C.reset}`);
       printSetupInstructions();
       process.exit(0);
     }
 
     const { execSync } = require('child_process');
+    const idePathSafe = (exes.ide || '').replace(/\\/g, '\\\\');
+    const appPathSafe = (exes.app || '').replace(/\\/g, '\\\\');
+
     const psScript = `
       $shell = New-Object -ComObject WScript.Shell
-      $desktop = [Environment]::GetFolderPath('Desktop')
-      $commonDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
-      $startMenu = [Environment]::GetFolderPath('Programs')
-      $commonPrograms = [Environment]::GetFolderPath('CommonPrograms')
-      $taskbar = Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
-      $scanDirs = @($desktop, $commonDesktop, $startMenu, $commonPrograms, $taskbar)
-      $updatedCount = 0
+      $desktopDirs = @(
+        [Environment]::GetFolderPath('Desktop'),
+        (Join-Path $env:USERPROFILE 'Desktop'),
+        (Join-Path $env:USERPROFILE 'OneDrive\\Desktop'),
+        [Environment]::GetFolderPath('CommonDesktopDirectory')
+      ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
 
-      # Scan Desktop, Start Menu, and Taskbar for existing Antigravity shortcuts
+      $startDirs = @(
+        [Environment]::GetFolderPath('Programs'),
+        [Environment]::GetFolderPath('CommonPrograms')
+      ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+      $taskbar = Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
+      $scanDirs = @($desktopDirs + $startDirs + @($taskbar)) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+      $ideCount = 0
+      $appCount = 0
+
       foreach ($dir in $scanDirs) {
-        if (Test-Path $dir) {
-          Get-ChildItem -Path $dir -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            try {
-              $sc = $shell.CreateShortcut($_.FullName)
-              if ($sc.TargetPath -like "*Antigravity*.exe" -or $_.Name -like "*Antigravity*") {
-                $sc.Arguments = '--remote-debugging-port=${port}'
-                $sc.Save()
-                $updatedCount++
-              }
-            } catch {}
-          }
+        Get-ChildItem -Path $dir -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+          try {
+            $sc = $shell.CreateShortcut($_.FullName)
+            $t = $sc.TargetPath
+            if ($t -like "*Antigravity IDE*.exe" -or $_.Name -like "*Antigravity IDE*") {
+              $sc.Arguments = '--remote-debugging-port=${idePort}'
+              $sc.Save()
+              $ideCount++
+            } elseif ($t -like "*Antigravity*.exe" -or $_.Name -like "*Antigravity*") {
+              $sc.Arguments = '--remote-debugging-port=${appPort}'
+              $sc.Save()
+              $appCount++
+            }
+          } catch {}
         }
       }
 
-      # Guarantee primary Desktop shortcut
-      $mainLink = Join-Path $desktop 'Antigravity IDE.lnk'
-      $scMain = $shell.CreateShortcut($mainLink)
-      $scMain.TargetPath = '${exe.replace(/'/g, "''")}'
-      $scMain.Arguments = '--remote-debugging-port=${port}'
-      $scMain.IconLocation = '${exe.replace(/'/g, "''")},0'
-      $scMain.Save()
+      $ideExe = '${idePathSafe}'
+      $appExe = '${appPathSafe}'
+
+      foreach ($d in $desktopDirs) {
+        if ($ideExe -and (Test-Path $ideExe)) {
+          $scIde = $shell.CreateShortcut((Join-Path $d 'Antigravity IDE.lnk'))
+          $scIde.TargetPath = $ideExe
+          $scIde.Arguments = '--remote-debugging-port=${idePort}'
+          $scIde.IconLocation = "$ideExe,0"
+          $scIde.Save()
+        }
+        if ($appExe -and (Test-Path $appExe)) {
+          $scApp = $shell.CreateShortcut((Join-Path $d 'Antigravity.lnk'))
+          $scApp.TargetPath = $appExe
+          $scApp.Arguments = '--remote-debugging-port=${appPort}'
+          $scApp.IconLocation = "$appExe,0"
+          $scApp.Save()
+        }
+      }
+
+      Write-Output "IDE:$ideCount"
+      Write-Output "APP:$appCount"
     `;
     try {
-      execSync(`powershell -NoProfile -Command "${psScript.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
-      console.log(`  ${C.bold}${C.green}✔ Successfully configured Desktop, Taskbar & Start Menu shortcuts for Antigravity IDE!${C.reset}`);
-      console.log(`  Target:    ${C.cyan}${exe}${C.reset}`);
-      console.log(`  Arguments: ${C.yellow}--remote-debugging-port=${port}${C.reset}\n`);
+      const b64 = Buffer.from(psScript, 'utf16le').toString('base64');
+      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore' });
+      console.log(`  ${C.bold}${C.green}✔ Successfully configured shortcuts for both Antigravity IDE & Antigravity App!${C.reset}`);
+      if (exes.ide) {
+        console.log(`    • ${C.cyan}Antigravity IDE:${C.reset} ${exes.ide} -> ${C.yellow}--remote-debugging-port=${idePort}${C.reset}`);
+      }
+      if (exes.app) {
+        console.log(`    • ${C.cyan}Antigravity App:${C.reset} ${exes.app} -> ${C.yellow}--remote-debugging-port=${appPort}${C.reset}`);
+      }
+      console.log('');
 
-      if (isAntigravityRunning()) {
+      const running = getRunningAntigravity();
+      if (running.any) {
         console.log(`  ${C.bold}${C.yellow}───────────────────────────────────────────────────────────────────────${C.reset}`);
-        console.log(`  ${C.bold}${C.yellow}⚠️  CRITICAL NEXT STEP: ANTIGRAVITY IDE IS CURRENTLY RUNNING!${C.reset}`);
+        console.log(`  ${C.bold}${C.yellow}⚠️  CRITICAL NEXT STEP: ANTIGRAVITY INSTANCE IS CURRENTLY OPEN!${C.reset}`);
         console.log(`  ${C.bold}${C.yellow}───────────────────────────────────────────────────────────────────────${C.reset}`);
         console.log(`  Chromium cannot attach a debugging port to an already-running process.`);
-        console.log(`  The shortcut updates will ${C.bold}NOT${C.reset} work until Antigravity is restarted.\n`);
+        console.log(`  Close open Antigravity windows and relaunch from your updated shortcuts.\n`);
         console.log(`  ${C.bold}👉 To complete setup (choose one):${C.reset}`);
-        console.log(`     ${C.bold}Option 1 (Auto):${C.reset}   Run: ${C.bold}${C.cyan}auto-accept restart${C.reset} (closes old process & relaunches)`);
-        console.log(`     ${C.bold}Option 2 (Manual):${C.reset} Fully CLOSE Antigravity IDE (all windows),`);
+        console.log(`     ${C.bold}Option 1 (Auto):${C.reset}   Run: ${C.bold}${C.cyan}auto-accept restart${C.reset} (closes & restarts with debug ports)`);
+        console.log(`     ${C.bold}Option 2 (Manual):${C.reset} Fully CLOSE Antigravity (IDE & App),`);
         console.log(`                         reopen from your Desktop or Taskbar shortcut,`);
         console.log(`                         then run: ${C.bold}${C.green}auto-accept${C.reset}\n`);
       } else {
         console.log(`  ${C.bold}${C.cyan}───────────────────────────────────────────────────────────────────────${C.reset}`);
         console.log(`  ${C.bold}${C.brightCyan}👉 NEXT STEP:${C.reset}`);
         console.log(`  ${C.bold}${C.cyan}───────────────────────────────────────────────────────────────────────${C.reset}`);
-        console.log(`  1. Launch Antigravity IDE from your Desktop or Taskbar shortcut`);
-        console.log(`     (or run: ${C.bold}${C.cyan}auto-accept launch${C.reset})`);
+        console.log(`  1. Launch Antigravity IDE or Antigravity App from your Desktop shortcuts`);
         console.log(`  2. In your terminal, run: ${C.bold}${C.green}auto-accept${C.reset}\n`);
       }
     } catch (e) {
@@ -650,8 +765,9 @@ function handleSetup(cfg) {
             const fPath = path.join(d, file);
             try {
               let content = fs.readFileSync(fPath, 'utf8');
+              const targetPort = file.toLowerCase().includes('ide') ? idePort : appPort;
               if (!content.includes('--remote-debugging-port')) {
-                content = content.replace(/(Exec=[^\r\n]+)/, `$1 --remote-debugging-port=${port}`);
+                content = content.replace(/(Exec=[^\r\n]+)/, `$1 --remote-debugging-port=${targetPort}`);
                 fs.writeFileSync(fPath, content, 'utf8');
                 console.log(`  ${C.bold}${C.green}✔ Updated Linux desktop entry:${C.reset} ${fPath}`);
                 patched = true;
@@ -667,53 +783,56 @@ function handleSetup(cfg) {
     const localBin = path.join(os.homedir(), '.local', 'bin');
     try {
       if (!fs.existsSync(localBin)) fs.mkdirSync(localBin, { recursive: true });
-      const wrapperPath = path.join(localBin, 'antigravity');
       const realExeCandidates = ['/usr/bin/antigravity', '/usr/local/bin/antigravity', '/opt/Antigravity/antigravity', '/opt/Antigravity IDE/antigravity', '/snap/bin/antigravity'];
-      const realExe = realExeCandidates.find(p => fs.existsSync(p)) || '/usr/bin/antigravity';
-      const wrapperContent = `#!/bin/sh\nexec "${realExe}" --remote-debugging-port=${port} "$@"\n`;
-      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
-      console.log(`  ${C.bold}${C.green}✔ Created Linux CLI launcher:${C.reset} ${wrapperPath}`);
+      const realExe = realExeCandidates.find(p => fs.existsSync(p)) || 'antigravity';
+      const wrapperIde = path.join(localBin, 'antigravity-ide');
+      fs.writeFileSync(wrapperIde, `#!/bin/sh\nexec antigravity-ide --remote-debugging-port=${idePort} "$@"\n`, { mode: 0o755 });
+      const wrapperApp = path.join(localBin, 'antigravity');
+      fs.writeFileSync(wrapperApp, `#!/bin/sh\nexec "${realExe}" --remote-debugging-port=${appPort} "$@"\n`, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created Linux CLI launchers:${C.reset} ${wrapperIde} & ${wrapperApp}`);
       patched = true;
     } catch (e) {}
 
     console.log(`  ${C.bold}${C.green}✔ Linux configuration ready! Launch with: ${C.cyan}auto-accept start${C.reset}\n`);
   } else if (process.platform === 'darwin') {
-    let macPatched = false;
-    // 1. Create ~/Desktop/Antigravity IDE (Debug).command
-    const desktopCommand = path.join(os.homedir(), 'Desktop', 'Antigravity IDE (Debug).command');
+    // 1. Create Desktop Launchers
+    const desktopIde = path.join(os.homedir(), 'Desktop', 'Antigravity IDE (Debug).command');
+    const desktopApp = path.join(os.homedir(), 'Desktop', 'Antigravity App (Debug).command');
     try {
-      const scriptContent = `#!/bin/bash\nopen -a "Antigravity IDE" --args --remote-debugging-port=${port}\n`;
-      fs.writeFileSync(desktopCommand, scriptContent, { mode: 0o755 });
-      console.log(`  ${C.bold}${C.green}✔ Created macOS Desktop Launcher:${C.reset} ${desktopCommand}`);
-      macPatched = true;
+      fs.writeFileSync(desktopIde, `#!/bin/bash\nopen -a "Antigravity IDE" --args --remote-debugging-port=${idePort}\n`, { mode: 0o755 });
+      fs.writeFileSync(desktopApp, `#!/bin/bash\nopen -a "Antigravity" --args --remote-debugging-port=${appPort}\n`, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created macOS Desktop Launchers for IDE & App${C.reset}`);
     } catch (e) {}
 
-    // 2. Create ~/.local/bin/antigravity wrapper
+    // 2. Create ~/.local/bin wrappers
     const localBin = path.join(os.homedir(), '.local', 'bin');
     try {
       if (!fs.existsSync(localBin)) fs.mkdirSync(localBin, { recursive: true });
-      const wrapperPath = path.join(localBin, 'antigravity');
-      const wrapperContent = `#!/bin/sh\nexec open -a "Antigravity IDE" --args --remote-debugging-port=${port} "$@"\n`;
-      fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
-      console.log(`  ${C.bold}${C.green}✔ Created macOS CLI launcher:${C.reset} ${wrapperPath}`);
-      macPatched = true;
+      fs.writeFileSync(path.join(localBin, 'antigravity-ide'), `#!/bin/sh\nexec open -a "Antigravity IDE" --args --remote-debugging-port=${idePort} "$@"\n`, { mode: 0o755 });
+      fs.writeFileSync(path.join(localBin, 'antigravity'), `#!/bin/sh\nexec open -a "Antigravity" --args --remote-debugging-port=${appPort} "$@"\n`, { mode: 0o755 });
+      console.log(`  ${C.bold}${C.green}✔ Created macOS CLI launchers in ~/.local/bin${C.reset}`);
     } catch (e) {}
 
-    // 3. Configure ~/.zshrc shell alias
+    // 3. Configure ~/.zshrc shell aliases
     const zshrc = path.join(os.homedir(), '.zshrc');
     try {
       let zContent = fs.existsSync(zshrc) ? fs.readFileSync(zshrc, 'utf8') : '';
+      let added = false;
       if (!zContent.includes('alias antigravity=')) {
-        const aliasLine = `\n# Antigravity IDE with Remote Debugging (auto-accept)\nalias antigravity='open -a "Antigravity IDE" --args --remote-debugging-port=${port}'\n`;
-        fs.appendFileSync(zshrc, aliasLine, 'utf8');
-        console.log(`  ${C.bold}${C.green}✔ Configured ~/.zshrc alias:${C.reset} alias antigravity='open -a "Antigravity IDE" --args --remote-debugging-port=${port}'`);
-        macPatched = true;
+        zContent += `\nalias antigravity='open -a "Antigravity" --args --remote-debugging-port=${appPort}'\n`;
+        added = true;
+      }
+      if (!zContent.includes('alias antigravity-ide=')) {
+        zContent += `alias antigravity-ide='open -a "Antigravity IDE" --args --remote-debugging-port=${idePort}'\n`;
+        added = true;
+      }
+      if (added) {
+        fs.writeFileSync(zshrc, zContent, 'utf8');
+        console.log(`  ${C.bold}${C.green}✔ Configured ~/.zshrc shell aliases for Antigravity App & IDE${C.reset}`);
       }
     } catch (e) {}
 
-    console.log(`\n  ${C.bold}${C.cyan}👉 macOS Setup Complete!${C.reset}`);
-    console.log(`     • Double-click ${C.green}Antigravity IDE (Debug).command${C.reset} on your Desktop`);
-    console.log(`     • Or run: ${C.bold}${C.cyan}auto-accept start${C.reset} (all-in-one easy start)\n`);
+    console.log(`\n  ${C.bold}${C.cyan}👉 macOS Setup Complete!${C.reset}\n`);
   }
   process.exit(0);
 }
@@ -757,28 +876,33 @@ function handleUninstall() {
   if (process.platform === 'win32') {
     const psRevert = `
       \$shell = New-Object -ComObject WScript.Shell
-      \$desktop = [Environment]::GetFolderPath('Desktop')
-      \$commonDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
-      \$startMenu = [Environment]::GetFolderPath('Programs')
-      \$commonPrograms = [Environment]::GetFolderPath('CommonPrograms')
+      \$desktopDirs = @(
+        [Environment]::GetFolderPath('Desktop'),
+        (Join-Path \$env:USERPROFILE 'Desktop'),
+        (Join-Path \$env:USERPROFILE 'OneDrive\\Desktop'),
+        [Environment]::GetFolderPath('CommonDesktopDirectory')
+      ) | Where-Object { \$_ -and (Test-Path \$_) } | Select-Object -Unique
+      \$startDirs = @(
+        [Environment]::GetFolderPath('Programs'),
+        [Environment]::GetFolderPath('CommonPrograms')
+      ) | Where-Object { \$_ -and (Test-Path \$_) } | Select-Object -Unique
       \$taskbar = Join-Path \$env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
-      \$scanDirs = @(\$desktop, \$commonDesktop, \$startMenu, \$commonPrograms, \$taskbar)
+      \$scanDirs = @(\$desktopDirs + \$startDirs + @(\$taskbar)) | Where-Object { \$_ -and (Test-Path \$_) } | Select-Object -Unique
       foreach (\$d in \$scanDirs) {
-        if (Test-Path \$d) {
-          Get-ChildItem -Path \$d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            try {
-              \$sc = \$shell.CreateShortcut(\$_.FullName)
-              if (\$sc.Arguments -like "*--remote-debugging-port*") {
-                \$sc.Arguments = ''
-                \$sc.Save()
-              }
-            } catch {}
-          }
+        Get-ChildItem -Path \$d -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+          try {
+            \$sc = \$shell.CreateShortcut(\$_.FullName)
+            if (\$sc.Arguments -like "*--remote-debugging-port*") {
+              \$sc.Arguments = ''
+              \$sc.Save()
+            }
+          } catch {}
         }
       }
     `;
     try {
-      execSync(`powershell -NoProfile -Command "${psRevert.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
+      const b64 = Buffer.from(psRevert, 'utf16le').toString('base64');
+      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore' });
       console.log(`  ${C.green}✔ Reverted Antigravity shortcut arguments to default.${C.reset}`);
     } catch (e) {}
   } else if (process.platform === 'darwin') {
@@ -843,25 +967,23 @@ function handleUninstall() {
 
 function printSetupInstructions() {
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}`);
-  console.log(`  ${C.bold}${C.brightCyan}👉 BULLETPROOF 3-STEP SETUP (Guaranteed to Work Every Time):${C.reset}`);
+  console.log(`  ${C.bold}${C.brightCyan}👉 BULLETPROOF 3-STEP SETUP (Antigravity IDE & Antigravity App):${C.reset}`);
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}\n`);
-  console.log(`  ${C.bold}1. Close Antigravity IDE completely first.${C.reset}`);
+  console.log(`  ${C.bold}1. Close Antigravity IDE and Antigravity App completely first.${C.reset}`);
   console.log(`     ${C.dim}(Chromium singleton cannot attach a debug port to an already-running process)${C.reset}\n`);
 
   if (process.platform === 'win32') {
-    console.log(`  ${C.bold}2. Add debugging port to your Antigravity Shortcut Target:${C.reset}`);
-    console.log(`     • Right-click your ${C.cyan}Antigravity IDE${C.reset} shortcut (Desktop or Taskbar) -> ${C.bold}Properties${C.reset}`);
-    console.log(`     • In the ${C.bold}Target${C.reset} field, append a space and: ${C.yellow}--remote-debugging-port=9333${C.reset}`);
-    console.log(`       ${C.dim}"...\\Antigravity.exe" --remote-debugging-port=9333${C.reset}`);
-    console.log(`     • Click OK.\n`);
+    console.log(`  ${C.bold}2. Add debugging port to your Shortcut Targets (or run 'auto-accept setup'):${C.reset}`);
+    console.log(`     • ${C.cyan}Antigravity IDE:${C.reset}  Append ${C.yellow}--remote-debugging-port=9333${C.reset} to Target`);
+    console.log(`     • ${C.cyan}Antigravity App:${C.reset}  Append ${C.yellow}--remote-debugging-port=9334${C.reset} to Target\n`);
   } else if (process.platform === 'darwin') {
     console.log(`  ${C.bold}2. Launch Antigravity with debugging port (or add shell alias):${C.reset}`);
-    console.log(`     ${C.cyan}open -a "Antigravity" --args --remote-debugging-port=9333${C.reset}`);
-    console.log(`     ${C.dim}(Or add to ~/.zshrc: alias antigravity='open -a "Antigravity" --args --remote-debugging-port=9333')${C.reset}\n`);
+    console.log(`     • IDE: ${C.cyan}open -a "Antigravity IDE" --args --remote-debugging-port=9333${C.reset}`);
+    console.log(`     • App: ${C.cyan}open -a "Antigravity" --args --remote-debugging-port=9334${C.reset}\n`);
   } else {
     console.log(`  ${C.bold}2. Launch Antigravity with debugging port (or update .desktop launcher):${C.reset}`);
-    console.log(`     ${C.cyan}antigravity --remote-debugging-port=9333${C.reset}`);
-    console.log(`     ${C.dim}(Or edit ~/.local/share/applications/antigravity.desktop: Exec=... --remote-debugging-port=9333 %U)${C.reset}\n`);
+    console.log(`     • IDE: ${C.cyan}antigravity-ide --remote-debugging-port=9333${C.reset}`);
+    console.log(`     • App: ${C.cyan}antigravity --remote-debugging-port=9334${C.reset}\n`);
   }
 
   console.log(`  ${C.bold}3. Launch Antigravity from that shortcut, then run: ${C.green}auto-accept${C.reset}\n`);
@@ -870,8 +992,8 @@ function printSetupInstructions() {
   console.log(`  If Antigravity appears closed but the port doesn't attach, a ghost background process`);
   console.log(`  may be holding the singleton lock. ${C.bold}DO NOT use blind taskkill${C.reset} (protect your browser tabs!):`);
   if (process.platform === 'win32') {
-    console.log(`    1. Find lingering PID:   ${C.cyan}tasklist /FI "IMAGENAME eq Antigravity.exe"${C.reset}`);
-    console.log(`       Or check port holder: ${C.cyan}netstat -ano | findstr :9333${C.reset}`);
+    console.log(`    1. Find lingering PID:   ${C.cyan}tasklist /FI "IMAGENAME eq Antigravity*.exe"${C.reset}`);
+    console.log(`       Or check port holder: ${C.cyan}netstat -ano | findstr :9333${C.reset} or ${C.cyan}:9334${C.reset}`);
     console.log(`    2. Open Task Manager (${C.bold}Ctrl+Shift+Esc${C.reset}) -> ${C.bold}Details${C.reset} tab.`);
     console.log(`    3. End task on ONLY that specific Antigravity PID, then relaunch from your shortcut.\n`);
   } else {
@@ -879,10 +1001,10 @@ function printSetupInstructions() {
     console.log(`    2. Terminate ONLY that PID: ${C.cyan}kill <PID>${C.reset}, then relaunch.\n`);
   }
 
-  console.log(`  ${C.dim}Convenience CLI Launchers (Optional):\n`);
+  console.log(`  ${C.dim}Convenience CLI Launchers (Optional):${C.reset}\n`);
+  console.log(`    • ${C.cyan}auto-accept setup${C.reset}   (Auto-configures IDE port 9333 and App port 9334 shortcuts)`);
   console.log(`    • ${C.cyan}auto-accept start${C.reset}   (Auto-starts IDE + daemon in one step)`);
-  console.log(`    • ${C.cyan}auto-accept restart${C.reset} (Closes and restarts IDE with port 9333)`);
-  console.log(`    • ${C.cyan}auto-accept setup${C.reset}   (Attempts automated Windows/Linux shortcut patching)\n`);
+  console.log(`    • ${C.cyan}auto-accept restart${C.reset} (Closes and restarts IDE/App with debug ports)\n`);
 }
 
 // ── Help Screen ──
@@ -1550,7 +1672,6 @@ function buildScannerScript(cfg) {
       const markClicked = (el) => {
         try {
           if (el && el.setAttribute) el.setAttribute('data-agy-clicked', 'true');
-          setTimeout(() => { try { if (el && el.removeAttribute) el.removeAttribute('data-agy-clicked'); } catch (e) {} }, 3000);
         } catch (e) {}
       };
 
@@ -1601,13 +1722,31 @@ function buildScannerScript(cfg) {
         }
       }
 
+      // ── Shared Negative Keywords for Status / Logs / History Items ──
+      const IGNORE_WORDS = [
+        'finished', 'completed', 'failed', 'succeeded', 'running',
+        'cancelled', 'canceled', 'timed out', 'exit code', 'exit status',
+        'collapse', 'expand', 'details', 'output', 'terminal', 'view'
+      ];
+
       // ── Tier 2: Autopilot mode Proceed button ──
       if (mode === 'autopilot') {
         const pbs = Array.from(document.querySelectorAll('button, a[role="button"]'));
         for (const pb of pbs) {
           if (isClicked(pb)) continue;
+          if (pb.disabled || (pb.getAttribute && pb.getAttribute('aria-disabled') === 'true')) continue;
+          if (pb.getAttribute && pb.getAttribute('aria-expanded') !== null) continue;
+
           const pt = (pb.innerText || pb.textContent || '').trim().toLowerCase();
-          if (pt === 'proceed' || pt.includes('proceed with') || pt.includes('proceed to execution')) {
+          if (pt.length === 0 || pt.length > 30) continue;
+          if (IGNORE_WORDS.some(w => pt.includes(w))) continue;
+
+          const ptClean = pt
+            .replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '')
+            .replace(/\\s*(\\((?:enter|\\d|ctrl|cmd|opt|alt|[a-z0-9\\s+-]+)\\)|\\[[a-z0-9\\s+-]+\\])$/i, '')
+            .trim();
+
+          if (ptClean === 'proceed' || ptClean.includes('proceed with') || ptClean.includes('proceed to execution')) {
             const pr = pb.getBoundingClientRect();
             if (pr.width > 5 && pr.height > 5 && window.getComputedStyle(pb).display !== 'none' && window.getComputedStyle(pb).visibility !== 'hidden') {
               const fullContent = extractContextText(pb);
@@ -1631,14 +1770,62 @@ function buildScannerScript(cfg) {
       }
 
       // ── Tier 3: Generic confirmation fallback ──
+      const TOOL_BTNS = [
+        'submit',
+        'always allow',
+        'allow once',
+        'allow this time',
+        'always run',
+        'run command',
+        'run',
+        'run js',
+        'run (unsandboxed)',
+        'run in terminal',
+        'allow',
+        'accept step',
+        'accept',
+        'continue response',
+        'continue',
+        'proceed anyway'
+      ];
+      const PLAN_BTNS = [
+        'proceed',
+        'proceed with plan',
+        'always proceed',
+        'confirm',
+        'yes',
+        'ok',
+        'accept',
+        'approve',
+        'got it',
+        'start',
+        'execute'
+      ];
+
       const candidates = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"]'));
       for (const btn of candidates) {
         if (isClicked(btn)) continue;
+        if (btn.disabled || (btn.getAttribute && btn.getAttribute('aria-disabled') === 'true')) continue;
+        if (btn.getAttribute && btn.getAttribute('aria-expanded') !== null) continue;
+
         const raw = (btn.innerText || btn.textContent || '').trim();
         const text = raw.replace(/\\s+/g, ' ').replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '').trim().toLowerCase();
-        const TOOL_BTNS = ['submit','always allow','run','run command','allow this time','allow','proceed anyway','continue','accept'];
-        const PLAN_BTNS = ['proceed','confirm','yes','ok','accept','approve','got it','start','execute'];
-        const allowed = TOOL_BTNS.includes(text) || (mode === 'autopilot' && PLAN_BTNS.includes(text));
+
+        // 1. Length guard: confirmation buttons have short, punchy action labels (<= 30 chars)
+        if (text.length === 0 || text.length > 30) continue;
+
+        // 2. Reject completed task indicators, logs, accordions, and output wrappers
+        if (IGNORE_WORDS.some(w => text.includes(w))) continue;
+
+        // 3. Strip keyboard accelerator suffixes e.g. "Submit (Enter)", "Allow (1)", "Always Allow (2)", "Run [Ctrl+Enter]"
+        const cleanLabel = text
+          .replace(/\\s*(\\((?:enter|\\d|ctrl|cmd|opt|alt|[a-z0-9\\s+-]+)\\)|\\[[a-z0-9\\s+-]+\\])$/i, '')
+          .trim();
+
+        const isTool = TOOL_BTNS.includes(text) || TOOL_BTNS.includes(cleanLabel);
+        const isPlan = mode === 'autopilot' && (PLAN_BTNS.includes(text) || PLAN_BTNS.includes(cleanLabel));
+        const allowed = isTool || isPlan;
+
         if (allowed) {
           const rect = btn.getBoundingClientRect();
           if (rect.width > 5 && rect.height > 5 && window.getComputedStyle(btn).visibility !== 'hidden' && window.getComputedStyle(btn).display !== 'none') {
@@ -1756,23 +1943,33 @@ function selectAllWorkbenchTargets(targets) {
   );
 
   // Match workbench / Antigravity editor page targets only.
-  // Never match regular web browsers (http, https, chrome://, edge://, about:)
+  // Never match regular external web browsers (chrome://, edge://, chrome-extension://, public web tabs)
+  // But DO match Antigravity IDE (vscode-file / workbench) AND Antigravity App (local language server http/https/plugin)
   const workbenchPages = validPages.filter(t => {
     const url = (t.url || '').toLowerCase();
     const title = (t.title || '').toLowerCase();
 
-    // Reject regular browser tabs and extensions
-    if (/^(https?|chrome|edge|chrome-extension|brave|about):/i.test(url)) {
+    // Reject browser-internal tabs and extensions
+    if (/^(chrome|edge|chrome-extension|brave|about):/i.test(url)) {
       return false;
     }
 
-    return (
-      url.includes('workbench') ||
-      url.includes('vscode-file') ||
-      url.includes('vscode-app') ||
-      url.includes('antigravity') ||
-      title.includes('antigravity')
-    );
+    const isAntigravityTitle = title.includes('antigravity');
+    const isAntigravityUrl = url.includes('workbench') || url.includes('vscode-file') || url.includes('vscode-app') || url.includes('antigravity') || url.startsWith('plugin://');
+    const isLocalhost = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(url);
+
+    // If it's a web URL (http/https):
+    if (/^https?:\/\//i.test(url)) {
+      // Standalone Antigravity App strictly serves its interface over loopback (127.0.0.1 / localhost).
+      // External web domains (even if browsing Antigravity documentation) must never be matched.
+      if (!isLocalhost) {
+        return false;
+      }
+      // For localhost / 127.0.0.1, accept if title or url contains antigravity/workbench
+      return isAntigravityTitle || isAntigravityUrl;
+    }
+
+    return isAntigravityUrl || isAntigravityTitle;
   });
 
   return workbenchPages;
@@ -1849,6 +2046,8 @@ class WindowSession {
     this.scanTimeout = null;
     this.reqId = 1;
     this.lastReportedBlock = '';
+    this.lastApprovalKey = '';
+    this.lastApprovalTime = 0;
     this.sessionApprovals = 0;
     this.sessionBlocks = 0;
   }
@@ -1970,6 +2169,14 @@ class WindowSession {
         }
       }
     } else {
+      const approvalKey = `${outcome.action}:${outcome.context}`;
+      const now = Date.now();
+      if (this.lastApprovalKey === approvalKey && (now - this.lastApprovalTime) < 4000) {
+        return;
+      }
+      this.lastApprovalKey = approvalKey;
+      this.lastApprovalTime = now;
+
       this.lastReportedBlock = '';
       this.sessionApprovals++;
       this.stats.recordApproval(outcome.action);
@@ -2710,6 +2917,7 @@ module.exports = {
   killAntigravity,
   isAntigravityRunning,
   findAntigravityExecutable,
+  findAntigravityExecutables,
   printSetupInstructions,
   resolveConfig
 };
