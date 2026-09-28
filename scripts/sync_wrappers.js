@@ -144,7 +144,23 @@ const globalNpmDir = path.join(process.env.APPDATA || '', 'npm/node_modules/anti
 if (fs.existsSync(globalNpmDir)) {
   fs.copyFileSync('auto-accept.js', path.join(globalNpmDir, 'auto-accept.js'));
   fs.copyFileSync('package.json', path.join(globalNpmDir, 'package.json'));
-  console.log('  ✔ Synced auto-accept.js and package.json to global npm directory');
+
+  const globalBinDir = path.join(globalNpmDir, 'bin');
+  if (!fs.existsSync(globalBinDir)) fs.mkdirSync(globalBinDir, { recursive: true });
+  fs.readdirSync('bin').forEach(f => {
+    fs.copyFileSync(path.join('bin', f), path.join(globalBinDir, f));
+  });
+
+  const globalScriptsDir = path.join(globalNpmDir, 'scripts');
+  if (!fs.existsSync(globalScriptsDir)) fs.mkdirSync(globalScriptsDir, { recursive: true });
+  fs.readdirSync('scripts').forEach(f => {
+    const srcPath = path.join('scripts', f);
+    if (f !== 'sync_wrappers.js' && fs.statSync(srcPath).isFile()) {
+      fs.copyFileSync(srcPath, path.join(globalScriptsDir, f));
+    }
+  });
+
+  console.log('  ✔ Synced auto-accept.js, package.json, bin/, and scripts/ to global npm directory');
 }
 
 // 6. Sync cleaner and brain scripts to C:\tools

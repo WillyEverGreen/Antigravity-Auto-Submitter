@@ -215,7 +215,11 @@ def display_distribution(sessions, top_n=20, full_id=False):
 
 
 def find_target_session(query, sessions):
+    if not query:
+        return None
     query_clean = query.strip().rstrip(".").rstrip()
+    if not query_clean:
+        return None
 
     # 1. Check if query is an index number (1-based)
     if query_clean.isdigit():

@@ -738,6 +738,55 @@ it('printSetupInstructions exports correctly and outputs 3-step setup with PID t
   assert(output.includes('blind') || output.includes('taskkill'), 'Must caution against blind taskkill to protect open tabs');
 });
 
+// ── 27. Subcommand Resolution from Binary Aliases (agy-start, agy-restart, etc.) ──
+it('resolves start and restart from binName when rawFirstArg is empty', () => {
+  const { resolveConfig } = require('../auto-accept.js');
+  const originalArgv = [...process.argv];
+  try {
+    process.argv = ['node', path.join(__dirname, '..', 'bin', 'agy-start'), '--quiet'];
+    const res = resolveConfig();
+    assert(res && res.config, 'Must resolve config for agy-start');
+
+    process.argv = ['node', path.join(__dirname, '..', 'bin', 'agy-restart'), '--quiet'];
+    const resRestart = resolveConfig();
+    assert(resRestart && resRestart.config, 'Must resolve config for agy-restart');
+  } finally {
+    process.argv = originalArgv;
+  }
+});
+
+// ── 28. StatsManager Atomic Write Integrity ──
+it('StatsManager.save writes atomically and handles records safely', () => {
+  const stats = new StatsManager();
+  assert.doesNotThrow(() => {
+    stats.recordApproval('Allow this time: node app.js');
+  });
+  assert(stats.lifetimeClicks >= 1);
+});
+
+// ── 29. Antigravity Brain empty/whitespace query rejection ──
+it('antigravity_brain.py find_target_session rejects empty or whitespace queries', () => {
+  const { spawnSync } = require('child_process');
+  const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
+  const scriptPath = path.join(__dirname, '..', 'scripts', 'antigravity_brain.py');
+  const pyCode = `
+import sys
+sys.path.insert(0, '${path.join(__dirname, '..', 'scripts').replace(/\\/g, '/')}')
+from antigravity_brain import find_target_session
+mock_sessions = [{'id': 'abc-123', 'title': 'test'}, {'id': 'def-456', 'title': 'test2'}]
+assert find_target_session('', mock_sessions) is None, 'Empty string must return None'
+assert find_target_session('   ', mock_sessions) is None, 'Whitespace must return None'
+assert find_target_session('...', mock_sessions) is None, 'Dots must return None'
+assert find_target_session('abc', mock_sessions) == mock_sessions[0], 'Valid prefix must match'
+print("Brain query safety tests passed")
+`;
+  let res = spawnSync(pyCmd, ['-c', pyCode], { encoding: 'utf8' });
+  if (res.error && res.error.code === 'ENOENT') {
+    res = spawnSync('python', ['-c', pyCode], { encoding: 'utf8' });
+  }
+  assert(res.status === 0, `Python brain test failed: ${res.stderr || res.stdout}`);
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

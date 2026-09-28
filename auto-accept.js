@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.7.0';
+let PKG_VERSION = '1.8.0';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -429,6 +429,7 @@ function launchAntigravityProcess(port = 9333) {
       stdio: 'ignore'
     });
   }
+  child.on('error', () => {});
   child.unref();
   return true;
 }
@@ -601,9 +602,9 @@ function handleSetup(cfg) {
       # Guarantee primary Desktop shortcut
       $mainLink = Join-Path $desktop 'Antigravity IDE.lnk'
       $scMain = $shell.CreateShortcut($mainLink)
-      $scMain.TargetPath = '${exe.replace(/\\/g, '\\\\')}'
+      $scMain.TargetPath = '${exe.replace(/'/g, "''")}'
       $scMain.Arguments = '--remote-debugging-port=${port}'
-      $scMain.IconLocation = '${exe.replace(/\\/g, '\\\\')},0'
+      $scMain.IconLocation = '${exe.replace(/'/g, "''")},0'
       $scMain.Save()
     `;
     try {
@@ -667,7 +668,9 @@ function handleSetup(cfg) {
     try {
       if (!fs.existsSync(localBin)) fs.mkdirSync(localBin, { recursive: true });
       const wrapperPath = path.join(localBin, 'antigravity');
-      const wrapperContent = `#!/bin/sh\nexec antigravity --remote-debugging-port=${port} "$@"\n`;
+      const realExeCandidates = ['/usr/bin/antigravity', '/usr/local/bin/antigravity', '/opt/Antigravity/antigravity', '/opt/Antigravity IDE/antigravity', '/snap/bin/antigravity'];
+      const realExe = realExeCandidates.find(p => fs.existsSync(p)) || '/usr/bin/antigravity';
+      const wrapperContent = `#!/bin/sh\nexec "${realExe}" --remote-debugging-port=${port} "$@"\n`;
       fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
       console.log(`  ${C.bold}${C.green}✔ Created Linux CLI launcher:${C.reset} ${wrapperPath}`);
       patched = true;
@@ -750,7 +753,7 @@ function handleUninstall() {
     } catch (e) {}
   }
 
-  // 3. Revert shortcut debugging flags on Windows
+  // 3. Revert shortcut debugging flags & remove launchers
   if (process.platform === 'win32') {
     const psRevert = `
       \$shell = New-Object -ComObject WScript.Shell
@@ -778,6 +781,53 @@ function handleUninstall() {
       execSync(`powershell -NoProfile -Command "${psRevert.replace(/[\r\n]+/g, '; ')}"`, { stdio: 'ignore' });
       console.log(`  ${C.green}✔ Reverted Antigravity shortcut arguments to default.${C.reset}`);
     } catch (e) {}
+  } else if (process.platform === 'darwin') {
+    const macDesktop = path.join(os.homedir(), 'Desktop', 'Antigravity IDE (Debug).command');
+    if (fs.existsSync(macDesktop)) {
+      try { fs.unlinkSync(macDesktop); console.log(`  ${C.green}✔ Removed macOS desktop launcher:${C.reset} ${macDesktop}`); } catch (e) {}
+    }
+    const macBin = path.join(os.homedir(), '.local', 'bin', 'antigravity');
+    if (fs.existsSync(macBin)) {
+      try { fs.unlinkSync(macBin); console.log(`  ${C.green}✔ Removed macOS CLI wrapper:${C.reset} ${macBin}`); } catch (e) {}
+    }
+    const zshrc = path.join(os.homedir(), '.zshrc');
+    if (fs.existsSync(zshrc)) {
+      try {
+        let zContent = fs.readFileSync(zshrc, 'utf8');
+        if (zContent.includes('alias antigravity=')) {
+          zContent = zContent.replace(/\n?# Antigravity IDE with Remote Debugging[^\n]*\nalias antigravity=[^\n]*\n?/g, '\n');
+          fs.writeFileSync(zshrc, zContent, 'utf8');
+          console.log(`  ${C.green}✔ Removed ~/.zshrc alias.${C.reset}`);
+        }
+      } catch (e) {}
+    }
+  } else if (process.platform === 'linux') {
+    const linuxBin = path.join(os.homedir(), '.local', 'bin', 'antigravity');
+    if (fs.existsSync(linuxBin)) {
+      try { fs.unlinkSync(linuxBin); console.log(`  ${C.green}✔ Removed Linux CLI launcher:${C.reset} ${linuxBin}`); } catch (e) {}
+    }
+    const desktopDirs = [
+      path.join(os.homedir(), '.local', 'share', 'applications'),
+      path.join(os.homedir(), 'Desktop')
+    ];
+    for (const d of desktopDirs) {
+      if (fs.existsSync(d)) {
+        try {
+          const files = fs.readdirSync(d);
+          for (const file of files) {
+            if (file.toLowerCase().includes('antigravity') && file.endsWith('.desktop')) {
+              const fPath = path.join(d, file);
+              let content = fs.readFileSync(fPath, 'utf8');
+              if (content.includes('--remote-debugging-port')) {
+                content = content.replace(/\s*--remote-debugging-port=\d+/g, '');
+                fs.writeFileSync(fPath, content, 'utf8');
+                console.log(`  ${C.green}✔ Reverted Linux desktop entry:${C.reset} ${fPath}`);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
   }
 
   // 4. Uninstall global package
@@ -889,7 +939,7 @@ ${C.bold}OPTIONS:${C.reset}
 ${C.bold}INSTANT HOTKEYS (Vite-style single-key presses):${C.reset}
   ${C.yellow}p${C.reset}  Pause / Resume approvals       ${C.yellow}m${C.reset}  Toggle Autonomous / Autopilot
   ${C.yellow}s${C.reset}  Live session & lifetime stats  ${C.yellow}c${C.reset}  Show active configuration
-  ${C.yellow}h${C.reset}  Redraw status banner           ${C.yellow}q${C.reset}  Quit daemon
+  ${C.yellow}h${C.reset}  Help reference guide           ${C.yellow}q${C.reset}  Quit daemon
 `);
   process.exit(0);
 }
@@ -1071,7 +1121,9 @@ function resolveConfig() {
     binName.includes('doctor') ? 'doctor' :
     binName.includes('start') ? 'start' :
     binName.includes('setup') ? 'setup' :
-    binName.includes('start') ? 'start' :
+    binName.includes('restart') ? 'restart' :
+    binName.includes('update') ? 'update' :
+    binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
 
@@ -1427,7 +1479,9 @@ class StatsManager {
         last_clicked: this.lastClicked,
         last_action: this.lastAction
       };
-      fs.writeFileSync(STATS_FILE, JSON.stringify(data, null, 2), 'utf8');
+      const tmpFile = `${STATS_FILE}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
+      fs.renameSync(tmpFile, STATS_FILE);
     } catch (e) {}
   }
 }
@@ -2515,6 +2569,7 @@ if (require.main === module) {
   const rawFirstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
   const firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
+    binName.includes('start') ? 'start' :
     binName.includes('setup') ? 'setup' :
     binName.includes('restart') ? 'restart' :
     binName.includes('update') ? 'update' :

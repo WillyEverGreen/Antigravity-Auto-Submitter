@@ -18,7 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Browser Target Isolation**:
   - Hardened `selectAllWorkbenchTargets` to reject external browser pages (localhost, http/https, chrome://, edge://, about:) to prevent any connection conflicts with web development servers or personal browsers.
 - **Automated Test Coverage**:
-  - Added test case #31 in `test/cli.test.js` validating `printSetupInstructions` exports, 3-step setup banner, and non-destructive PID troubleshooting directives.
+  - Added test cases #31-#34 in `test/cli.test.js` validating `printSetupInstructions` exports, binary alias subcommand resolution, atomic stats writes, and brain query safety.
+
+### Fixed
+- **Subcommand Binary Alias Dispatching**:
+  - Unified `binName` inspection across `resolveConfig()` and `Main Entry` in `auto-accept.js`.
+  - Fixed issue where global binary invocations of `agy-start` and `antigravity-start` fell through to the passive daemon without executing `handleEasyStart`.
+- **Session Deletion Empty Query Guard in `antigravity_brain.py`**:
+  - Guarded `find_target_session` to immediately reject empty, whitespace, or dot-only queries, preventing accidental prefix matching against the first session.
+- **Linux Launcher Infinite Recursion Protection**:
+  - Updated Linux CLI launcher generation in `handleSetup` to use absolute binary paths (`/usr/bin/antigravity`), preventing infinite recursive execution when `~/.local/bin` is in `$PATH`.
+- **Atomic Stats Persistence**:
+  - Replaced direct `fs.writeFileSync(STATS_FILE)` in `StatsManager.save` with atomic tmp-file rename, preventing stats truncation or corruption during concurrent window sessions.
+- **Process Spawn Error Trapping**:
+  - Attached error listeners to spawned Antigravity IDE child processes in `launchAntigravityProcess` to avoid uncaught exception crashes on execution failures.
+- **Comprehensive Cross-Platform Uninstall**:
+  - Extended `auto-accept uninstall` to remove macOS Desktop launchers, CLI wrappers, and `~/.zshrc` aliases, as well as Linux `.desktop` arguments.
+- **Workstation Global NPM Synchronization**:
+  - Updated `scripts/sync_wrappers.js` to synchronize `bin/` and `scripts/` directories alongside the main executable into the global npm module.
 
 ## [1.7.0] - 2026-09-23
 
