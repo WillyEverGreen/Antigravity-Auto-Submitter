@@ -433,6 +433,16 @@ it('selectAllWorkbenchTargets accurately returns ALL workbench pages and ignores
   assert.strictEqual(single.id, '3');
 });
 
+it('selectAllWorkbenchTargets ignores external web browser pages like localhost or chrome tabs', () => {
+  const browserTargets = [
+    { id: 'b1', type: 'page', title: 'Rayeva | Sustainable Solutions Platform', url: 'http://localhost:3000/', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/b1' },
+    { id: 'b2', type: 'page', title: 'New Tab', url: 'chrome://newtab/', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/b2' },
+    { id: 'b3', type: 'page', title: 'Google Search', url: 'https://www.google.com', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/b3' }
+  ];
+  const selected = selectAllWorkbenchTargets(browserTargets);
+  assert.strictEqual(selected.length, 0, 'Must not match external web browser pages');
+});
+
 // ── 12. Flexible Port Locking & Non-Conflicting PIDs ──
 it('getPidFilePath produces isolated lock paths per port preventing conflicts', () => {
   const autoLock = getPidFilePath('auto');
@@ -702,6 +712,30 @@ it('exports handleEasyStart and launchAntigravityProcess and handles start in ar
   } finally {
     process.argv = originalArgv;
   }
+});
+
+// ── 26. Bulletproof 3-Step Setup & PID Ghost Process Troubleshooting ──
+it('printSetupInstructions exports correctly and outputs 3-step setup with PID troubleshooting', () => {
+  const { printSetupInstructions } = require('../auto-accept.js');
+  assert.strictEqual(typeof printSetupInstructions, 'function', 'printSetupInstructions must be exported');
+
+  let output = '';
+  const origLog = console.log;
+  console.log = (...args) => {
+    output += args.join(' ') + '\n';
+  };
+
+  try {
+    printSetupInstructions();
+  } finally {
+    console.log = origLog;
+  }
+
+  assert(output.includes('BULLETPROOF 3-STEP SETUP'), 'Must display Bulletproof 3-step setup banner');
+  assert(output.includes('--remote-debugging-port=9333'), 'Must mention --remote-debugging-port=9333 flag');
+  assert(output.includes('Ghost Process'), 'Must provide ghost process troubleshooting');
+  assert(output.includes('Details') || output.includes('Task Manager'), 'Must guide user to Task Manager Details tab');
+  assert(output.includes('blind') || output.includes('taskkill'), 'Must caution against blind taskkill to protect open tabs');
 });
 
 console.log(`\nResults: ${passed}/${total} passed.`);

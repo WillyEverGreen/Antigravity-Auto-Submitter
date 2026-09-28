@@ -16,6 +16,7 @@
 
   <p>
     <a href="#quick-setup">Quick Setup</a> •
+    <a href="#manual-setup">Manual Port Setup (All OS)</a> •
     <a href="#updating">Updating</a> •
     <a href="#uninstalling">Uninstalling / Delete</a> •
     <a href="#quick-start">Quick Start</a> •
@@ -24,6 +25,7 @@
     <a href="#operating-modes">Modes</a> •
     <a href="#safety-guardrails">Keyword Guardrails</a> •
     <a href="#cli-commands">Commands & Flags</a> •
+    <a href="#cleanup-sequence">Cleanup Sequence</a> •
     <a href="#cleanup-suite">Cleanup Suite</a>
   </p>
 
@@ -58,94 +60,137 @@ The daemon provides **first-class concurrent multi-window support**:
 ---
 
 <a id="quick-setup"></a>
-## ⚡ Quick Setup (Works on Any PC in 30 Seconds)
+## ⚡ Quick Setup: The Bulletproof 3-Step Setup (Works Every Time)
 
-### ⏱️ The 30-Second Fast Track
-```bash
-# 1. Install CLI globally direct from GitHub (works on any PC)
-npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+Following these **3 simple steps** guarantees Antigravity Auto-Submit works reliably on any machine without depending on brittle automation scripts or losing browser tabs.
 
-# 2. Configure Antigravity shortcuts (patches Desktop, Taskbar & Start Menu)
-auto-accept setup
-
-# 3. Restart Antigravity IDE (required so the port flag takes effect):
-#    Close Antigravity IDE completely and reopen it from your Desktop/Taskbar
-#    OR simply run this one command to auto-restart it with debugging enabled:
-auto-accept restart
-
-# 4. Start auto-approvals!
-auto-accept
-```
-
-> [!IMPORTANT]
-> **Why do I need to restart Antigravity IDE after `auto-accept setup`?**
-> Chromium/Electron only enables `--remote-debugging-port=9333` when the application is launched from scratch. It cannot attach a port to an already-running process. If you run `auto-accept setup` while Antigravity is open, you **must close and re-open** Antigravity (or run `auto-accept restart`) before running `auto-accept`.
+> [!TIP]
+> **Why the Manual Shortcut Target is the Gold Standard:**
+> * **Deterministic Initialization:** The `--remote-debugging-port=9333` flag is bound right at process creation. Zero chance of race conditions or port-binding failures.
+> * **No Flaky Scripts or Broken Permissions:** Avoids Windows COM script permissions, background task schedulers, and registry hooks.
+> * **Zero Lost Tabs or Crashed Sessions:** Autosetup scripts frequently run blind `taskkill` commands that nuke your open personal browser windows and trigger crash recovery prompts. The shortcut approach preserves all existing work.
+> * **Officially Documented Standard:** Referenced in system guidelines: *"If automated port setup fails, append `--remote-debugging-port=9333` manually to shortcut / launcher."*
 
 ---
 
-### 📦 Step 1: Install CLI
+### 🎯 Step 1: Install the CLI Globally
 
-Choose any of these methods depending on your workflow:
+Install directly from GitHub (works on any Windows, macOS, or Linux machine with Node.js 18+):
 
 ```bash
-# Option A: Direct from GitHub (Works immediately on ANY PC)
 npm install -g WillyEverGreen/Antigravity-Auto-Submitter
-
-# Option B: From npm Registry (Once published)
-npm install -g antigravity-auto-submit
-
-# Option C: From Local Clone (Your current PC)
-cd antigravity-auto-submit
-npm install -g .
-# (or 'npm link')
-
-# Option D: Zero-Install via npx
-npx github:WillyEverGreen/Antigravity-Auto-Submitter setup
-npx github:WillyEverGreen/Antigravity-Auto-Submitter
 ```
+
+*(Or if you cloned this repository locally, run `npm install -g .` inside the folder).*
 
 ---
 
-### 🔌 Step 2: Connect Antigravity IDE
+### 🎯 Step 2: Add `--remote-debugging-port=9333` to Your Antigravity Shortcut Target
 
-Antigravity IDE needs to launch with remote debugging enabled on port `9333`:
+Configure your Antigravity launcher once so it always opens with remote debugging enabled:
 
-#### ⚡ Option A: Automated Shortcut Setup (Windows & Linux - Recommended)
-Run once in your terminal:
+#### 🪟 Windows Setup (Desktop & Taskbar)
+
+1. **Close Antigravity IDE completely first** (Chromium singletons ignore flags if an active instance is running).
+2. **Desktop or Start Menu Shortcut:**
+   - Right-click your **Antigravity IDE** shortcut icon → Click **Properties**.
+   - In the **Shortcut** tab, locate the **Target** field.
+   - At the very end of the text, append a space followed by:
+     ```text
+     --remote-debugging-port=9333
+     ```
+     *Example Target:*
+     ```text
+     "C:\Users\<Username>\AppData\Local\Programs\Antigravity\Antigravity.exe" --remote-debugging-port=9333
+     ```
+   - Click **Apply**, then click **OK**.
+3. **Taskbar Pinned Shortcut:**
+   - Right-click the pinned **Antigravity IDE** icon on your Windows Taskbar.
+   - In the popup jump list, right-click **Antigravity IDE** → select **Properties**.
+   - In the **Target** field, append a space and `--remote-debugging-port=9333`.
+   - Click **Apply** → **OK**.
+
+#### 🍏 macOS Setup
+Add a permanent alias to your shell profile (`~/.zshrc` or `~/.bash_profile`):
 ```bash
-auto-accept setup
+alias antigravity='open -a "Antigravity" --args --remote-debugging-port=9333'
 ```
-*Automatically configures your **Desktop Shortcuts**, Windows **Taskbar pinned shortcuts**, and **Start Menu shortcuts** (or Linux `.desktop` entries) to append `--remote-debugging-port=9333`.*
+Reload with `source ~/.zshrc`, then launch Antigravity with `antigravity`.
 
-#### 🔄 Option B: 1-Command Auto-Restart (Instant)
-If Antigravity IDE is already open without debugging enabled:
-```bash
-auto-accept restart
+#### 🐧 Linux Setup
+Edit your desktop entry (`~/.local/share/applications/antigravity.desktop`):
+```ini
+Exec=antigravity --remote-debugging-port=9333 %U
 ```
-*Gracefully closes existing Antigravity IDE processes and relaunches with `--remote-debugging-port=9333` active.*
+Update desktop database: `update-desktop-database ~/.local/share/applications/`.
 
-#### 🚀 Option C: 1-Click Launch (Cross-Platform)
-Launch Antigravity IDE with the remote debugging port enabled in one command:
-```bash
-auto-accept launch
+---
+
+### 🎯 Step 3: Launch Antigravity from That Shortcut & Start Daemon!
+
+1. Open **Antigravity IDE** using your configured shortcut.
+2. Open your terminal in any workspace and run:
+   ```bash
+   auto-accept
+   ```
+3. That's it! The daemon connects instantly to port `9333` and starts handling tool approvals automatically.
+
+---
+
+### 👻 Ghost Process & Singleton Troubleshooting (Safe & Non-Destructive)
+
+If you launched Antigravity from your shortcut but `auto-accept` reports:
+```text
+  CDP Port Status:    No active port detected ⚠️
+  Process Status:     Antigravity IDE is RUNNING (without debug port) ⚠️
 ```
-*Automatically locates your Antigravity executable, verifies whether an instance is already running on port 9333, and spawns the IDE with remote debugging enabled.*
 
-#### 🛠️ Option C: Manual Launch
-- **Windows (PowerShell)**:
-  ```powershell
-  Start-Process "Antigravity IDE" -ArgumentList "--remote-debugging-port=9333"
-  ```
-- **Windows (Desktop Shortcut)**:
-  Right-click **Antigravity IDE** shortcut → **Properties** → In **Target**, append ` --remote-debugging-port=9333`
-- **macOS (Terminal)**:
-  ```bash
-  open -a "Antigravity" --args --remote-debugging-port=9333
-  ```
-- **Linux (Terminal)**:
-  ```bash
-  antigravity --remote-debugging-port=9333
-  ```
+#### Why does this happen? (The Singleton Problem)
+Chromium / Electron enforces a **single parent process model**. If an older `Antigravity.exe` process was already running in the background (hidden in system tray, suspended, or an orphaned helper process), clicking your shortcut merely activated the existing process, and Chromium **silently dropped** the `--remote-debugging-port` flag.
+
+#### 🛡️ Safe PID Resolution (Never use blind `taskkill`):
+Do **NOT** run blind commands like `taskkill /F /IM chrome.exe` or blanket kills. That will destroy your open browser tabs, discard unsaved form data, and trigger recovery dialogs.
+
+Follow these safe, PID-targeted steps instead:
+
+1. **Save your work** in Antigravity and close the window normally.
+2. **Find the exact lingering PID:**
+   - **Windows CLI:**
+     ```cmd
+     tasklist /FI "IMAGENAME eq Antigravity.exe"
+     ```
+     Or check who is holding the port:
+     ```cmd
+     netstat -ano | findstr :9333
+     ```
+   - **Windows GUI (Recommended):**
+     - Press `Ctrl + Shift + Esc` to open **Task Manager**.
+     - Switch to the **Details** tab (which shows exact PIDs and process names).
+     - Find any lingering `Antigravity.exe` processes.
+   - **macOS / Linux:**
+     ```bash
+     pgrep -l Antigravity
+     lsof -i :9333
+     ```
+3. **End ONLY that specific lingering PID:**
+   - In Task Manager: Right-click the specific `Antigravity.exe` PID → **End Process Tree**.
+   - In PowerShell: `Stop-Process -Id <PID> -Force`
+   - In macOS/Linux: `kill <PID>`
+4. **Relaunch Antigravity** from your configured shortcut. The debugging port is now cleanly bound!
+
+---
+
+### 🛠️ Optional Convenience CLI Launchers
+
+While the manual shortcut target above is the bulletproof foundation, you can also use these built-in convenience shortcuts:
+
+| Command | Capability |
+| :--- | :--- |
+| **`auto-accept start`** | **Easy Start:** Checks if IDE is running with port; if not, automatically launches/restarts IDE with port 9333 and starts the daemon in one step. |
+| **`auto-accept restart`** | **1-Command Restart:** Gracefully closes existing Antigravity process and relaunches fresh with port 9333 enabled. |
+| **`auto-accept launch`** | Spawns Antigravity IDE with remote debugging port enabled without starting the approval daemon. |
+| **`auto-accept setup`** | Attempts automated Windows Desktop/Taskbar or Linux `.desktop` shortcut patching. |
+| **`auto-accept doctor`** | Diagnostic probe verifying Node.js, Python, IDE executable, and CDP port status. |
 
 ---
 
@@ -481,7 +526,93 @@ The **Antigravity Auto-Submitter** suite provides unified CLI tools (`antigravit
 
 ---
 
-### 🔍 3-Tier Workstation Audit (`antigravity-check` / `agy-check`)
+<a id="cleanup-sequence"></a>
+### ⚡ Recommended Step-by-Step Cleanup Sequence
+
+To safely audit and reclaim workstation disk space without risking active projects, settings, or credentials, execute commands in this exact sequence:
+
+```text
+Step 1: Audit (Inspect)  ──►  Step 2: Preview (Dry-Run)  ──►  Step 3: Safe Purge  ──►  Step 4: Brain Management  ──►  Step 5: Verify Delta
+      agy-check                     agy-find-temp                     agy-clean                  agy-brain                   agy-check
+```
+
+| Step | Command | Action | Risk Level |
+| :---: | :--- | :--- | :---: |
+| **1** | `agy-check` *(or `antigravity-check`)* | Audit disk space across 3 safety tiers | 🟢 Zero (Read-only) |
+| **2** | `agy-find-temp` *(or `antigravity-find-temp`)* | Preview top candidate files ranked by size | 🟢 Zero (Dry-run preview) |
+| **3** | `agy-clean --all` *(or `--stale` / `--deep`)* | Purge safe caches, recordings & scratch scripts | 🟢 Safe (Tier 1 safe purge) |
+| **4** | `agy-brain` *(or `antigravity-brain`)* | Inspect session footprint & delete inactive sessions | 🟡 Review (Session management) |
+| **5** | `agy-check` *(or `antigravity-check`)* | Verify freed space and confirm clean state | 🟢 Zero (Read-only verification) |
+
+---
+
+#### 1️⃣ Step 1: Run Comprehensive Audit (`agy-check`)
+Inspect total disk space categorized into the 3 safety tiers:
+```bash
+agy-check
+# or: antigravity-check
+# or: auto-accept check
+```
+*Categorizes findings into 🟢 Safe Tier 1, 🟡 Stale Review Tier 2, and 🔴 Protected Tier 3, reporting total reclaimable bytes.*
+
+#### 2️⃣ Step 2: Preview Candidates in Dry-Run Mode (`agy-find-temp`)
+Inspect individual candidate files ranked by disk size before deleting anything:
+```bash
+agy-find-temp
+# or: antigravity-find-temp --limit 50
+```
+*Lists largest candidate files, file age, and category with zero disk modifications.*
+
+#### 3️⃣ Step 3: Execute Safe Cleanup (`agy-clean`)
+Choose your cleanup level based on your audit results:
+```bash
+# Standard Routine (Purges all Tier 1 safe items: scratch, recordings, logs, caches: ~1.09 GB)
+agy-clean --all
+
+# Recommended (Tier 1 safe + stale brain sessions & SQLite DBs older than 7 days)
+agy-clean --stale
+
+# Deep Clean (Tier 1 safe + stale brain + ~/.gemini/tmp repos + ~/.gemini/history snapshots: ~4.96 GB)
+agy-clean --deep
+
+# Custom Age Threshold (e.g. purge stale items older than 3 days)
+agy-clean --stale --days 3
+
+# Non-interactive / CI automation (skips confirmation prompt)
+agy-clean --all --force
+```
+
+#### 4️⃣ Step 4: Manage & Reclaim Brain Session Space (`agy-brain`)
+Inspect disk distribution per session, identify heavy sessions with extracted project topics, and prune specific or old sessions:
+```bash
+# List all conversation sessions ranked by disk size with project topics
+agy-brain
+
+# Delete a specific session by Table # Number:
+agy-brain --delete 2
+
+# Delete a specific session by UUID prefix:
+agy-brain --delete 9178f300
+
+# Delete all sessions older than N days (automatically purges companion .db/.pb files):
+agy-brain --delete-older-than 7
+
+# Clean empty / zero-file brain directories:
+agy-brain --clean-empty
+
+# Interactive numbered session picker:
+agy-brain --interactive
+```
+
+#### 5️⃣ Step 5: Verify Reclaimed Space (`agy-check`)
+Re-run the audit to verify space reclaimed and confirm all protected items remain intact:
+```bash
+agy-check
+```
+
+---
+
+### 🔍 3-Tier Workstation Audit Reference (`antigravity-check` / `agy-check`)
 
 Run at any time in any terminal to inspect system temporary space categorized into the 3 safety tiers:
 

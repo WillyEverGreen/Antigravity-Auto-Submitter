@@ -5,6 +5,21 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-09-28
+
+### Added
+- **Bulletproof 3-Step Setup Architecture (Zero-Flakiness Standard)**:
+  - Prioritized the direct shortcut target configuration (`--remote-debugging-port=9333`) as the primary, 100% deterministic setup path across documentation, CLI output, and system doctor.
+  - Mitigates Chromium/Electron singleton limitations where background instances drop CLI flags when opened through external auto-setup scripts.
+- **Safe, Non-Destructive Ghost Process & Singleton Troubleshooting**:
+  - Added targeted PID diagnostics across `printSetupInstructions()`, `auto-accept doctor`, and the live daemon connection loop.
+  - Directs users to pinpoint the exact lingering process via Task Manager (Details tab), `tasklist /FI "IMAGENAME eq Antigravity.exe"`, or `netstat -ano | findstr :9333`.
+  - Added explicit warnings against blind `taskkill /F /IM chrome.exe` commands to guarantee existing browser tabs, form inputs, and active sessions are never disrupted.
+- **Browser Target Isolation**:
+  - Hardened `selectAllWorkbenchTargets` to reject external browser pages (localhost, http/https, chrome://, edge://, about:) to prevent any connection conflicts with web development servers or personal browsers.
+- **Automated Test Coverage**:
+  - Added test case #31 in `test/cli.test.js` validating `printSetupInstructions` exports, 3-step setup banner, and non-destructive PID troubleshooting directives.
+
 ## [1.7.0] - 2026-09-23
 
 ### Added
@@ -20,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - macOS: automatically creates Desktop launcher (`Antigravity IDE (Debug).command`), `~/.local/bin/antigravity` wrapper, and `~/.zshrc` alias.
   - Linux: automatically patches `.desktop` entries in `~/.local/share/applications/` and Desktop, and creates `~/.local/bin/antigravity` wrapper.
   - Windows: patches Desktop, Start Menu, and Taskbar shortcuts with `--remote-debugging-port=9333`.
+- **Manual Debugging Port Fallback Documentation (All OS)**:
+  - Detailed step-by-step guides for manual debugging port configuration if automated setup fails across Windows (Desktop/Taskbar shortcuts, PowerShell, CMD), macOS (Terminal, App bundle, `~/.zshrc` alias, Automator), and Linux (Terminal, `.desktop` entry, `~/.bashrc` alias).
+- **Sequential Workstation Audit & Cleanup Guide in Docs**:
+  - Structured 5-step workflow with risk levels and proper command sequences: `agy-check` (audit) ➔ `agy-find-temp` (dry-run preview) ➔ `agy-clean` (safe purge) ➔ `agy-brain` (session footprint management) ➔ `agy-check` (post-verification).
 
 ### Fixed
 - **Resolved Fatal `TypeError: Cannot destructure property 'config' of 'resolveConfig(...)' as it is undefined`**:

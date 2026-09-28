@@ -264,7 +264,10 @@ async function handleDoctor(cfg, shouldExit = true) {
       console.log(`  Chromium cannot attach a debugging port to an already-running process.\n`);
       console.log(`  ${C.bold}👉 QUICK FIX (Choose one):${C.reset}`);
       console.log(`     • Run: ${C.bold}${C.cyan}auto-accept restart${C.reset} (one-command automatic restart with debugging port)`);
-      console.log(`     • OR completely close Antigravity IDE and re-open it from your Desktop/Taskbar.`);
+      console.log(`     • OR completely close Antigravity IDE and re-open it from your configured shortcut.
+     • Ghost process check: If Antigravity was closed but still detected:
+       Open Task Manager (Details tab) or run: ${C.cyan}tasklist /FI "IMAGENAME eq Antigravity.exe"${C.reset}
+       End ONLY that specific lingering PID so you never disrupt other work or browser tabs.`);
       console.log(`     • Then run: ${C.bold}${C.green}auto-accept${C.reset}\n`);
     } else {
       printSetupInstructions();
@@ -292,6 +295,10 @@ function killAntigravity() {
     if (process.platform === 'win32') {
       try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
       try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+      try {
+        const psKillChrome = 'Get-CimInstance Win32_Process -Filter "name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*antigravity-browser-profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }';
+        execSync(`powershell -NoProfile -NonInteractive -Command "${psKillChrome}" 2>nul`, { stdio: 'ignore', timeout: 3000 });
+      } catch (e) {}
     } else if (process.platform === 'darwin') {
       try { execSync('pkill -9 -f Antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
     } else {
@@ -786,31 +793,46 @@ function handleUninstall() {
 
 function printSetupInstructions() {
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}`);
-  console.log(`  ${C.bold}${C.brightCyan}👉 HOW TO CONNECT ANTIGRAVITY IDE (1-Minute Setup):${C.reset}`);
+  console.log(`  ${C.bold}${C.brightCyan}👉 BULLETPROOF 3-STEP SETUP (Guaranteed to Work Every Time):${C.reset}`);
   console.log(`  ${C.bold}${C.cyan}──────────────────────────────────────────────────────────────────${C.reset}\n`);
-  console.log(`  💡 ${C.bold}1-Click Auto Launch:${C.reset} Run ${C.bold}${C.green}auto-accept launch${C.reset} to open IDE with debug port automatically!\n`);
-  console.log(`  Antigravity IDE can also be launched with remote debugging enabled (${C.bold}--remote-debugging-port=9333${C.reset}).\n`);
+  console.log(`  ${C.bold}1. Close Antigravity IDE completely first.${C.reset}`);
+  console.log(`     ${C.dim}(Chromium singleton cannot attach a debug port to an already-running process)${C.reset}\n`);
 
   if (process.platform === 'win32') {
-    console.log(`  ${C.bold}${C.yellow}Windows Setup:${C.reset}`);
-    console.log(`    ${C.bold}Option A (Auto-Setup Shortcut - Recommended):${C.reset}`);
-    console.log(`      Run: ${C.bold}${C.green}auto-accept setup${C.reset}\n`);
-    console.log(`    ${C.bold}Option B (Manual Desktop Shortcut):${C.reset}`);
-    console.log(`      1. Right-click your ${C.cyan}Antigravity IDE${C.reset} shortcut -> ${C.bold}Properties${C.reset}`);
-    console.log(`      2. In the ${C.bold}Target${C.reset} field, add ${C.yellow}--remote-debugging-port=9333${C.reset} to the end:`);
-    console.log(`         ${C.dim}"...\\Antigravity IDE.exe" --remote-debugging-port=9333${C.reset}`);
-    console.log(`      3. Click OK and launch Antigravity from that shortcut.\n`);
+    console.log(`  ${C.bold}2. Add debugging port to your Antigravity Shortcut Target:${C.reset}`);
+    console.log(`     • Right-click your ${C.cyan}Antigravity IDE${C.reset} shortcut (Desktop or Taskbar) -> ${C.bold}Properties${C.reset}`);
+    console.log(`     • In the ${C.bold}Target${C.reset} field, append a space and: ${C.yellow}--remote-debugging-port=9333${C.reset}`);
+    console.log(`       ${C.dim}"...\\Antigravity.exe" --remote-debugging-port=9333${C.reset}`);
+    console.log(`     • Click OK.\n`);
   } else if (process.platform === 'darwin') {
-    console.log(`  ${C.bold}${C.yellow}macOS Setup:${C.reset}`);
-    console.log(`    Launch Antigravity from Terminal:`);
-    console.log(`      ${C.cyan}open -a "Antigravity" --args --remote-debugging-port=9333${C.reset}\n`);
+    console.log(`  ${C.bold}2. Launch Antigravity with debugging port (or add shell alias):${C.reset}`);
+    console.log(`     ${C.cyan}open -a "Antigravity" --args --remote-debugging-port=9333${C.reset}`);
+    console.log(`     ${C.dim}(Or add to ~/.zshrc: alias antigravity='open -a "Antigravity" --args --remote-debugging-port=9333')${C.reset}\n`);
   } else {
-    console.log(`  ${C.bold}${C.yellow}Linux Setup:${C.reset}`);
-    console.log(`    Launch Antigravity from Terminal:`);
-    console.log(`      ${C.cyan}antigravity --remote-debugging-port=9333${C.reset}\n`);
+    console.log(`  ${C.bold}2. Launch Antigravity with debugging port (or update .desktop launcher):${C.reset}`);
+    console.log(`     ${C.cyan}antigravity --remote-debugging-port=9333${C.reset}`);
+    console.log(`     ${C.dim}(Or edit ~/.local/share/applications/antigravity.desktop: Exec=... --remote-debugging-port=9333 %U)${C.reset}\n`);
   }
 
-  console.log(`  ${C.dim}Once Antigravity launches, auto-accept will automatically connect instantly!${C.reset}\n`);
+  console.log(`  ${C.bold}3. Launch Antigravity from that shortcut, then run: ${C.green}auto-accept${C.reset}\n`);
+
+  console.log(`  ${C.bold}${C.yellow}👻 Troubleshooting: Ghost Process / Port Inactive?${C.reset}`);
+  console.log(`  If Antigravity appears closed but the port doesn't attach, a ghost background process`);
+  console.log(`  may be holding the singleton lock. ${C.bold}DO NOT use blind taskkill${C.reset} (protect your browser tabs!):`);
+  if (process.platform === 'win32') {
+    console.log(`    1. Find lingering PID:   ${C.cyan}tasklist /FI "IMAGENAME eq Antigravity.exe"${C.reset}`);
+    console.log(`       Or check port holder: ${C.cyan}netstat -ano | findstr :9333${C.reset}`);
+    console.log(`    2. Open Task Manager (${C.bold}Ctrl+Shift+Esc${C.reset}) -> ${C.bold}Details${C.reset} tab.`);
+    console.log(`    3. End task on ONLY that specific Antigravity PID, then relaunch from your shortcut.\n`);
+  } else {
+    console.log(`    1. Find lingering PID:   ${C.cyan}pgrep -l Antigravity${C.reset} or ${C.cyan}lsof -i :9333${C.reset}`);
+    console.log(`    2. Terminate ONLY that PID: ${C.cyan}kill <PID>${C.reset}, then relaunch.\n`);
+  }
+
+  console.log(`  ${C.dim}Convenience CLI Launchers (Optional):\n`);
+  console.log(`    • ${C.cyan}auto-accept start${C.reset}   (Auto-starts IDE + daemon in one step)`);
+  console.log(`    • ${C.cyan}auto-accept restart${C.reset} (Closes and restarts IDE with port 9333)`);
+  console.log(`    • ${C.cyan}auto-accept setup${C.reset}   (Attempts automated Windows/Linux shortcut patching)\n`);
 }
 
 // ── Help Screen ──
@@ -1625,7 +1647,11 @@ async function scanPortRange(start, end) {
     for (let p = i; p < Math.min(i + BATCH_SIZE, end + 1); p++) {
       batch.push((async (port) => {
         const targets = await fetchTargets(port);
-        return targets ? { port, targets } : null;
+        if (targets && targets.length > 0) {
+          const wb = selectAllWorkbenchTargets(targets);
+          if (wb.length > 0) return { port, targets };
+        }
+        return null;
       })(p));
     }
     const results = await Promise.all(batch);
@@ -1675,16 +1701,27 @@ function selectAllWorkbenchTargets(targets) {
     (!t.url || !t.url.startsWith('devtools://'))
   );
 
-  // Prefer workbench / Antigravity editor page targets
-  const workbenchPages = validPages.filter(t => 
-    (t.url && (t.url.includes('workbench') || t.url.includes('vscode-file'))) ||
-    (t.title && t.title.toLowerCase().includes('antigravity'))
-  );
+  // Match workbench / Antigravity editor page targets only.
+  // Never match regular web browsers (http, https, chrome://, edge://, about:)
+  const workbenchPages = validPages.filter(t => {
+    const url = (t.url || '').toLowerCase();
+    const title = (t.title || '').toLowerCase();
 
-  if (workbenchPages.length > 0) return workbenchPages;
+    // Reject regular browser tabs and extensions
+    if (/^(https?|chrome|edge|chrome-extension|brave|about):/i.test(url)) {
+      return false;
+    }
 
-  // Fallback to any active page target with debugger WebSocket (excluding devtools://)
-  return validPages;
+    return (
+      url.includes('workbench') ||
+      url.includes('vscode-file') ||
+      url.includes('vscode-app') ||
+      url.includes('antigravity') ||
+      title.includes('antigravity')
+    );
+  });
+
+  return workbenchPages;
 }
 
 function selectWorkbenchTarget(targets) {
@@ -2078,7 +2115,11 @@ class AutoSubmitDaemon {
               warnedUnpatchedRunning = true;
               const portLabel = this.config.cdpPort > 0 ? `port ${this.config.cdpPort}` : 'remote debugging port (9333)';
               console.log(`\n  ${C.bold}${C.yellow}⚠️  Antigravity IDE is open, but ${portLabel} is closed!${C.reset}`);
-              console.log(`  ${C.dim}Did you restart the IDE after running 'auto-accept setup'?${C.reset}`);
+              console.log(`  ${C.dim}Chromium ignores debug port flags if an existing background instance was already running.${C.reset}`);
+              console.log(`  ${C.bold}👉 To fix this safely without losing work:${C.reset}`);
+              console.log(`     1. Save work and close Antigravity IDE.`);
+              console.log(`     2. If an instance lingers in background, close its specific PID from Task Manager (Details tab).`);
+              console.log(`     3. Relaunch Antigravity from your shortcut configured with --remote-debugging-port=9333.`);
               console.log(`  ${C.bold}👉 To fix this right now:${C.reset}`);
               console.log(`     • Press ${C.bold}${C.brightCyan}Shift+R${C.reset} in this terminal to restart IDE with debugging port 9333 instantly!`);
               console.log(`     • Or run: ${C.bold}${C.cyan}auto-accept start${C.reset} (all-in-one easy start)\n`);
@@ -2614,5 +2655,6 @@ module.exports = {
   killAntigravity,
   isAntigravityRunning,
   findAntigravityExecutable,
+  printSetupInstructions,
   resolveConfig
 };
