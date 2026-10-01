@@ -21,9 +21,7 @@ try {
 } catch (e) {
   try {
     WebSocket = require(path.join(__dirname, 'node_modules', 'ws'));
-  } catch (err) {
-    // Will be reported by doctor if missing
-  }
+  } catch (err) {}
 }
 
 const PKG_VERSION = '1.0.0';
@@ -69,6 +67,7 @@ const C = {
   brightYellow: '\x1b[93m',
   magenta: '\x1b[35m',
   red: '\x1b[31m',
+  gray: '\x1b[90m',
   pillGreen: '\x1b[42m\x1b[30m\x1b[1m',
   pillYellow: '\x1b[43m\x1b[30m\x1b[1m',
   pillMagenta: '\x1b[45m\x1b[37m\x1b[1m',
@@ -168,25 +167,21 @@ function handleList(cfg) {
 async function handleDoctor(cfg, shouldExit = true) {
   console.log(`\n${C.bold}${C.brightCyan}⚡ Kiro Auto-Accept — System Doctor${C.reset}\n`);
 
-  // 1. Node.js check
   const nodeVer = process.version;
   const major = parseInt(nodeVer.replace('v', '').split('.')[0], 10);
   const nodeOk = major >= 18;
   console.log(`  ${C.bold}Node.js Version:${C.reset}     ${nodeVer} ${nodeOk ? `${C.green}✔ (Supported: >=18.0.0)${C.reset}` : `${C.red}✖ (Requires Node.js 18+)${C.reset}`}`);
   console.log(`  ${C.bold}Operating System:${C.reset}   ${process.platform} (${os.type()} ${os.release()})`);
 
-  // 2. WebSocket library check
   if (!WebSocket) {
     console.log(`  ${C.bold}WebSocket Library:${C.reset} ${C.red}✖ ws package not found! Run npm install ws${C.reset}`);
   } else {
     console.log(`  ${C.bold}WebSocket Library:${C.reset} ${C.green}✔ ws ready${C.reset}`);
   }
 
-  // 3. Executable check
   const exe = findKiroExecutable();
   console.log(`  ${C.bold}Kiro IDE Binary:${C.reset}   ${exe ? `${C.cyan}${cleanStr(exe, 60)}${C.reset} ${C.green}✔${C.reset}` : `${C.yellow}Not found in standard paths ⚠️${C.reset}`}`);
 
-  // 4. CDP Port check
   process.stdout.write(`  ${C.bold}CDP Port Status:${C.reset}    Scanning active ports & windows...\r`);
   const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
 
@@ -312,21 +307,23 @@ function launchKiroProcess(port = 9222) {
     return false;
   }
 
-  let child;
-  if (process.platform === 'darwin' && exe.includes('.app')) {
-    child = spawn('open', ['-a', exe, '--args', `--remote-debugging-port=${port}`], {
-      detached: true,
-      stdio: 'ignore'
-    });
-  } else {
-    child = spawn(exe, [`--remote-debugging-port=${port}`], {
-      detached: true,
-      stdio: 'ignore'
-    });
+  try {
+    if (process.platform === 'win32') {
+      const exeDir = path.dirname(exe);
+      const psCmd = `Start-Process -FilePath '${exe}' -ArgumentList '--remote-debugging-port=${port}' -WorkingDirectory '${exeDir}'`;
+      execSync(`powershell -NoProfile -NonInteractive -Command "${psCmd}"`, { stdio: 'ignore' });
+      return true;
+    } else if (process.platform === 'darwin') {
+      execSync(`open -a "${exe}" --args --remote-debugging-port=${port}`, { stdio: 'ignore' });
+      return true;
+    } else {
+      const child = spawn(exe, [`--remote-debugging-port=${port}`], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return true;
+    }
+  } catch (e) {
+    return false;
   }
-  child.on('error', () => {});
-  child.unref();
-  return true;
 }
 
 async function handleRestart(cfg, shouldExit = true) {
@@ -406,7 +403,6 @@ async function handleEasyStart(cfg, configSource) {
       await handleLaunch(cfg, false, false);
     }
 
-    // Wait for CDP to become active
     process.stdout.write(`  ${C.bold}Waiting for Kiro IDE CDP on port ${port}...${C.reset} `);
     let connected = false;
     for (let i = 0; i < 20; i++) {
@@ -437,11 +433,7 @@ async function handleEasyStart(cfg, configSource) {
   process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
 
   const daemon = new AutoAcceptDaemon(cfg, configSource);
-  daemon.start().catch((err) => {
-    releaseDaemonLock(portKey);
-    console.error(`${C.red}Fatal daemon error:${C.reset}`, err);
-    process.exit(1);
-  });
+  await daemon.start();
 }
 
 function handleSetup(cfg) {
@@ -604,12 +596,12 @@ async function findCdpEndpoints(portHint = 0, explicitPorts = []) {
   }
   if (explicitPorts && explicitPorts.length > 0) {
     explicitPorts.forEach(p => {
-      if (p >= 9300 && p <= 9400) return; // Strict exclusion of Antigravity ports
+      if (p >= 9300 && p <= 9400) return;
       candidates.push(p);
     });
   }
   if (candidates.length === 0) {
-    candidates.push(9222); // Default Kiro debug port
+    candidates.push(9222);
     for (let p = 9220; p <= 9230; p++) {
       if (p !== 9222) candidates.push(p);
     }
@@ -737,7 +729,6 @@ function buildScannerScript(cfg) {
       for (const doc of docs) {
         const candidates = Array.from(doc.querySelectorAll('button, .kiro-button, [role="button"], input[type="submit"], [class*="approve"], [class*="submit"], [class*="continue"]'));
         
-        // If autoSelectAlwaysAllow is enabled, look for "always allow" first
         let targetBtn = null;
         if (autoSelectAlwaysAllow) {
           targetBtn = candidates.find(b => {
@@ -776,7 +767,6 @@ function buildScannerScript(cfg) {
           const style = win.getComputedStyle ? win.getComputedStyle(btn) : null;
           
           if (rect.width > 0 && rect.height > 0 && (!style || (style.visibility !== 'hidden' && style.display !== 'none'))) {
-            // Extract context text
             const panel = btn.closest('.agent-interaction-panel') || 
                           btn.closest('.agent-interaction-panel-content-container') ||
                           btn.closest('.permission-request') ||
@@ -822,46 +812,6 @@ function buildScannerScript(cfg) {
       return null;
     }
   })()`;
-}
-
-// ─── CDP Request Helper ───
-function sendCdpRequest(wsUrl, method, params = {}) {
-  return new Promise((resolve, reject) => {
-    if (!WebSocket) return reject(new Error('WebSocket module (ws) not available'));
-    const ws = new WebSocket(wsUrl);
-    const id = Date.now();
-    
-    const timeout = setTimeout(() => {
-      try { ws.close(); } catch (e) {}
-      reject(new Error('CDP request timeout'));
-    }, 4000);
-    
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ id, method, params }));
-    });
-    
-    ws.on('message', (data) => {
-      try {
-        const response = JSON.parse(data);
-        if (response.id === id) {
-          clearTimeout(timeout);
-          try { ws.close(); } catch (e) {}
-          if (response.error) {
-            reject(new Error(response.error.message));
-          } else {
-            resolve(response.result);
-          }
-        }
-      } catch (e) {
-        reject(e);
-      }
-    });
-    
-    ws.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
 }
 
 // ─── Stats Manager ───
@@ -916,113 +866,250 @@ class StatsManager {
   }
 }
 
+// ─── Multi-Window / Webview Persistent Session ───
+class WindowSession {
+  constructor(target, port, config, stats, onEvent) {
+    this.target = target;
+    this.id = target.id || target.webSocketDebuggerUrl;
+    this.port = port;
+    this.url = target.webSocketDebuggerUrl;
+    this.title = cleanStr(target.type === 'iframe' ? 'Kiro Chat Webview' : (target.title || 'Kiro IDE'), 45);
+    this.config = config;
+    this.stats = stats;
+    this.onEvent = onEvent;
+    this.ws = null;
+    this.isConnected = false;
+    this.isScanning = false;
+    this.pollTimer = null;
+    this.scanTimeout = null;
+    this.reqId = 1;
+    this.pendingReqId = null;
+    this.lastReportedBlock = '';
+  }
+
+  connect() {
+    if (this.ws) {
+      try { this.ws.terminate(); } catch (e) {}
+      this.ws = null;
+    }
+    if (!WebSocket) return;
+    try {
+      this.ws = new WebSocket(this.url);
+    } catch (e) {
+      return;
+    }
+
+    const onOpen = () => {
+      this.isConnected = true;
+      this.onEvent('info', ' READY ', `Connected to target: "${this.title}" (Port ${this.port})`, '', C.pillGreen);
+      this.startScanner();
+    };
+
+    const onMsg = (evt) => {
+      try {
+        const raw = (evt && evt.data !== undefined) ? evt.data : evt;
+        const msg = JSON.parse(raw.toString ? raw.toString() : raw);
+        if (this.pendingReqId && msg.id === this.pendingReqId) {
+          this.pendingReqId = null;
+          if (msg.result && msg.result.result) {
+            this.handleScanResult(msg.result.result.value);
+          } else {
+            this.handleScanResult(null);
+          }
+        }
+      } catch (e) {
+        this.isScanning = false;
+        this.pendingReqId = null;
+      }
+    };
+
+    const onClose = () => {
+      this.destroy();
+    };
+
+    if (typeof this.ws.on === 'function') {
+      this.ws.on('open', onOpen);
+      this.ws.on('message', onMsg);
+      this.ws.on('error', onClose);
+      this.ws.on('close', onClose);
+    } else {
+      this.ws.onopen = onOpen;
+      this.ws.onmessage = onMsg;
+      this.ws.onerror = onClose;
+      this.ws.onclose = onClose;
+    }
+  }
+
+  startScanner() {
+    this.stopScanner();
+    this.pollTimer = setInterval(() => this.scanTick(), this.config.pollIntervalMs);
+  }
+
+  stopScanner() {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = null;
+    }
+    this.isScanning = false;
+  }
+
+  scanTick() {
+    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.config.enabled || this.isScanning) return;
+
+    this.isScanning = true;
+    if (this.scanTimeout) clearTimeout(this.scanTimeout);
+    this.scanTimeout = setTimeout(() => {
+      this.isScanning = false;
+    }, 4000);
+
+    const script = buildScannerScript(this.config);
+    const id = this.reqId++;
+    this.pendingReqId = id;
+
+    try {
+      this.ws.send(JSON.stringify({
+        id: id,
+        method: 'Runtime.evaluate',
+        params: {
+          expression: script,
+          returnByValue: true
+        }
+      }));
+    } catch (e) {
+      if (this.scanTimeout) {
+        clearTimeout(this.scanTimeout);
+        this.scanTimeout = null;
+      }
+      this.isScanning = false;
+      this.pendingReqId = null;
+    }
+  }
+
+  handleScanResult(outcome) {
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = null;
+    }
+    this.isScanning = false;
+    this.pendingReqId = null;
+    if (!outcome) {
+      this.lastReportedBlock = '';
+      return;
+    }
+
+    const actionClean = cleanStr(outcome.action, 40);
+    const contextClean = cleanStr(outcome.context, 70);
+
+    if (outcome.blocked) {
+      const blockKey = `${outcome.blockedType}:${outcome.matchedKeyword}:${actionClean}`;
+      if (blockKey !== this.lastReportedBlock) {
+        this.lastReportedBlock = blockKey;
+        this.stats.recordBlock();
+        if (outcome.blockedType === 'ask') {
+          this.onEvent('warn', ' PAUSED ', `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Awaiting your manual click)`, C.pillYellow);
+        } else {
+          this.onEvent('warn', ' SKIPPED ', `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Direct Skip Guard)`, C.pillMagenta);
+        }
+      }
+    } else {
+      this.lastReportedBlock = '';
+      this.stats.recordApproval();
+      this.onEvent('info', ' APPROVE ', `[${this.title}] ${actionClean}`, `Total Approved: ${this.stats.accepted} | Command: "${contextClean}"`, C.pillGreen);
+    }
+  }
+
+  destroy() {
+    this.stopScanner();
+    this.isConnected = false;
+    if (this.ws) {
+      try { this.ws.terminate(); } catch (e) {}
+      this.ws = null;
+    }
+  }
+}
+
 // ─── Main Daemon Class ───
 class AutoAcceptDaemon {
   constructor(cfg, configSource) {
     this.cfg = cfg;
     this.configSource = configSource;
-    this.endpoints = [];
-    this.running = false;
     this.stats = new StatsManager();
-    this.lastReportedBlock = '';
-    this._lastRefresh = 0;
+    this.sessions = new Map();
+  }
+
+  logEvent(type, badge, action, details = '', color = C.green) {
+    if (this.cfg.quiet && type !== 'error' && type !== 'warn') return;
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const pill = `${color}${badge}${C.reset}`;
+    console.log(`  ${C.dim}${time}${C.reset}  ${pill}  ${C.bold}${action}${C.reset}`);
+    if (details) {
+      console.log(`            ${C.dim}${details}${C.reset}`);
+    }
   }
 
   async start() {
-    if (!this.cfg.enabled) {
-      console.log(`${C.yellow}Auto-accept is disabled in config. Enable it to run the daemon.${C.reset}`);
-      process.exit(0);
-    }
-
     console.log(`\n${C.bold}${C.brightCyan}⚡ Kiro Auto-Accept Daemon Starting...${C.reset}`);
     console.log(`  ${C.bold}Config Source:${C.reset} ${this.configSource}`);
     console.log(`  ${C.bold}Mode:${C.reset}          ${this.cfg.mode === 'autopilot' ? `${C.magenta}AUTOPILOT (100% hands-free)${C.reset}` : `${C.cyan}AUTONOMOUS${C.reset}`}`);
     console.log(`  ${C.bold}Always-Allow:${C.reset}  ${this.cfg.autoSelectAlwaysAllow ? `${C.green}Enabled${C.reset}` : `${C.dim}Disabled (Uses "Allow")${C.reset}`}`);
-    console.log(`  ${C.bold}Safety Delay:${C.reset}  ${this.cfg.safetyDelayMs}ms`);
     console.log(`  ${C.bold}Poll Interval:${C.reset} ${this.cfg.pollIntervalMs}ms\n`);
 
-    this.endpoints = await findCdpEndpoints(this.cfg.cdpPort, this.cfg.cdpPorts);
-    if (this.endpoints.length === 0) {
-      console.log(`${C.red}✖ No active Kiro IDE instances with remote debugging found.${C.reset}`);
-      console.log(`${C.yellow}Run ${C.bold}kiro-auto-accept doctor${C.reset}${C.yellow} for diagnostics.${C.reset}\n`);
-      process.exit(1);
+    await this.syncTargets();
+
+    if (this.sessions.size === 0) {
+      console.log(`  ${C.yellow}Searching for Kiro IDE on Port ${this.cfg.cdpPort || 9222}... ${C.reset}`);
+    } else {
+      console.log(`${C.bold}${C.green}✔ Daemon is now monitoring ${this.sessions.size} Kiro IDE target(s)... (Port 9222)${C.reset}`);
+      console.log(`${C.dim}Press Ctrl+C to stop.\n${C.reset}`);
     }
 
-    let totalTargets = 0;
-    this.endpoints.forEach(ep => {
+    this.loop();
+  }
+
+  async loop() {
+    while (true) {
+      try {
+        await this.syncTargets();
+      } catch (e) {}
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
+
+  async syncTargets() {
+    const endpoints = await findCdpEndpoints(this.cfg.cdpPort, this.cfg.cdpPorts);
+    const activeKeys = new Set();
+
+    for (const ep of endpoints) {
       const targets = selectAllWorkbenchTargets(ep.targets);
-      totalTargets += targets.length;
-      console.log(`${C.green}✔ Connected to port ${ep.port} (${targets.length} target(s) / webview(s))${C.reset}`);
-    });
+      for (const t of targets) {
+        const key = t.id || t.webSocketDebuggerUrl;
+        activeKeys.add(key);
 
-    console.log(`\n${C.bold}${C.green}✔ Daemon is now monitoring ${totalTargets} Kiro IDE target(s)... (Port ${this.endpoints[0].port})${C.reset}`);
-    console.log(`${C.dim}Press Ctrl+C to stop.${C.reset}\n`);
-
-    this.running = true;
-    this.poll();
-  }
-
-  async poll() {
-    if (!this.running) return;
-
-    try {
-      // Periodically refresh endpoints to pick up newly opened Kiro chat/webview panels
-      if (!this._lastRefresh || Date.now() - this._lastRefresh > 2000) {
-        this._lastRefresh = Date.now();
-        const fresh = await findCdpEndpoints(this.cfg.cdpPort, this.cfg.cdpPorts);
-        if (fresh && fresh.length > 0) {
-          this.endpoints = fresh;
-        }
-      }
-
-      for (const ep of this.endpoints) {
-        const targets = selectAllWorkbenchTargets(ep.targets);
-        for (const target of targets) {
-          await this.processTarget(ep.port, target);
-        }
-      }
-    } catch (err) {}
-
-    setTimeout(() => this.poll(), this.cfg.pollIntervalMs);
-  }
-
-  async processTarget(port, target) {
-    if (!target.webSocketDebuggerUrl) return;
-
-    try {
-      const script = buildScannerScript(this.cfg);
-      const result = await sendCdpRequest(target.webSocketDebuggerUrl, 'Runtime.evaluate', {
-        expression: script,
-        returnByValue: true
-      });
-
-      if (result && result.value) {
-        const outcome = result.value;
-
-        if (outcome.blocked) {
-          const blockKey = `${outcome.blockedType}:${outcome.matchedKeyword}:${outcome.action}`;
-          if (blockKey !== this.lastReportedBlock) {
-            this.lastReportedBlock = blockKey;
-
-            if (outcome.blockedType === 'ask') {
-              this.stats.recordAsk();
-              console.log(`${C.yellow}⚠️ PAUSED:${C.reset} "${outcome.action}" — ${outcome.blockedReason}`);
-            } else {
-              this.stats.recordBlock();
-              console.log(`${C.magenta}🚫 SKIPPED:${C.reset} "${outcome.action}" — ${outcome.blockedReason}`);
-            }
-          }
-        } else if (outcome.action) {
-          this.lastReportedBlock = '';
-          this.stats.recordApproval();
-          console.log(`${C.green}✔ APPROVED:${C.reset} "${outcome.action}" (Total approved: ${this.stats.accepted})`);
-          if (outcome.context) {
-            console.log(`  ${C.dim}Command: "${cleanStr(outcome.context, 80)}"${C.reset}`);
+        if (!this.sessions.has(key)) {
+          const session = new WindowSession(t, ep.port, this.cfg, this.stats, (type, badge, action, details, color) => {
+            this.logEvent(type, badge, action, details, color);
+          });
+          this.sessions.set(key, session);
+          session.connect();
+        } else {
+          const session = this.sessions.get(key);
+          if (!session.isConnected && !session.ws) {
+            session.connect();
           }
         }
       }
-    } catch (e) {
-      // Normal when target temporarily reloads
+    }
+
+    for (const [key, session] of this.sessions.entries()) {
+      if (!activeKeys.has(key)) {
+        session.destroy();
+        this.sessions.delete(key);
+      }
     }
   }
 }
@@ -1060,11 +1147,6 @@ ${C.bold}OPTIONS:${C.reset}
   --force, -f            Force restart/override locks
   --help, -h             Show this help
   --version, -v          Show version
-
-${C.bold}EXAMPLES:${C.reset}
-  kiro-auto-accept
-  kiro-auto-accept start --mode=autopilot
-  kiro-auto-accept doctor
 `);
     process.exit(0);
   }
@@ -1086,7 +1168,6 @@ ${C.bold}EXAMPLES:${C.reset}
   } else if (cmd === 'start') {
     await handleEasyStart(cfg, source);
   } else {
-    // Default: start daemon
     await handleEasyStart(cfg, source);
   }
 }
