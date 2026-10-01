@@ -723,11 +723,21 @@ function buildScannerScript(cfg) {
         } catch(e) {}
       });
 
-      const APPROVAL_EXACT = ['allow', 'always allow', 'approve', 'accept', 'continue', 'proceed', 'yes', 'ok', 'confirm', 'run', 'execute', 'run command'];
+      const APPROVAL_EXACT = [
+        'allow', 'always allow', 'allow always', 'allow once',
+        'approve', 'always approve',
+        'accept', 'accept all', 'accept changes',
+        'continue', 'continue anyway', 'proceed',
+        'yes', 'ok', 'confirm',
+        'run', 'execute', 'run command', 'run in terminal',
+        'apply', 'apply all', 'apply changes',
+        'trust', 'grant', 'keep', 'keep changes'
+      ];
+      const REJECT_WORDS = ['deny', 'cancel', 'reject', 'discard', 'dismiss', 'close'];
       const IGNORE_CLASSES = ['collapsible-toggle', 'tab-bar-item-close', 'model-selector-trigger', 'kiro-agent-selector-trigger'];
 
       for (const doc of docs) {
-        const candidates = Array.from(doc.querySelectorAll('button, .kiro-button, [role="button"], input[type="submit"], [class*="approve"], [class*="submit"], [class*="continue"]'));
+        const candidates = Array.from(doc.querySelectorAll('button, .kiro-button, .monaco-button, [role="button"], input[type="submit"], [class*="approve"], [class*="submit"], [class*="continue"]'));
         
         let targetBtn = null;
         if (autoSelectAlwaysAllow) {
@@ -750,7 +760,7 @@ function buildScannerScript(cfg) {
             const text = raw.replace(/\\s+/g, ' ').toLowerCase();
             
             const isMatch = APPROVAL_EXACT.includes(text) ||
-                            (APPROVAL_EXACT.some(k => text === k || (text.startsWith(k + ' ') && !text.includes('deny') && !text.includes('cancel'))));
+                            (APPROVAL_EXACT.some(k => text === k || (text.startsWith(k + ' ') && !REJECT_WORDS.some(w => text.includes(w)))));
             
             if (isMatch || (mode === 'autopilot' && (text === 'proceed' || text.includes('proceed')))) {
               targetBtn = btn;
