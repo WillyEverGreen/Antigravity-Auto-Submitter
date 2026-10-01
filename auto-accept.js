@@ -1699,6 +1699,7 @@ async function scanPortRange(start, end) {
   for (let i = start; i <= end; i += BATCH_SIZE) {
     const batch = [];
     for (let p = i; p < Math.min(i + BATCH_SIZE, end + 1); p++) {
+      if (p >= 9220 && p <= 9235) continue; // Dedicated to Kiro IDE
       batch.push((async (port) => {
         const targets = await fetchTargets(port);
         if (targets && targets.length > 0) {
@@ -1766,6 +1767,11 @@ function selectAllWorkbenchTargets(targets) {
       return false;
     }
 
+    // Strict Isolation: Reject Kiro IDE instances (by install URL or window title)
+    if (url.includes('/kiro/') || url.includes('\\kiro\\') || title.endsWith(' - kiro')) {
+      return false;
+    }
+
     return (
       url.includes('workbench') ||
       url.includes('vscode-file') ||
@@ -1792,17 +1798,19 @@ async function findCdpEndpoints(preferredPort = 0, candidatePorts = []) {
   } else if (preferredPort > 0) {
     portsToCheck.add(preferredPort);
   } else {
-    // Auto-discovery mode:
-    [9333, 9334, 9335, 9336, 9222, 9229, 9300].forEach(p => portsToCheck.add(p));
+    // Auto-discovery mode (Antigravity dedicated, strictly excluding Kiro on 9222):
+    [9333, 9334, 9335, 9336, 9300].forEach(p => portsToCheck.add(p));
     const active = findSystemListeningPorts();
     active.forEach(p => {
-      if ((p >= 9200 && p <= 9400) || (p >= 9000 && p <= 9500)) {
+      if (p >= 9220 && p <= 9235) return; // Dedicated to Kiro IDE
+      if ((p >= 9300 && p <= 9400) || (p >= 9000 && p <= 9199)) {
         portsToCheck.add(p);
       }
     });
   }
 
   const checkPromises = Array.from(portsToCheck).map(async (port) => {
+    if (port >= 9220 && port <= 9235) return null; // Dedicated to Kiro IDE
     const targets = await fetchTargets(port);
     if (targets && targets.length > 0) {
       const workbenchTargets = selectAllWorkbenchTargets(targets);
@@ -1819,7 +1827,7 @@ async function findCdpEndpoints(preferredPort = 0, candidatePorts = []) {
   });
 
   if (results.length === 0 && preferredPort === 0 && (!candidatePorts || candidatePorts.length === 0)) {
-    const scanned = await scanPortRange(9000, 9400);
+    const scanned = await scanPortRange(9330, 9340);
     if (scanned) results.push(scanned);
   }
 

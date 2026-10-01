@@ -1,0 +1,59 @@
+{
+  "name": "kiro-auto-accept",
+  "displayName": "Kiro Auto-Accept CLI",
+  "description": "Production-grade autonomous confirmation daemon for Kiro IDE",
+  "version": "1.0.0",
+  "publisher": "WillyEverGreen",
+  "author": {
+    "name": "WillyEverGreen / advdi"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WillyEverGreen/Kiro-Auto-Accept"
+  },
+  "keywords": [
+    "kiro",
+    "kiro-ide",
+    "auto-accept",
+    "auto-approve",
+    "cli",
+    "autonomous",
+    "autopilot",
+    "ai-agent",
+    "devtools",
+    "cdp",
+    "chrome-devtools-protocol",
+    "automation",
+    "developer-tools",
+    "vscode",
+    "electron"
+  ],
+  "main": "kiro-auto-accept.js",
+  "bin": {
+    "kiro-auto-accept": "./kiro-auto-accept.js",
+    "kiro-accept": "./kiro-auto-accept.js",
+    "kiro-doctor": "./kiro-auto-accept.js",
+    "kiro-setup": "./kiro-auto-accept.js",
+    "kiro-launch": "./kiro-auto-accept.js",
+    "kiro-restart": "./kiro-auto-accept.js",
+    "kiro-start": "./kiro-auto-accept.js"
+  },
+  "scripts": {
+    "start": "node kiro-auto-accept.js start",
+    "cli": "node kiro-auto-accept.js",
+    "cli:autopilot": "node kiro-auto-accept.js --mode autopilot",
+    "cli:status": "node kiro-auto-accept.js --status",
+    "doctor": "node kiro-auto-accept.js doctor",
+    "setup": "node kiro-auto-accept.js setup",
+    "launch": "node kiro-auto-accept.js launch",
+    "restart": "node kiro-auto-accept.js restart",
+    "easy-start": "node kiro-auto-accept.js start"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

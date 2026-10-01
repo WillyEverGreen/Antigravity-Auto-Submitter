@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "mode": "autopilot",
+  "cdpPort": 0,
+  "cdpPorts": [],
+  "safetyDelayMs": 200,
+  "pollIntervalMs": 250,
+  "autoSelectAlwaysAllow": false,
+  "daemon": false,
+  "quiet": false,
+  "askKeywords": [
+    "git push",
+    "git reset --hard",
+    "rm -rf",
+    "execute_pwsh"
+  ],
+  "skipKeywords": [
+    "drop table",
+    "git push --force",
+    "format c:",
+    "del /f /s /q c:",
+    "Remove-Item -Recurse -Force C:\\"
+  ]
+}

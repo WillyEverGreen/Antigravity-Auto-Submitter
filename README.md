@@ -31,6 +31,8 @@
 
 </div>
 
+> **💡 Looking for Kiro IDE version?** Check out the [`kiro-auto-accept/`](./kiro-auto-accept) folder for the Kiro IDE compatible version.
+
 ---
 
 ## 🌟 Overview
