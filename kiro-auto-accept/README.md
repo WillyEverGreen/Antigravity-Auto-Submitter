@@ -1,112 +1,156 @@
 # Kiro Auto-Accept
 
-> **Production-grade autonomous confirmation daemon for Kiro IDE**
+> **Autonomous confirmation daemon for Kiro IDE via Chrome DevTools Protocol (CDP)**
 
-Automatically accept/approve confirmations in Kiro IDE for fully autonomous AI-powered development workflows. Built with zero external dependencies using pure Node.js.
+Kiro Auto-Accept continuously monitors your Kiro IDE sessions and autonomously approves permission dialogs, shell commands, file modifications, and agent progression prompts within **250ms**.
 
-## 🚀 Features
+Built with a persistent WebSocket session engine and zero external dependencies (pure native Node.js).
 
-- **🤖 Autonomous Mode**: AI reviews plans before execution
-- **✈️ Autopilot Mode**: 100% hands-free operation
-- **🛡️ Safety Guardrails**: Configurable ask/skip keyword lists
-- **🪟 Multi-Window Support**: Monitors multiple Kiro IDE instances
-- **⚡ Zero Dependencies**: Pure Node.js implementation
-- **🎯 Smart Port Detection**: Auto-discovers Chrome DevTools Protocol ports
-- **📊 Statistics Tracking**: Monitor accepted, skipped, and asked confirmations
+---
+
+## ⚡ Key Highlights
+
+- ⚡ **Persistent WindowSession Architecture:** Single, long-lived WebSocket connection per target. Instant evaluation with zero reconnect latency, zero socket churn, and zero timeouts.
+- 🪟 **Deep Webview & Nested Iframe Traversal:** Traverses both the top-level workbench window and out-of-process Kiro Agent webviews (`vscode-webview://...`) including nested `#active-frame` documents.
+- 🔒 **Strict Port Isolation:** Exclusively operates on **Port 9222** (range: 9220–9230). Never scans, connects to, or interferes with Google Antigravity Auto-Submit (**Port 9333**).
+- 🛡️ **Comprehensive Permission Coverage:** Seamlessly approves shell commands, file diffs, MCP tools, step continuations, and workspace trust dialogs.
+- 🚫 **Negative Button Guard:** Guaranteed protection against cancellation buttons (`Deny`, `Always deny`, `Cancel`, `Reject`, `Discard`, `Dismiss`, `Close`).
+- 🛑 **Safety Keyword Interceptors:** Destructive commands matching `askKeywords` (e.g., `git push`, `rm -rf`) or `skipKeywords` (e.g., `format c:`, `drop table`) pause auto-approval for manual review.
+
+---
+
+## 📋 Supported Permission Categories
+
+| Category | Typical Kiro Prompts | Approved Buttons |
+| :--- | :--- | :--- |
+| **Shell & Terminal Execution** | *"Your approval is required to continue: `<cmd>`"* | `Allow`, `Always allow`, `Run`, `Execute`, `Run in terminal` |
+| **File Changes & Diffs** | Modifying workspace files, saving changes, applying diffs | `Apply`, `Apply all`, `Apply changes`, `Accept`, `Accept all`, `Keep`, `Keep changes` |
+| **MCP Tools & Invocations** | Running tools, scrapers, terminal commands, subagents | `Allow`, `Always allow`, `Confirm`, `Proceed` |
+| **Agent Plan Progression** | Moving to next step in a multi-stage task | `Continue`, `Continue anyway`, `Proceed` |
+| **Workbench & Trust Dialogs** | Folder trust, environment variables, notification prompts | `Yes`, `OK`, `Trust`, `Grant`, `Confirm` |
+
+---
 
 ## 📦 Installation
 
-### Quick Install (NPM)
+From the `kiro-auto-accept` directory:
 
-```bash
-npm install -g kiro-auto-accept
+```powershell
+npm install -g .
 ```
 
-### Manual Install
+Verify your installation:
 
-1. Clone or download this repository
-2. Navigate to the directory
-3. Run: `npm install -g .`
-
-### Verify Installation
-
-```bash
+```powershell
 kiro-auto-accept --version
+# Outputs: kiro-auto-accept v1.1.0
 ```
 
-## 🎯 Quick Start
+---
 
-### One-Command Easy Start
+## 🚀 Quick Start
 
-The easiest way to get started - launches Kiro IDE and starts the daemon automatically:
+### 1. One-Click Shortcut Setup
 
-```bash
-kiro-auto-accept start
+Automatically configure your Desktop and Start Menu shortcuts with the `--remote-debugging-port=9222` flag:
+
+```powershell
+kiro-setup
+# OR: kiro-auto-accept setup
 ```
 
-This command will:
-1. Check if Kiro IDE is running with remote debugging
-2. If not, automatically launch it with the debug port
-3. Start the auto-accept daemon
-4. Monitor all Kiro IDE windows
-
-### Alternative: Manual Setup
-
-If you prefer manual control:
-
-1. **Launch Kiro IDE with debugging port:**
-   ```bash
-   kiro --remote-debugging-port=9222
-   ```
-   Or use VS Code:
-   ```bash
-   code --remote-debugging-port=9222
-   ```
-
-2. **Start the daemon:**
-   ```bash
-   kiro-auto-accept
-   ```
-
-## 📋 Commands
-
-| Command | Description |
-|---------|-------------|
-| `kiro-auto-accept` | Start daemon (default) |
-| `kiro-auto-accept start` | Launch IDE + start daemon (all-in-one) |
-| `kiro-auto-accept init` | Create `.kiro-auto-accept.json` in current directory |
-| `kiro-auto-accept list` | Show active rules and configuration |
-| `kiro-auto-accept doctor` | Run system diagnostics |
-| `kiro-auto-accept setup` | Configure shortcuts with debug port |
-| `kiro-auto-accept launch` | Launch Kiro IDE with debug port |
-| `kiro-auto-accept restart` | Restart Kiro IDE with debug port |
-
-## ⚙️ Configuration
-
-### Global Configuration
-
-Located at: `~/.kiro-auto-accept/config.json`
-
-This applies to all projects unless overridden.
-
-### Local Configuration
-
-Create a project-specific config:
-
-```bash
-kiro-auto-accept init
+Output:
+```text
+🔧 Kiro Auto-Accept - Automatic Shortcut & Environment Setup
+  ✔ Successfully configured 4 Kiro IDE shortcuts with Port 9222!
+    • Desktop: "Kiro IDE (Debug).lnk"
+    • Start Menu: "Kiro IDE (Debug).lnk" & "Kiro.lnk"
 ```
 
-This creates `.kiro-auto-accept.json` in your current directory.
+### 2. Launch Kiro IDE
 
-### Configuration Options
+Open Kiro IDE using the new **"Kiro IDE (Debug)"** shortcut, or launch it directly from the terminal:
+
+```powershell
+kiro-launch
+# OR: kiro-auto-accept launch
+```
+
+### 3. Verify System Health
+
+Run the diagnostic doctor to confirm connectivity:
+
+```powershell
+kiro-doctor
+# OR: kiro-auto-accept doctor
+```
+
+Output:
+```text
+⚡ Kiro Auto-Accept — System Doctor
+  Node.js Version:     v24.19.0 ✔ (Supported: >=18.0.0)
+  Operating System:   win32 (Windows_NT 10.0.26200)
+  WebSocket Library: ✔ ws ready
+  Kiro IDE Binary:   C:\Users\...\Kiro.exe ✔
+  CDP Port Status:    Connected on port(s): 9222 ✔
+  Target [1]:        "README.md - Kiro" (Port 9222, page) ✔
+  Target [2]:        "Kiro Chat Webview" (Port 9222, iframe) ✔
+  Confirmation Engine: Ready for multi-target auto-approvals! (2 target(s)) ✔
+```
+
+### 4. Start the Daemon
+
+```powershell
+kiro-auto-accept
+```
+
+You are ready! The daemon monitors all Kiro IDE windows and automatically approves requests within 250ms.
+
+---
+
+## ⚙️ Operating Modes & CLI Flags
+
+| Mode / Flag | Command | Behavior |
+| :--- | :--- | :--- |
+| **Autonomous (Default)** | `kiro-auto-accept` | Approves individual tool and shell permissions on demand while preserving plan reviews. |
+| **Autopilot** | `kiro-auto-accept --mode=autopilot` | 100% hands-free. Also approves intermediate step continuations (`Proceed`, `Continue`). |
+| **Always-Allow** | `kiro-auto-accept --always-allow` | Prioritizes `Always allow` / `Always approve` buttons so Kiro permanently remembers approvals. |
+| **Specific Port** | `kiro-auto-accept --port=9222` | Locks CDP scanning to a specific port. |
+| **Quiet Mode** | `kiro-auto-accept --quiet` | Suppresses verbose logs, printing only approvals and warnings. |
+| **Force Restart** | `kiro-auto-accept restart --force` | Closes lingering Kiro instances and restarts cleanly with Port 9222. |
+
+---
+
+## 🛠️ CLI Subcommands & Binary Aliases
+
+| Subcommand | Alias Binary | Description |
+| :--- | :--- | :--- |
+| `kiro-auto-accept` | `kiro-accept` | Start auto-accept daemon (default) |
+| `kiro-auto-accept start` | `kiro-start` | Launch Kiro IDE if not running, then start daemon |
+| `kiro-auto-accept doctor` | `kiro-doctor` | Comprehensive system diagnostics and target scanner |
+| `kiro-auto-accept setup` | `kiro-setup` | Configure Desktop & Start Menu shortcuts |
+| `kiro-auto-accept launch` | `kiro-launch` | Launch Kiro IDE with remote debugging on Port 9222 |
+| `kiro-auto-accept restart` | `kiro-restart` | Gracefully restart Kiro IDE with Port 9222 |
+| `kiro-auto-accept list` | — | Display active rules, mode, and safety keywords |
+| `kiro-auto-accept init` | — | Create `.kiro-auto-accept.json` in current directory |
+
+---
+
+## 📄 Configuration
+
+Configuration is loaded hierarchically:
+1. **Built-in Defaults**
+2. **Global Configuration:** `~/.kiro-auto-accept/config.json`
+3. **Project Configuration:** `.kiro-auto-accept.json` (in workspace root)
+4. **CLI Flags** (highest precedence)
+
+### Example `.kiro-auto-accept.json`
 
 ```json
 {
   "enabled": true,
   "mode": "autonomous",
-  "cdpPort": 0,
-  "cdpPorts": [],
+  "cdpPort": 9222,
   "safetyDelayMs": 200,
   "pollIntervalMs": 250,
   "autoSelectAlwaysAllow": false,
@@ -126,223 +170,25 @@ This creates `.kiro-auto-accept.json` in your current directory.
 }
 ```
 
-#### Configuration Fields
+---
 
-- **`enabled`**: Enable/disable the daemon
-- **`mode`**: Operating mode
-  - `"autonomous"`: AI reviews plans before execution (recommended)
-  - `"autopilot"`: 100% hands-free operation
-- **`cdpPort`**: Chrome DevTools Protocol port (0 = auto-detect)
-- **`cdpPorts`**: Array of explicit ports to check
-- **`safetyDelayMs`**: Delay before auto-clicking (prevents accidental double-clicks)
-- **`pollIntervalMs`**: How often to check for confirmation dialogs
-- **`autoSelectAlwaysAllow`**: Auto-select "Always Allow" option
-- **`askKeywords`**: Commands that require manual confirmation
-- **`skipKeywords`**: Commands that will never be auto-approved
+## 🔄 Two-IDE Architecture & Isolation
 
-## 🛡️ Safety Features
+If you run both **Google Antigravity IDE** and **Kiro IDE** on the same machine, both daemons operate concurrently with zero interference:
 
-### Ask Keywords
-
-Commands containing these keywords will **pause and ask for manual confirmation**:
-
-```json
-"askKeywords": [
-  "git push",
-  "git reset --hard",
-  "rm -rf",
-  "execute_pwsh"
-]
+```text
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│       Google Antigravity        │       │            Kiro IDE             │
+│   Port: 9333 (9330-9340 range)  │       │   Port: 9222 (9220-9230 range)  │
+│    CLI: auto-accept / agy-*     │       │    CLI: kiro-auto-accept / kiro-*│
+└─────────────────────────────────┘       └─────────────────────────────────┘
 ```
 
-### Skip Keywords
-
-Commands containing these keywords will **never be auto-approved**:
-
-```json
-"skipKeywords": [
-  "drop table",
-  "git push --force",
-  "format c:",
-  "del /f /s /q c:",
-  "Remove-Item -Recurse -Force C:\\"
-]
-```
-
-## 🔧 CLI Options
-
-```bash
-kiro-auto-accept [command] [options]
-```
-
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--mode=autopilot` | 100% hands-free mode |
-| `--mode=autonomous` | Review plans before execution |
-| `--port=9222` | Specific CDP port |
-| `--quiet, -q` | Minimal output |
-| `--force, -f` | Force restart/override locks |
-| `--help, -h` | Show help |
-| `--version, -v` | Show version |
-
-### Examples
-
-```bash
-# Start in autopilot mode
-kiro-auto-accept start --mode=autopilot
-
-# Use specific port
-kiro-auto-accept --port=9223
-
-# Force restart
-kiro-auto-accept restart --force
-
-# Quiet mode
-kiro-auto-accept start --quiet
-```
-
-## 🩺 Troubleshooting
-
-### Run Diagnostics
-
-```bash
-kiro-auto-accept doctor
-```
-
-This will check:
-- ✅ Node.js version (requires >=18.0.0)
-- ✅ Operating system
-- ✅ Kiro IDE executable location
-- ✅ Chrome DevTools Protocol connection
-- ✅ Active windows and ports
-
-### Common Issues
-
-#### "No active Kiro IDE instances found"
-
-**Solution:**
-```bash
-kiro-auto-accept restart
-```
-
-Or manually launch with debug port:
-```bash
-kiro --remote-debugging-port=9222
-```
-
-#### "Kiro IDE running WITHOUT remote debugging"
-
-**Cause:** Kiro was launched without the debug port.
-
-**Solution:**
-```bash
-kiro-auto-accept restart
-```
-
-#### Multiple daemons running
-
-**Solution:** Use `--force` to override:
-```bash
-kiro-auto-accept start --force
-```
-
-## 🖥️ Platform Support
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| Windows | ✅ Full Support | PowerShell required |
-| macOS | ✅ Full Support | - |
-| Linux | ✅ Full Support | - |
-
-## 🔐 Security
-
-- **Local Only**: All communication happens via localhost
-- **No Network Access**: No external connections
-- **Configurable Safety**: Customize keyword guardrails
-- **Open Source**: Fully auditable code
-
-## 📊 Statistics
-
-View your daemon statistics:
-
-```bash
-cat ~/.kiro-auto-accept/stats.json
-```
-
-Tracks:
-- Total acceptances
-- Total skips
-- Total asks
-- Session start time
-
-## 🛠️ Advanced Usage
-
-### Environment Variables
-
-```bash
-# Custom Kiro executable path
-export KIRO_PATH="/custom/path/to/kiro"
-
-# Or VS Code path
-export KIRO_PATH="/path/to/code"
-```
-
-### Multiple Instances
-
-Run daemons on different ports:
-
-```bash
-# Terminal 1
-kiro-auto-accept --port=9222
-
-# Terminal 2
-kiro-auto-accept --port=9223
-```
-
-### Project-Specific Rules
-
-Each project can have its own safety rules:
-
-```bash
-cd my-project
-kiro-auto-accept init
-# Edit .kiro-auto-accept.json
-kiro-auto-accept
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to:
-- Report bugs
-- Suggest features
-- Submit pull requests
-
-## 📄 License
-
-MIT License - see LICENSE file for details
-
-## 🙏 Credits
-
-- Inspired by [Antigravity Auto-Submit](https://github.com/WillyEverGreen/Antigravity-Auto-Submitter)
-- Built for the [Kiro IDE](https://kiro.dev) community
-- Created by WillyEverGreen / advdi
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/WillyEverGreen/Kiro-Auto-Accept/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/WillyEverGreen/Kiro-Auto-Accept/discussions)
-
-## 🗺️ Roadmap
-
-- [ ] GUI dashboard
-- [ ] Statistics visualization
-- [ ] Advanced filtering rules
-- [ ] VS Code extension integration
-- [ ] Webhook notifications
-- [ ] Cloud sync for configurations
+- Antigravity Auto-Submit explicitly ignores ports `9220–9235`.
+- Kiro Auto-Accept explicitly ignores ports `9300–9400`.
 
 ---
 
-**⚡ Made with ❤️ for autonomous AI development workflows**
+## 📜 License
+
+MIT License. Developed by WillyEverGreen / advdi.

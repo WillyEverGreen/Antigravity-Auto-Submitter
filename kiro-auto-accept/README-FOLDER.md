@@ -1,61 +1,54 @@
 # Kiro Auto-Accept
 
-This is a **separate, standalone version** of the Antigravity Auto-Submitter, adapted for **Kiro IDE**.
-
-## 📂 What's in This Folder?
-
-This folder contains a complete, independent implementation of auto-accept for Kiro IDE (based on VS Code/Electron). It's maintained separately from the main Antigravity Auto-Submitter.
-
-## 🔗 Relationship to Main Project
-
-- **Main Product:** Antigravity Auto-Submitter (parent folder)
-- **This Folder:** Kiro IDE adaptation
-- **Code:** Completely separate - can be developed/released independently
-- **Configuration:** Uses `.kiro-auto-accept.json` (different from `.auto-accept.json`)
-
-## 📦 Installation
-
-From this folder:
-
-```bash
-npm install -g .
-```
-
-Then use:
-
-```bash
-kiro-auto-accept --help
-```
-
-## 📖 Documentation
-
-See [`README.md`](./README.md) in this folder for complete Kiro Auto-Accept documentation.
-
-**Quick Setup:** See [`SETUP-SHORTCUT.md`](./SETUP-SHORTCUT.md) for instructions on adding the debug port to your Kiro shortcut.
-
-## 🆚 Key Differences from Antigravity Version
-
-| Feature | Antigravity | Kiro |
-|---------|------------|------|
-| **IDE** | Google Antigravity IDE | Kiro IDE (VS Code based) |
-| **Default Port** | 9333 | 9222 |
-| **Launch Flag** | `--remote-debugging-port=9333` | `--remote-debugging-port=9222` |
-| **Config File** | `.auto-accept.json` | `.kiro-auto-accept.json` |
-| **Global Dir** | `~/.antigravity-auto-submit` | `~/.kiro-auto-accept` |
-| **Commands** | `antigravity-auto-submit`, `auto-accept` | `kiro-auto-accept`, `kiro-accept` |
-
-## 🔧 Development
-
-This folder is self-contained:
-- Has its own `package.json`
-- Has its own `CHANGELOG.md`
-- Can be versioned independently
-- Can be published to npm separately
-
-## 📜 License
-
-MIT - Same as parent project
+This directory contains the **standalone companion edition** of the Auto-Accept confirmation daemon, specifically engineered for **Kiro IDE**.
 
 ---
 
-**Parent Project:** [Antigravity Auto-Submitter](../)
+## 📁 Directory Structure & Architecture
+
+```text
+kiro-auto-accept/
+├── bin/                       # Global CLI wrapper executables
+│   ├── kiro-doctor.js
+│   ├── kiro-launch.js
+│   ├── kiro-restart.js
+│   ├── kiro-setup.js
+│   └── kiro-start.js
+├── kiro-auto-accept.js         # Core persistent WindowSession CDP engine
+├── package.json               # Standalone npm package specification (v1.1.0)
+├── README.md                  # Comprehensive user guide & CLI documentation
+├── README-FOLDER.md           # Relationship to parent project
+├── SETUP-SHORTCUT.md          # Multi-platform shortcut configuration guide
+└── CHANGELOG.md               # Version release history
+```
+
+---
+
+## 🔄 Relationship to Antigravity Auto-Submit
+
+| Dimension | Antigravity Auto-Submit (Parent) | Kiro Auto-Accept (This Folder) |
+| :--- | :--- | :--- |
+| **Target IDE** | Google Antigravity IDE | Kiro IDE |
+| **Dedicated Port** | **9333** (range: 9330–9340) | **9222** (range: 9220–9230) |
+| **Port Filtering** | Strictly ignores 9220–9235 | Strictly ignores 9300–9400 |
+| **Webview Architecture** | Workbench direct DOM | Workbench + out-of-process Webview + `#active-frame` |
+| **Global CLI** | `auto-accept`, `agy-*` | `kiro-auto-accept`, `kiro-*` |
+| **Configuration** | `.auto-accept.json` | `.kiro-auto-accept.json` |
+| **Global Storage** | `~/.antigravity-auto-submit/` | `~/.kiro-auto-accept/` |
+
+---
+
+## 🚀 Quick Setup & Usage
+
+```powershell
+# 1. Install globally
+npm install -g .
+
+# 2. Configure shortcuts
+kiro-setup
+
+# 3. Launch & start
+kiro-auto-accept
+```
+
+For full documentation, see [README.md](./README.md).

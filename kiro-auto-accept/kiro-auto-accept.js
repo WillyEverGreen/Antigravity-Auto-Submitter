@@ -24,7 +24,7 @@ try {
   } catch (err) {}
 }
 
-const PKG_VERSION = '1.0.0';
+const PKG_VERSION = '1.1.0';
 const GLOBAL_DIR = path.join(os.homedir(), '.kiro-auto-accept');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_DIR, 'config.json');
 const STATS_FILE = path.join(GLOBAL_DIR, 'stats.json');
@@ -1189,4 +1189,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { AutoAcceptDaemon, loadConfig, findCdpEndpoints, selectAllWorkbenchTargets, buildScannerScript };
+module.exports = { main, AutoAcceptDaemon, loadConfig, findCdpEndpoints, selectAllWorkbenchTargets, buildScannerScript };

@@ -2,7 +2,7 @@
   "name": "kiro-auto-accept",
   "displayName": "Kiro Auto-Accept CLI",
   "description": "Production-grade autonomous confirmation daemon for Kiro IDE",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "WillyEverGreen",
   "author": {
     "name": "WillyEverGreen / advdi"
@@ -33,11 +33,11 @@
   "bin": {
     "kiro-auto-accept": "./kiro-auto-accept.js",
     "kiro-accept": "./kiro-auto-accept.js",
-    "kiro-doctor": "./kiro-auto-accept.js",
-    "kiro-setup": "./kiro-auto-accept.js",
-    "kiro-launch": "./kiro-auto-accept.js",
-    "kiro-restart": "./kiro-auto-accept.js",
-    "kiro-start": "./kiro-auto-accept.js"
+    "kiro-doctor": "./bin/kiro-doctor.js",
+    "kiro-setup": "./bin/kiro-setup.js",
+    "kiro-launch": "./bin/kiro-launch.js",
+    "kiro-restart": "./bin/kiro-restart.js",
+    "kiro-start": "./bin/kiro-start.js"
   },
   "scripts": {
     "start": "node kiro-auto-accept.js start",

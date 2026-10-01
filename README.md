@@ -31,7 +31,7 @@
 
 </div>
 
-> **💡 Looking for Kiro IDE version?** Check out the [`kiro-auto-accept/`](./kiro-auto-accept) folder for the Kiro IDE compatible version.
+> **🤖 Using Kiro IDE?** Check out the dedicated companion edition: [`kiro-auto-accept/`](./kiro-auto-accept) (operating autonomously on dedicated Port 9222 with zero port conflicts).
 
 ---
 
