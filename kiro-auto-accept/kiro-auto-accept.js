@@ -161,7 +161,7 @@ function handleList(cfg, shouldExit = true) {
   console.log(`\n  ${C.magenta}🚫 Skip Keywords (${cfg.skipKeywords.length}):${C.reset}`);
   cfg.skipKeywords.forEach(k => console.log(`    • "${k}"`));
   console.log('');
-  process.exit(0);
+  if (shouldExit) process.exit(0);
 }
 
 async function handleDoctor(cfg, shouldExit = true) {
@@ -1090,13 +1090,25 @@ class AutoAcceptDaemon {
     const readline = require('readline');
     try {
       readline.emitKeypressEvents(process.stdin);
+      let isRaw = false;
       if (process.stdin.isTTY) {
-        try { process.stdin.setRawMode(true); } catch (e) {}
+        try {
+          process.stdin.setRawMode(true);
+          isRaw = true;
+        } catch (e) {}
       }
       process.stdin.resume();
 
+      let lastActionTime = 0;
+      let lastActionKey = '';
+
       const handleKey = (raw) => {
         const k = (raw || '').toLowerCase().trim();
+        if (!k) return;
+        const now = Date.now();
+        if (now - lastActionTime < 150 && lastActionKey === k) return;
+        lastActionTime = now;
+        lastActionKey = k;
         if (k === 'q' || raw === '\x03') {
           console.log('\n  ' + C.dim + 'Shutting down Kiro Auto-Accept...' + C.reset);
           process.exit(0);
