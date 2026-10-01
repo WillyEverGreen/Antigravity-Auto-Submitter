@@ -5,15 +5,38 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.1] - 2026-10-01
+## [1.8.2] - 2026-10-01
 
 ### Added
 - **Kiro IDE Companion Suite (`kiro-auto-accept` v1.1.0)**:
-  - Integrated standalone Kiro IDE auto-accept daemon in `kiro-auto-accept/` featuring the persistent `WindowSession` CDP architecture.
+  - Integrated standalone Kiro IDE auto-accept daemon in `kiro-auto-accept/` featuring persistent `WindowSession` CDP architecture.
   - Multi-target concurrent scanning: monitors workbench pages, out-of-process Kiro Agent webviews (`vscode-webview://...`), and nested `#active-frame` documents.
   - Dedicated CLI binary aliases: `kiro-auto-accept`, `kiro-accept`, `kiro-doctor`, `kiro-setup`, `kiro-launch`, `kiro-restart`, and `kiro-start`.
   - Comprehensive permission approval coverage: shell commands, file modifications, diffs, tool/MCP execution, step continuations, and workspace trust dialogs.
   - Strict two-way port isolation: Antigravity Auto-Submit operates on Port 9333 (range 9330–9340, explicitly ignoring 9220–9235), while Kiro Auto-Accept operates on Port 9222 (range 9220–9230, explicitly ignoring 9300–9400).
+- **Shorthand CLI Aliases & Interactive Hotkeys**:
+  - Direct shell shorthands: `auto-accept d` (doctor), `auto-accept l` (list rules), `auto-accept s` (stats), `auto-accept c` (config).
+  - Live in-daemon hotkeys without exiting: `d`, `l`, `s`, `c`, `p`, `m`, `R`, `h`, `q`.
+
+## [1.8.1] - 2026-09-28
+
+### Added
+- **Full Antigravity Standalone App Support & Dual-Product Compatibility**:
+  - Differentiated between **Antigravity IDE** (`Antigravity IDE.exe`, VS Code fork on port `9333`) and **Antigravity App** (`Antigravity.exe`, standalone desktop interface on port `9334`).
+  - Allocated distinct default ports (IDE: `9333`, App: `9334`) ensuring both applications can run side-by-side without port collision.
+  - Multi-port concurrent discovery (`findCdpEndpoints`) now scans and attaches to all open workbench windows across both applications simultaneously.
+- **Enhanced Target Selection (`selectAllWorkbenchTargets`)**:
+  - Added support for internal language server endpoints (`https://127.0.0.1:<port>/` and `http://localhost:<port>/`) served by Antigravity App's embedded engine.
+  - Enforced strict loopback verification to guarantee external internet browser tabs and web documentation are never attached.
+- **Extended DOM Button Recognition**:
+  - Added Antigravity App specific action labels: `Always Allow`, `Allow Once`, `Run command`, `Always run`, `Run (unsandboxed)`, `Proceed with Plan`, and `Accept Step`.
+  - Added prefix-tolerant matching for dynamic compound button labels.
+- **False-Positive Task Log & Loop Immunity**:
+  - Eliminated infinite click loops on completed task accordions in conversation history.
+  - Added strict action label length validation (`<= 30` chars), negative filters for completed task states, and accordion `aria-expanded` rejection.
+- **Dual-Product CLI Tools (`setup`, `doctor`, `restart`, `start`)**:
+  - `auto-accept setup`: automatically patches and creates desktop shortcuts for both Antigravity IDE and App.
+  - `auto-accept doctor`: displays individual running status and port diagnostic checks for both IDE and App.
 
 ## [1.8.0] - 2026-09-28
 
