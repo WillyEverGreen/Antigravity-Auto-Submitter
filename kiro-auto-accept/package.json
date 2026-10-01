@@ -48,7 +48,8 @@
     "setup": "node kiro-auto-accept.js setup",
     "launch": "node kiro-auto-accept.js launch",
     "restart": "node kiro-auto-accept.js restart",
-    "easy-start": "node kiro-auto-accept.js start"
+    "easy-start": "node kiro-auto-accept.js start",
+    "test": "node test/kiro.test.js"
   },
   "dependencies": {
     "ws": "^8.16.0"
