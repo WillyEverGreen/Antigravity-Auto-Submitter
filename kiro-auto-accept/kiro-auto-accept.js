@@ -148,7 +148,7 @@ function handleInit() {
   process.exit(0);
 }
 
-function handleList(cfg) {
+function handleList(cfg, shouldExit = true) {
   console.log(`\n${C.bold}${C.brightCyan}⚡ Kiro Auto-Accept Active Rules${C.reset}\n`);
   console.log(`  ${C.bold}Status:${C.reset}        ${cfg.enabled ? `${C.green}Enabled ✔${C.reset}` : `${C.red}Disabled ✖${C.reset}`}`);
   console.log(`  ${C.bold}Mode:${C.reset}          ${cfg.mode === 'autopilot' ? `${C.magenta}AUTOPILOT (100% hands-free)${C.reset}` : `${C.cyan}AUTONOMOUS (Approval required)${C.reset}`}`);
@@ -1071,14 +1071,78 @@ class AutoAcceptDaemon {
 
     await this.syncTargets();
 
-    if (this.sessions.size === 0) {
+        if (this.sessions.size === 0) {
       console.log(`  ${C.yellow}Searching for Kiro IDE on Port ${this.cfg.cdpPort || 9222}... ${C.reset}`);
     } else {
       console.log(`${C.bold}${C.green}✔ Daemon is now monitoring ${this.sessions.size} Kiro IDE target(s)... (Port 9222)${C.reset}`);
-      console.log(`${C.dim}Press Ctrl+C to stop.\n${C.reset}`);
+      console.log(`
+  ${C.dim}Hotkeys:${C.reset}
+    ${C.yellow}p${C.reset} Pause/Resume   ${C.yellow}m${C.reset} Mode    ${C.yellow}l${C.reset} List Rules   ${C.yellow}s${C.reset} Live Stats
+    ${C.yellow}d${C.reset} Doctor Check   ${C.yellow}c${C.reset} Config  ${C.yellow}R${C.reset} Restart IDE  ${C.yellow}h${C.reset} Help (?)  ${C.yellow}q${C.reset} Quit
+`);
     }
 
+    this.setupHotkeys();
     this.loop();
+  }
+
+  setupHotkeys() {
+    const readline = require('readline');
+    try {
+      readline.emitKeypressEvents(process.stdin);
+      if (process.stdin.isTTY) {
+        try { process.stdin.setRawMode(true); } catch (e) {}
+      }
+      process.stdin.resume();
+
+      const handleKey = (raw) => {
+        const k = (raw || '').toLowerCase().trim();
+        if (k === 'q' || raw === '\x03') {
+          console.log('\n  ' + C.dim + 'Shutting down Kiro Auto-Accept...' + C.reset);
+          process.exit(0);
+        } else if (k === 'p') {
+          this.cfg.enabled = !this.cfg.enabled;
+          this.logEvent('info', ' TOGGLE ', 'Auto-accept is now ' + (this.cfg.enabled ? 'ACTIVE' : 'PAUSED'), '', this.cfg.enabled ? C.pillGreen : C.pillYellow);
+        } else if (k === 'm') {
+          this.cfg.mode = this.cfg.mode === 'autonomous' ? 'autopilot' : 'autonomous';
+          this.logEvent('info', ' MODE ', 'Switched to: ' + this.cfg.mode.toUpperCase(), '', this.cfg.mode === 'autopilot' ? C.pillMagenta : C.pillCyan);
+        } else if (k === 'd') {
+          handleDoctor(this.cfg, false);
+        } else if (k === 'l') {
+          handleList(this.cfg, false);
+        } else if (k === 's') {
+          console.log('\n  ' + C.bold + C.cyan + 'Live Stats:' + C.reset + ' Approved: ' + this.stats.accepted + ' | Blocked: ' + this.stats.skipped + ' | Active Targets: ' + this.sessions.size + '\n');
+        } else if (k === 'c') {
+          console.log('\n  ' + C.bold + C.cyan + 'Active Config:' + C.reset + ' Mode: ' + this.cfg.mode + ' | Delay: ' + this.cfg.safetyDelayMs + 'ms | Poll: ' + this.cfg.pollIntervalMs + 'ms | Port: ' + (this.cfg.cdpPort || 9222) + '\n');
+        } else if (raw === 'R' || (raw && raw.shift && k === 'r')) {
+          handleRestart(this.cfg, false);
+        } else if (k === 'h' || k === '?') {
+          console.log(`
+  ${C.bold}${C.cyan}--- Kiro Auto-Accept Hotkeys ---${C.reset}
+    ${C.yellow}p${C.reset}  Pause / Resume
+    ${C.yellow}m${C.reset}  Toggle Autonomous / Autopilot
+    ${C.yellow}l${C.reset}  List active keyword rules
+    ${C.yellow}d${C.reset}  Run System Doctor check
+    ${C.yellow}s${C.reset}  Show live approval stats
+    ${C.yellow}c${C.reset}  Show configuration
+    ${C.yellow}R${C.reset}  Restart Kiro IDE with debugging port
+    ${C.yellow}q${C.reset}  Quit daemon
+`);
+        }
+      };
+
+      process.stdin.on('keypress', (str, key) => {
+        const raw = (key && key.shift && key.name === 'r') ? 'R' : (key && key.name ? key.name : str);
+        handleKey(raw);
+      });
+
+      process.stdin.on('data', (chunk) => {
+        const line = chunk.toString().trim();
+        if (line.length === 1 || ['doc', 'doctor', 'list', 'rules', 'stats', 'config', 'help'].includes(line.toLowerCase())) {
+          handleKey(line);
+        }
+      });
+    } catch (e) {}
   }
 
   async loop() {
@@ -1161,7 +1225,17 @@ ${C.bold}OPTIONS:${C.reset}
     process.exit(0);
   }
 
-  const cmd = args[0];
+  const rawCmd = (args[0] || '').toLowerCase().trim();
+  let cmd = rawCmd;
+  if (['d', 'doc', 'doctor', 'check'].includes(rawCmd)) cmd = 'doctor';
+  else if (['l', 'ls', 'list', 'rules'].includes(rawCmd)) cmd = 'list';
+  else if (['s', 'stat', 'stats', 'status'].includes(rawCmd)) cmd = 'stats';
+  else if (['c', 'cfg', 'config'].includes(rawCmd)) cmd = 'config';
+  else if (['r', 'restart'].includes(rawCmd)) cmd = 'restart';
+  else if (['setup', 'shortcuts'].includes(rawCmd)) cmd = 'setup';
+  else if (['launch', 'open'].includes(rawCmd)) cmd = 'launch';
+  else if (['start'].includes(rawCmd)) cmd = 'start';
+  else if (['init'].includes(rawCmd)) cmd = 'init';
 
   if (cmd === 'init') {
     handleInit();

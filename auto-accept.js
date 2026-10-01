@@ -1115,9 +1115,9 @@ ${C.bold}${C.green}✔ Removed ${removed.length} rule(s)!${C.reset}
 // ── Config Resolution (Local -> Global -> Defaults) ──
 function resolveConfig() {
   const args = process.argv.slice(2);
-  const rawFirstArg = args[0] ? args[0].toLowerCase() : '';
+  const rawFirstArg = args[0] ? args[0].toLowerCase().trim() : '';
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
-  const firstArg = rawFirstArg || (
+  let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
     binName.includes('start') ? 'start' :
     binName.includes('setup') ? 'setup' :
@@ -1126,6 +1126,11 @@ function resolveConfig() {
     binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
+  if (['d', 'doc', 'check'].includes(firstArg)) firstArg = 'doctor';
+  else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
+  else if (['s', 'stat', 'stats'].includes(firstArg)) firstArg = 'status';
+  else if (['c', 'cfg', 'config'].includes(firstArg)) firstArg = 'config';
+  else if (['r'].includes(firstArg)) firstArg = 'restart';
 
   if (firstArg === 'init') handleInit();
   if (firstArg === '-h' || firstArg === '--help' || firstArg === 'help') printHelp();
@@ -2574,8 +2579,8 @@ if (require.main === module) {
   const { config, configSource } = resolved;
 
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
-  const rawFirstArg = process.argv.slice(2).find(a => !a.startsWith('-')) || '';
-  const firstArg = rawFirstArg || (
+  const rawFirstArg = (process.argv.slice(2).find(a => !a.startsWith('-')) || '').toLowerCase().trim();
+  let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
     binName.includes('start') ? 'start' :
     binName.includes('setup') ? 'setup' :
@@ -2584,6 +2589,11 @@ if (require.main === module) {
     binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
+  if (['d', 'doc', 'check'].includes(firstArg)) firstArg = 'doctor';
+  else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
+  else if (['s', 'stat', 'stats'].includes(firstArg)) firstArg = 'status';
+  else if (['c', 'cfg', 'config'].includes(firstArg)) firstArg = 'config';
+  else if (['r'].includes(firstArg)) firstArg = 'restart';
   if (firstArg === 'doctor') {
     handleDoctor(config).catch(err => {
       console.error('Doctor error:', err);
