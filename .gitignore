@@ -1,21 +1,46 @@
 # Node dependencies
 node_modules/
 
-# Logs
+# Logs & Debugging
 *.log
 debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Operating system
+# Operating System Files
 .DS_Store
 Thumbs.db
+ehthumbs.db
+desktop.ini
 
-# Local configuration
+# Local Configuration & Credentials (NEVER commit)
 auto-accept.config.json
 .auto-accept.json
+.env
+.env.*
+!.env.example
+credentials*.json
+accounts*.json
+*token*.json
+*secret*.json
 
-# Scratch / temporary
+# Backups & Encrypted Store Dumps
+*.bak
+*.enc
+*.backup.*
+kiro-backup-*.json
+
+# External / Upstream Cloned Repositories
+kiro-account-manager-repo/
+
+# Scratch & Temporary Testing Files
 scratch/
 coverage/
+test-results/
 implementation_plan.md
+audit_probe*.mjs
+phase5_parallel_audit*.mjs
 __pycache__/
 *.pyc
+

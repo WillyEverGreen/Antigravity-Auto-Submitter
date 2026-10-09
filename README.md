@@ -32,6 +32,9 @@
 </div>
 
 > **🤖 Using Kiro IDE?** Check out the dedicated companion edition: [`kiro-auto-accept/`](./kiro-auto-accept) (operating autonomously on dedicated Port 9222 with zero port conflicts).
+>
+> **⚡ Multi-Model Swarms & Parallel Delegation?** Check out [`kiro-agent/`](./kiro-agent) — Autonomous 20-account proxy integration, model consensus swarms (Sonnet 4.5, DeepSeek 3.2, Qwen3 Coder, MiniMax M2.5), 13 native MCP tools, and 5-layer Anti-Ban Armor.
+
 
 ---
 
@@ -725,7 +728,44 @@ antigravity-brain --interactive
 
 ---
 
+## ⚡ Kiro Agent & MCP Subsystem (Multi-Model Swarm & Parallel Delegation)
+
+In addition to the CDP auto-submit daemon, this repository includes **`kiro-agent/`**, a multi-model swarm execution engine and Model Context Protocol (MCP) server that connects to your local Kiro IDE Proxy (`http://127.0.0.1:5580`):
+
+- **Model Consensus Swarms**: Dispatches hard problems concurrently across Claude Sonnet 4.5, DeepSeek 3.2, Qwen3 Coder Next, and MiniMax M2.5, then synthesizes a single consensus master plan.
+- **Concurrent Task Delegation**: Splits complex multi-file refactors or test generation tasks across worker threads in parallel (`kiro parallel -f tasks.json -c 8`).
+- **4-Way Code Review**: Performs parallel audits across Security, Correctness, Performance, and Architecture.
+- **5-Layer Anti-Ban Armor**: Protects your accounts via unique 64-hex hardware machine IDs per account, OIDC token refresh rate-limiting, circuit breaker backoffs, and quota cliff failover.
+- **13 Native MCP Tools**: Fully callable by Google Antigravity IDE via stdio JSON-RPC.
+- **Zero Credential Leaks**: Never stores plaintext tokens or logs sensitive session data.
+
+### CLI Quick Reference
+```bash
+# Verify connection health & account status
+kiro status
+
+# Apply 5-layer Anti-Ban Armor & hardware fingerprint isolation
+kiro armor
+
+# Run a task on a specific model & persona
+kiro run "Refactor auth pipeline to OAuth2 PKCE" -m claude-sonnet-4.5 -r architect
+
+# Run multi-model consensus swarm
+kiro swarm "Design a high-throughput rate limiter in Node.js"
+
+# 4-dimension parallel code review
+kiro review ./src/auth.ts
+
+# Batch parallel tasks across accounts
+kiro parallel -f tasks.json -c 8
+```
+
+For complete documentation, tool input schemas, and configuration variables, read the [`kiro-agent/README.md`](./kiro-agent/README.md).
+
+---
+
 ## 🧪 Automated Testing
+
 
 ```bash
 npm test
