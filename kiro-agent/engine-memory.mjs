@@ -98,13 +98,22 @@ export function getMemoryStore() {
   return store;
 }
 
+let debouncedSaveTimer = null;
+export function scheduleDebouncedSave(delayMs = 1500) {
+  if (debouncedSaveTimer) return;
+  debouncedSaveTimer = setTimeout(() => {
+    debouncedSaveTimer = null;
+    saveMemoryStore();
+  }, delayMs);
+}
+
 /**
- * Persist memory store safely to disk
+ * Persist memory store safely to disk using atomic temp file
  */
 export function saveMemoryStore() {
   if (!store) return;
   try {
-    const tmpFile = `${MEMORY_FILE}.tmp.${Date.now()}`;
+    const tmpFile = `${MEMORY_FILE}.tmp.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}`;
     fs.writeFileSync(tmpFile, JSON.stringify(store, null, 2), 'utf8');
     fs.renameSync(tmpFile, MEMORY_FILE);
   } catch (err) {
@@ -116,7 +125,7 @@ export function saveMemoryStore() {
  * Tokenize and generate sparse TF-IDF / character n-gram feature vector
  */
 export function vectorizeText(text) {
-  const normalized = text.toLowerCase().replace(/[^a-z0-9_\s]/g, ' ');
+  const normalized = (text || '').slice(0, 10000).toLowerCase().replace(/[^a-z0-9_\s]/g, ' ');
   const words = normalized.split(/\s+/).filter(w => w.length > 1);
   const freq = {};
 
@@ -181,7 +190,7 @@ export function getCachedResponse(prompt, similarityThreshold = 0.92) {
     const entry = currentStore.cache[exactKey];
     entry.hitCount = (entry.hitCount || 0) + 1;
     entry.lastAccessed = new Date().toISOString();
-    saveMemoryStore();
+    scheduleDebouncedSave(2000);
     return {
       hit: true,
       exact: true,
@@ -209,7 +218,7 @@ export function getCachedResponse(prompt, similarityThreshold = 0.92) {
   if (bestMatch && bestScore >= similarityThreshold) {
     bestMatch.hitCount = (bestMatch.hitCount || 0) + 1;
     bestMatch.lastAccessed = new Date().toISOString();
-    saveMemoryStore();
+    scheduleDebouncedSave(2000);
     return {
       hit: true,
       exact: false,
@@ -316,6 +325,9 @@ export function addMemory({
   };
 
   currentStore.memories.push(entry);
+  if (currentStore.memories.length > 5000) {
+    currentStore.memories = currentStore.memories.slice(currentStore.memories.length - 5000);
+  }
   saveMemoryStore();
   return entry;
 }

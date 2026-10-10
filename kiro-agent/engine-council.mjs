@@ -58,6 +58,18 @@ export async function executeCouncil({
     };
   }
 
+  // Fast-path: if only 1 proposal succeeded, return it directly without running 3-way peer review
+  if (validProposals.length === 1) {
+    return {
+      success: true,
+      pattern: 'LLM Council (Single Valid Member)',
+      finalSolution: validProposals[0].content,
+      proposals: validProposals,
+      evaluations: [],
+      totalDurationMs: Date.now() - tStart
+    };
+  }
+
   // STAGE 2: Blind Peer Review & Ranking
   const anonymizedText = validProposals.map(p => (
     `==================== ${p.candidateId} ====================\n${p.content}\n`
@@ -114,9 +126,10 @@ ${evaluatorA.content || 'N/A'}
 ${evaluatorB.content || 'N/A'}
 
 ### Chairman Synthesis Directive:
-1. Incorporate the strongest algorithmic insights and eliminate any flaws identified during peer review.
-2. Produce the complete, gold-standard, production-ready code implementation.
-3. Provide a brief summary of the council's consensus.`;
+1. Anchor the implementation in the top-ranked proposal's architecture. DO NOT mix contradictory patterns (callbacks vs promises, sync vs async).
+2. Incorporate concrete bug fixes and boundary guards identified during peer review.
+3. Produce the complete, gold-standard, production-ready code implementation without placeholders.
+4. Provide a brief summary of the council consensus.`;
 
   const chairmanRes = await executeRaw({
     prompt: synthesisPrompt,

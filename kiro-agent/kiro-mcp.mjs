@@ -374,11 +374,12 @@ async function handleToolCall(name, args) {
     }
 
     case 'kiro_parallel_tasks': {
+      const concurrency = Math.min(Math.max(1, args.concurrency || 8), 50);
       const res = await executeParallel({
         tasks: args.tasks,
         defaultModel: args.defaultModel || 'claude-sonnet-4.5',
         defaultRole: args.defaultRole || 'coder',
-        concurrency: args.concurrency || 8
+        concurrency
       });
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }
@@ -518,6 +519,9 @@ async function handleToolCall(name, args) {
     }
 
     case 'kiro_universal_setting': {
+      if (!args.path || /__proto__|constructor|prototype/i.test(args.path)) {
+        throw new Error('Access denied: Invalid or unsafe setting path pattern');
+      }
       if (args.action === 'get') {
         const val = getAnySetting(args.path);
         return { content: [{ type: 'text', text: JSON.stringify({ path: args.path, value: val }, null, 2) }] };
@@ -543,8 +547,14 @@ const rl = readline.createInterface({
 
 function sendResponse(id, result, error = null) {
   const msg = { jsonrpc: '2.0', id };
-  if (error) msg.error = error;
-  else msg.result = result;
+  if (error) {
+    msg.error = {
+      code: error.code || -32603,
+      message: String(error.message || error)
+    };
+  } else {
+    msg.result = result;
+  }
   process.stdout.write(JSON.stringify(msg) + '\n');
 }
 

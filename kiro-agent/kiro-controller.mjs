@@ -38,7 +38,9 @@ function encryptStore(storeData) {
   const payload = Buffer.from(JSON.stringify(storeData), 'utf8');
   const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
   const finalBuf = Buffer.concat([iv, Buffer.from(':'), encrypted]);
-  fs.writeFileSync(STORE_PATH, finalBuf);
+  const tmpFile = `${STORE_PATH}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmpFile, finalBuf);
+  fs.renameSync(tmpFile, STORE_PATH);
 }
 
 /**
@@ -689,6 +691,16 @@ export async function sendWebhookTest(webhookIdOrUrl) {
   const { webhooks } = getWebhooks();
   const target = webhooks.find(w => w.id === webhookIdOrUrl || w.url === webhookIdOrUrl || w.label === webhookIdOrUrl);
   if (!target) throw new Error(`Webhook not found: ${webhookIdOrUrl}`);
+
+  try {
+    const parsedUrl = new URL(target.url);
+    const host = parsedUrl.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '169.254.169.254' || host === '0.0.0.0') {
+      throw new Error(`SSRF Guard: Webhook destination ${host} is restricted`);
+    }
+  } catch (err) {
+    if (err.message.includes('SSRF Guard')) throw err;
+  }
 
   const payload = {
     title: "🧪 Antigravity Test Notification",

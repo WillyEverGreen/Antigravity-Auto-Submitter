@@ -95,6 +95,15 @@ export function getProxyAuth(forceRefresh = false) {
   return cachedAuth;
 }
 
+const sharedHttpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 64,
+  maxFreeSockets: 16,
+  timeout: 120000
+});
+
+const MAX_RESPONSE_BYTES = 50 * 1024 * 1024; // 50MB limit
+
 /**
  * Perform an HTTP JSON request to Kiro Proxy with connection reuse & timeout guard
  */
@@ -117,7 +126,20 @@ export async function proxyRequest(urlPath, method = 'GET', data = null, customH
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const safeResolve = (val) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
+    const safeReject = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
     const req = http.request({
+      agent: sharedHttpAgent,
       hostname: auth.host,
       port: auth.port,
       path: urlPath,
@@ -126,7 +148,13 @@ export async function proxyRequest(urlPath, method = 'GET', data = null, customH
       timeout: 120000
     }, (res) => {
       let body = '';
-      res.on('data', chunk => body += chunk);
+      res.on('data', chunk => {
+        body += chunk;
+        if (body.length > MAX_RESPONSE_BYTES) {
+          req.destroy();
+          safeReject(new Error(`Response exceeded maximum allowed size of 50MB on ${urlPath}`));
+        }
+      });
       res.on('end', () => {
         let parsed;
         try {
@@ -136,23 +164,23 @@ export async function proxyRequest(urlPath, method = 'GET', data = null, customH
         }
 
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve({ status: res.statusCode, data: parsed });
+          safeResolve({ status: res.statusCode, data: parsed });
         } else {
           const errMsg = (parsed && parsed.error && parsed.error.message) || (typeof parsed === 'string' ? parsed : `HTTP ${res.statusCode}`);
           const err = new Error(errMsg);
           err.status = res.statusCode;
           err.body = parsed;
-          reject(err);
+          safeReject(err);
         }
       });
     });
 
     req.on('timeout', () => {
       req.destroy();
-      reject(new Error(`Kiro proxy request timed out after 120s on ${urlPath}`));
+      safeReject(new Error(`Kiro proxy request timed out after 120s on ${urlPath}`));
     });
 
-    req.on('error', (e) => reject(new Error(`Cannot connect to Kiro Proxy on ${auth.baseUrl}: ${e.message}`)));
+    req.on('error', (e) => safeReject(new Error(`Cannot connect to Kiro Proxy on ${auth.baseUrl}: ${e.message}`)));
 
     if (postBody) req.write(postBody);
     req.end();
@@ -265,7 +293,10 @@ export async function executeRaw({
     } catch (err) {
       lastErr = err;
       if (attempt <= retries) {
-        await new Promise(r => setTimeout(r, 800 * attempt));
+        const isRateLimit = lastErr?.status === 429;
+        const baseDelay = isRateLimit ? 2500 : 1000;
+        const delay = Math.min(30000, baseDelay * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 500);
+        await new Promise(r => setTimeout(r, delay));
       }
     }
   }

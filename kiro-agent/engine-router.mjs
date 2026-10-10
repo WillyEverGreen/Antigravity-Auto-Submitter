@@ -146,7 +146,7 @@ export async function executeParallelBatch({
   const queue = [...tasks];
 
   async function worker(workerId) {
-    while (queue.length > 0) {
+    while (true) {
       const task = queue.shift();
       if (!task) break;
 
@@ -170,7 +170,7 @@ export async function executeParallelBatch({
         });
       } catch (err) {
         results.push({
-          id: task.id,
+          id: task.id || `task-${results.length + 1}`,
           success: false,
           error: err.message,
           workerId
@@ -182,7 +182,16 @@ export async function executeParallelBatch({
   const workerPool = [];
   const activeWorkers = Math.min(concurrency, tasks.length);
   for (let i = 0; i < activeWorkers; i++) {
-    workerPool.push(worker(i + 1));
+    workerPool.push(
+      worker(i + 1).catch(err => {
+        results.push({
+          id: `worker-${i + 1}-fatal`,
+          success: false,
+          error: `Worker fatal crash: ${err.message}`,
+          workerId: i + 1
+        });
+      })
+    );
   }
 
   await Promise.all(workerPool);

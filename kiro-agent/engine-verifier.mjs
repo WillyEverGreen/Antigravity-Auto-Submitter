@@ -10,14 +10,27 @@ import vm from 'node:vm';
 import { executeRaw } from './kiro-core.mjs';
 
 /**
- * Extract code blocks from markdown output
+ * Extract code blocks from markdown output safely without ReDoS catastrophic backtracking
  */
 export function extractCodeBlocks(text) {
-  const codeBlockRegex = /```(?:[a-zA-Z0-9_\-]+)?\s*([\s\S]*?)```/g;
+  if (!text) return [''];
+  const lines = text.split('\n');
   const blocks = [];
-  let match;
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    blocks.push(match[1]);
+  let inBlock = false;
+  let current = [];
+  for (const line of lines) {
+    if (line.trimStart().startsWith('```')) {
+      if (!inBlock) {
+        inBlock = true;
+        current = [];
+      } else {
+        inBlock = false;
+        blocks.push(current.join('\n'));
+        current = [];
+      }
+    } else if (inBlock) {
+      current.push(line);
+    }
   }
   return blocks.length > 0 ? blocks : [text];
 }
@@ -46,8 +59,17 @@ export function validateCodeSyntax(code, languageHint = 'javascript') {
     const char = code[i];
     const nextChar = code[i + 1];
 
+    // Single-line comment
     if (!inString && char === '/' && nextChar === '/') {
       while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+
+    // Multi-line block comment
+    if (!inString && char === '/' && nextChar === '*') {
+      i += 2;
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i++;
       continue;
     }
 
@@ -55,9 +77,14 @@ export function validateCodeSyntax(code, languageHint = 'javascript') {
       inString = true;
       stringChar = char;
       continue;
-    } else if (inString && char === stringChar && code[i - 1] !== '\\') {
-      inString = false;
-      continue;
+    } else if (inString && char === stringChar) {
+      let backslashes = 0;
+      let b = i - 1;
+      while (b >= 0 && code[b] === '\\') { backslashes++; b--; }
+      if (backslashes % 2 === 0) {
+        inString = false;
+        continue;
+      }
     }
 
     if (!inString) {

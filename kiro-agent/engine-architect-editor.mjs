@@ -15,6 +15,14 @@ import {
   searchMemories,
   formatMemoriesForPrompt
 } from './engine-memory.mjs';
+import { validateCodeSyntax, extractCodeBlocks } from './engine-verifier.mjs';
+
+function withTimeout(promise, ms, stageName) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${stageName} timed out after ${ms / 1000}s`)), ms))
+  ]);
+}
 
 export async function executeArchitectEditor({
   prompt,
@@ -59,13 +67,26 @@ ${memoryContext}${context ? `### Context / Codebase Reference:\n${context}\n` : 
 ### User Task:
 ${prompt}`;
 
-  const archRes = await executeRaw({
-    prompt: architectPrompt,
-    model: architectModel,
-    role: 'architect',
-    maxTokens: 400,
-    temperature: 0.1
-  });
+  let archRes;
+  try {
+    archRes = await withTimeout(
+      executeRaw({
+        prompt: architectPrompt,
+        model: architectModel,
+        role: 'architect',
+        maxTokens: 400,
+        temperature: 0.1
+      }),
+      45000,
+      'Architect phase'
+    );
+  } catch (err) {
+    return {
+      success: false,
+      error: `Architect phase error: ${err.message}`,
+      durationMs: Date.now() - tStart
+    };
+  }
 
   if (!archRes.success) {
     return {
@@ -90,13 +111,27 @@ ${prompt}
 - Honor all invariants specified by the Architect.
 - Output clean, ready-to-run code without unnecessary chit-chat.`;
 
-  const editRes = await executeRaw({
-    prompt: editorPrompt,
-    model: editorModel,
-    role: 'editor',
-    maxTokens: 4096,
-    temperature: 0.2
-  });
+  let editRes;
+  try {
+    editRes = await withTimeout(
+      executeRaw({
+        prompt: editorPrompt,
+        model: editorModel,
+        role: 'editor',
+        maxTokens: 4096,
+        temperature: 0.2
+      }),
+      60000,
+      'Editor phase'
+    );
+  } catch (err) {
+    return {
+      success: false,
+      error: `Editor phase error: ${err.message}`,
+      blueprint: archRes.content,
+      durationMs: Date.now() - tStart
+    };
+  }
 
   const totalDuration = Date.now() - tStart;
 
@@ -109,14 +144,20 @@ ${prompt}
     };
   }
 
-  // Save verified implementation to semantic cache for future sub-3ms hits
-  setCachedResponse({
-    prompt,
-    response: editRes.content,
-    model: `${archRes.model}+${editRes.model}`,
-    pattern: 'Architect-Editor',
-    durationMs: totalDuration
-  });
+  // Step 3: Verifier Gate - only save to semantic cache if syntactically verified
+  const codeBlocks = extractCodeBlocks(editRes.content);
+  const codeToCheck = codeBlocks[0] || editRes.content;
+  const syntaxCheck = validateCodeSyntax(codeToCheck);
+
+  if (syntaxCheck.valid) {
+    setCachedResponse({
+      prompt,
+      response: editRes.content,
+      model: `${archRes.model}+${editRes.model}`,
+      pattern: 'Architect-Editor',
+      durationMs: totalDuration
+    });
+  }
 
   return {
     success: true,
