@@ -12,6 +12,10 @@ import {
   getProxyPoolConfig,
   getMachineIdConfig
 } from '../kiro-agent/kiro-controller.mjs';
+import { fitToContextBudget, estimateTokens, MODEL_CONTEXT_LIMITS, chunkPrompt } from '../kiro-agent/engine-context-budget.mjs';
+import { semanticRoute, scorePrompt } from '../kiro-agent/engine-semantic-router.mjs';
+import { scoreOutputQuality, buildCorrectionPrompt } from '../kiro-agent/engine-quality-retry.mjs';
+import { validateCodeSyntax } from '../kiro-agent/engine-verifier.mjs';
 
 console.log('🧪 Starting Kiro Agent & MCP Subsystem Test Suite...\n');
 
@@ -106,8 +110,70 @@ test('controller configuration accessors return valid structured objects', () =>
   assert.strictEqual(mid.machineIdConfig.bindMachineIdToAccount, true);
 });
 
+// 2b. V2.1 Engine Suite Tests
+test('engine-context-budget calculates budgets and trims context safely', () => {
+  const est = estimateTokens('Hello world, this is a test string');
+  assert.ok(est > 0 && est < 20);
+  assert.ok(MODEL_CONTEXT_LIMITS['claude-sonnet-4.5'] >= 200000);
+
+  // Normal prompt fits without truncation
+  const normal = fitToContextBudget({ prompt: 'Write hello world', context: 'const x = 1;', model: 'claude-sonnet-4.5' });
+  assert.strictEqual(normal.truncated, false);
+  assert.strictEqual(normal.prompt, 'Write hello world');
+
+  // Huge context gets trimmed
+  const hugeContext = 'x'.repeat(400000);
+  const trimmed = fitToContextBudget({ prompt: 'Short task', context: hugeContext, model: 'deepseek-3.2' });
+  assert.strictEqual(trimmed.truncated, true);
+  assert.ok(trimmed.context.length < hugeContext.length);
+
+  // Chunking works with overlap and terminates cleanly
+  const chunks = chunkPrompt('Line 1\nLine 2\nLine 3\nLine 4\nLine 5', 20, 5);
+  assert.ok(Array.isArray(chunks));
+  assert.ok(chunks.length >= 1);
+});
+
+test('engine-semantic-router scores 8 signals and picks optimal topology', () => {
+  const fastRouting = semanticRoute('Quick one liner: say hello in Python', null);
+  assert.strictEqual(fastRouting.mode, 'fast');
+  assert.strictEqual(fastRouting.model, 'claude-haiku-4.5');
+
+  const archRouting = semanticRoute('Refactor this distributed microservice architecture across 12 files', null);
+  assert.strictEqual(archRouting.mode, 'architect-editor');
+
+  const councilRouting = semanticRoute('Critical consensus needed: evaluate security vulnerability in cryptographic auth token', null);
+  assert.strictEqual(councilRouting.mode, 'council');
+
+  const signals = scorePrompt('Refactor complex architecture with deep reasoning');
+  assert.ok(signals.complexity > 0);
+  assert.ok(signals.refactor > 0);
+});
+
+test('engine-quality-retry evaluates code completeness and generates feedback', () => {
+  const goodCode = '```javascript\nfunction solve(n) {\n  let sum = 0;\n  for (let i = 0; i < n; i++) sum += i;\n  return sum;\n}\nexport default solve;\n```';
+  const goodScore = scoreOutputQuality(goodCode, 'Implement function to solve sum');
+  assert.ok(goodScore.score >= 60, `Expected score >= 60, got ${goodScore.score}`);
+  assert.ok(goodScore.dimensions.concreteness > 50);
+
+  const placeholderCode = 'TODO: implement this later // placeholder';
+  const badScore = scoreOutputQuality(placeholderCode, 'Implement full parser');
+  assert.ok(badScore.score < 60, `Placeholder should score low, got ${badScore.score}`);
+
+  const correction = buildCorrectionPrompt('Implement full parser', placeholderCode, badScore.issues, 1);
+  assert.ok(correction.includes('quality issues'));
+});
+
+test('engine-verifier detects syntax errors and verifies valid code', () => {
+  const valid = validateCodeSyntax('function test() { return 42; }');
+  assert.strictEqual(valid.valid, true);
+
+  const broken = validateCodeSyntax('function test() { return 42;');
+  assert.strictEqual(broken.valid, false);
+  assert.ok(broken.error.length > 0);
+});
+
 // 3. MCP JSON-RPC Protocol Tests
-await asyncTest('MCP Server responds to JSON-RPC initialize and lists 13 tools', async () => {
+await asyncTest('MCP Server responds to JSON-RPC initialize and lists 14 tools', async () => {
   const mcpScript = path.resolve('kiro-agent/kiro-mcp.mjs');
   const child = spawn('node', [mcpScript], {
     stdio: ['pipe', 'pipe', 'pipe']
@@ -159,10 +225,11 @@ await asyncTest('MCP Server responds to JSON-RPC initialize and lists 13 tools',
   const toolsRes = responses.find(r => r.id === 2);
   assert.ok(toolsRes, 'Expected tools/list response');
   assert.ok(Array.isArray(toolsRes.result.tools));
-  assert.ok(toolsRes.result.tools.length >= 13, 'Expected at least 13 registered MCP tools');
+  assert.ok(toolsRes.result.tools.length >= 14, `Expected at least 14 registered MCP tools, got ${toolsRes.result.tools.length}`);
 
   const toolNames = toolsRes.result.tools.map(t => t.name);
   assert.ok(toolNames.includes('kiro_run'));
+  assert.ok(toolNames.includes('kiro_smart_route'), 'MCP server must register kiro_smart_route');
   assert.ok(toolNames.includes('kiro_parallel_tasks'));
   assert.ok(toolNames.includes('kiro_swarm'));
   assert.ok(toolNames.includes('kiro_code_review'));
@@ -171,4 +238,4 @@ await asyncTest('MCP Server responds to JSON-RPC initialize and lists 13 tools',
   assert.ok(toolNames.includes('kiro_universal_setting'));
 });
 
-console.log(`\nResults: ${passed}/7 Kiro Agent tests passed cleanly.\n`);
+console.log(`\nResults: ${passed}/11 Kiro Agent tests passed cleanly.\n`);

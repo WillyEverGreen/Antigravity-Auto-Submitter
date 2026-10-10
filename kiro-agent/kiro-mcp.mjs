@@ -11,6 +11,7 @@ import {
 } from './kiro-core.mjs';
 import { executeArchitectEditor } from './engine-architect-editor.mjs';
 import { executeCouncil } from './engine-council.mjs';
+import { routeTask } from './engine-router.mjs';
 import {
   listAccounts,
   switchActiveAccount,
@@ -330,6 +331,27 @@ const TOOLS = [
       },
       required: ['prompt']
     }
+  },
+  {
+    name: 'kiro_smart_route',
+    description: 'Execute task via Kiro V2.1 Autonomous Semantic Router with Dual-Gated Verification (Syntax Self-Healing + DeepSeek Blind Critic Loop) and Context Budget protection.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'The task description or prompt to execute.' },
+        mode: {
+          type: 'string',
+          enum: ['auto', 'architect-editor', 'council', 'logic', 'fast', 'direct'],
+          description: 'Execution mode topology. Default: auto (analyzed by 8-dimensional semantic router).'
+        },
+        model: { type: 'string', description: 'Optional model override.' },
+        context: { type: 'string', description: 'Optional background context or file content.' },
+        autoVerify: { type: 'boolean', description: 'Enable Gate 1 syntax verification & self-healing. Default: true.' },
+        autoCritic: { type: 'boolean', description: 'Enable Gate 2 blind DeepSeek peer review critic & patch loop. Default: true.' },
+        qualityThreshold: { type: 'number', description: 'Quality threshold 0-100 for critic patch triggering. Default: 82.' }
+      },
+      required: ['prompt']
+    }
   }
 ];
 
@@ -359,7 +381,35 @@ async function handleToolCall(name, args) {
       };
     }
 
+    case 'kiro_smart_route': {
+      const res = await routeTask({
+        prompt: args.prompt,
+        mode: args.mode || 'auto',
+        model: args.model || null,
+        context: args.context || '',
+        autoVerify: args.autoVerify !== undefined ? args.autoVerify : true,
+        autoCritic: args.autoCritic !== undefined ? args.autoCritic : true,
+        qualityThreshold: args.qualityThreshold || 82
+      });
+      const outputText = res.finalCode || res.finalSolution || res.content || '';
+      const summaryTag = res.success
+        ? `\n\n[Topology: ${res.pattern || res.routeReason || 'Auto'}${res.criticScore !== undefined ? ` | Critic Score: ${res.criticScore}/100` : ''}${res.criticImproved ? ' (Critic Patched)' : ''}${res.healed ? ' (Syntax Healed)' : ''}]`
+        : '';
+      return {
+        content: [{ type: 'text', text: res.success ? (outputText + summaryTag) : `[Router Error] ${res.error}` }],
+        isError: !res.success
+      };
+    }
+
     case 'kiro_run': {
+      if (args.model === 'auto') {
+        const routeRes = await routeTask({ prompt: args.prompt });
+        const outputText = routeRes.finalCode || routeRes.finalSolution || routeRes.content || '';
+        return {
+          content: [{ type: 'text', text: routeRes.success ? outputText : `[Error] ${routeRes.error}` }],
+          isError: !routeRes.success
+        };
+      }
       const res = await executeTask({
         prompt: args.prompt,
         model: args.model || 'claude-sonnet-4.5',

@@ -33,7 +33,7 @@
 
 > **🤖 Using Kiro IDE?** Check out the dedicated companion edition: [`kiro-auto-accept/`](./kiro-auto-accept) (operating autonomously on dedicated Port 9222 with zero port conflicts).
 >
-> **⚡ Multi-Model Swarms & Parallel Delegation?** Check out [`kiro-agent/`](./kiro-agent) — Autonomous 20-account proxy integration, model consensus swarms (Sonnet 4.5, DeepSeek 3.2, Qwen3 Coder, MiniMax M2.5), 13 native MCP tools, and 5-layer Anti-Ban Armor.
+> **⚡ Multi-Model Swarms & Parallel Delegation?** Check out [`kiro-agent/`](./kiro-agent) — Autonomous 20-account proxy integration, V2.1 8-Dim Semantic Router, Dual-Gated Verification (DeepSeek Blind Critic + Syntax Self-Healing), Context Budget Guard, 14 native MCP tools, and 5-layer Anti-Ban Armor.
 
 
 ---

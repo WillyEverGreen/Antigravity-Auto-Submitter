@@ -12,6 +12,7 @@ import {
 } from './kiro-core.mjs';
 import { executeArchitectEditor } from './engine-architect-editor.mjs';
 import { executeCouncil } from './engine-council.mjs';
+import { routeTask } from './engine-router.mjs';
 import {
   getCacheStats,
   clearCache,
@@ -75,9 +76,12 @@ function printHelp() {
   kiro protect                         Alias for kiro armor
 
 Core Execution Commands:
+  kiro route <prompt> [options]        Autonomous 8-Dim Semantic Router + Dual-Gated Verification
   kiro status                          Check Kiro proxy health & active account pool
   kiro models                          List all available Kiro models, limits & credits
   kiro run <prompt> [options]          Execute single task on chosen model
+  kiro arch <prompt>                   High-speed Architect-Editor dual engine (~13-18s)
+  kiro council <prompt>                4-Model blind peer-review consensus council
   kiro parallel -f <file.json>         Execute multiple tasks in parallel across accounts
   kiro swarm <prompt> [options]        Multi-model consensus (Sonnet, DeepSeek, Qwen, MiniMax)
   kiro review <filePath> [options]     Multi-agent parallel code review (Security, Logic, Perf)
@@ -123,6 +127,10 @@ Execution Options:
   -f, --file <filePath>     Input tasks JSON file or code file
   -o, --out <filePath>      Save output report to file
   -t, --temperature <temp>  Sampling temperature (default: 0.2)
+  --mode <mode>             Routing mode: auto, arch, council, logic, fast, direct (default: auto)
+  --threshold <num>         Critic quality threshold (0-100, default: 82)
+  --no-critic               Bypass Gate 2 DeepSeek blind critic loop
+  --no-verify               Bypass Gate 1 syntax verification & self-healing
   --json                    Output raw JSON format
   --help                    Show this help message
 `);
@@ -138,6 +146,10 @@ function parseFlags(argv) {
     else if (a === '-f' || a === '--file') flags.file = argv[++i];
     else if (a === '-o' || a === '--out') flags.out = argv[++i];
     else if (a === '-t' || a === '--temperature') flags.temperature = parseFloat(argv[++i]);
+    else if (a === '--mode') flags.mode = argv[++i];
+    else if (a === '--threshold') flags.threshold = parseFloat(argv[++i]);
+    else if (a === '--no-critic') flags.noCritic = true;
+    else if (a === '--no-verify') flags.noVerify = true;
     else if (a === '--json') flags.json = true;
     else if (!a.startsWith('-')) flags._.push(a);
   }
@@ -794,12 +806,80 @@ async function main() {
     }
   }
 
+  // --- ROUTE / SMART (Autonomous Semantic Router & Dual-Gated Pipeline) ---
+  if (command === 'route' || command === 'smart' || command === 'dispatch') {
+    const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
+    if (!prompt) {
+      console.error('Error: Please provide a prompt or a file with -f <filePath>');
+      process.exit(1);
+    }
+
+    const mode = flags.mode || 'auto';
+    const model = flags.model || null;
+    const autoCritic = !flags.noCritic;
+    const autoVerify = !flags.noVerify;
+    const qualityThreshold = flags.threshold ? Number(flags.threshold) : 82;
+
+    process.stderr.write(`🧭 Routing task via Autonomous Semantic Router (Mode: ${mode})...\n`);
+    const res = await routeTask({
+      prompt,
+      mode,
+      model,
+      autoVerify,
+      autoCritic,
+      qualityThreshold
+    });
+
+    if (flags.json) {
+      console.log(JSON.stringify(res, null, 2));
+    } else if (res.success) {
+      const output = res.finalCode || res.finalSolution || res.content || '';
+      if (flags.out) {
+        fs.writeFileSync(flags.out, output, 'utf8');
+        console.log(`\n✅ Output saved to ${flags.out}`);
+      } else {
+        console.log('\n--- Output ---\n');
+        console.log(output);
+      }
+      console.log(`\n📊 Route: ${res.pattern || res.routeReason || mode} | Duration: ${res.totalDurationMs || 0}ms`);
+      if (res.criticScore !== undefined) {
+        console.log(`  • Critic Score: ${res.criticScore}/100 ${res.criticImproved ? '🛠️ (Patched by Critic)' : '✓ (Passed Threshold)'}`);
+      }
+      if (res.healed) {
+        console.log(`  • Self-Healing: 🩹 Repaired syntax error automatically`);
+      }
+    } else {
+      console.error(`\n❌ Router Error: ${res.error}`);
+      process.exit(1);
+    }
+    return;
+  }
+
   // --- RUN / EXEC ---
   if (command === 'run' || command === 'exec') {
     const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
     if (!prompt) {
       console.error('Error: Please provide a prompt or a file with -f <filePath>');
       process.exit(1);
+    }
+
+    if (flags.model === 'auto') {
+      const res = await routeTask({ prompt });
+      if (flags.json) {
+        console.log(JSON.stringify(res, null, 2));
+      } else if (res.success) {
+        const output = res.finalCode || res.finalSolution || res.content || '';
+        if (flags.out) {
+          fs.writeFileSync(flags.out, output, 'utf8');
+          console.log(`\n✅ Output saved to ${flags.out}`);
+        } else {
+          console.log('\n' + output);
+        }
+      } else {
+        console.error(`\n❌ Error: ${res.error}`);
+        process.exit(1);
+      }
+      return;
     }
 
     const model = flags.model || 'claude-sonnet-4.5';

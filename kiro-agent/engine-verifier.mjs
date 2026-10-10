@@ -113,7 +113,8 @@ export function validateCodeSyntax(code, languageHint = 'javascript') {
       return { valid: true, type: 'javascript' };
     } catch (err) {
       const isTS = /\b(interface|type|public|private|protected|readonly|implements|as\s+[A-Z])\b/.test(code);
-      if (!isTS) {
+      const isESM = /\b(import\s+|export\s+)/.test(code);
+      if (!isTS && !isESM) {
         return { valid: false, error: `JavaScript SyntaxError: ${err.message}` };
       }
     }

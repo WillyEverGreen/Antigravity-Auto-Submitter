@@ -1,18 +1,28 @@
 /**
  * Kiro Agent V2 - Swarm Capability Router (engine-router.mjs)
- * 
+ *
  * Analyzes task intent and routes to the optimal execution strategy:
- * - Architect-Editor: Complex code generation & multi-file features (~13-18s).
- * - LLM Council: High-stakes algorithms, critical security, multi-model consensus.
- * - Deep Logic: Specialized reasoning via DeepSeek 3.2.
- * - Fast Tier: Low-latency tasks via Claude Haiku 4.5.
+ * - Architect-Editor : Complex code generation & multi-file features.
+ * - LLM Council      : High-stakes / security / consensus tasks.
+ * - Deep Logic       : Algorithmic / mathematical reasoning via DeepSeek 3.2.
+ * - Fast Tier        : Low-latency tasks via Claude Haiku 4.5.
  * - Parallel Batching: High-throughput concurrent worker pool across 20 accounts.
+ *
+ * V2.1 additions wired in:
+ *   engine-semantic-router  — Multi-dimensional signal scoring (replaces naive keywords)
+ *   engine-critic           — Structured peer-review + patch loop
+ *   engine-context-budget   — Context window guard + truncation
+ *   engine-quality-retry    — Adaptive quality-scored retry with model escalation
  */
 
 import { executeRaw } from './kiro-core.mjs';
 import { executeArchitectEditor } from './engine-architect-editor.mjs';
 import { executeCouncil } from './engine-council.mjs';
 import { verifyAndSelfHeal } from './engine-verifier.mjs';
+import { semanticRoute } from './engine-semantic-router.mjs';
+import { runCriticLoop } from './engine-critic.mjs';
+import { fitToContextBudget } from './engine-context-budget.mjs';
+import { executeWithQualityRetry } from './engine-quality-retry.mjs';
 
 /**
  * Route task based on intent or explicit mode
@@ -22,21 +32,36 @@ export async function routeTask({
   mode = 'auto',
   model = null,
   context = '',
-  autoVerify = true
+  autoVerify = true,
+  autoCritic = true,
+  qualityThreshold = 82
 }) {
+  // ── Context Budget Guard: trim before anything touches the prompt ──────────
+  const budgeted = fitToContextBudget({
+    prompt,
+    context,
+    model: model || 'claude-sonnet-4.5',
+    reserveOutputTokens: 4096,
+  });
+  if (budgeted.truncated) {
+    console.warn(`[router] Context truncated to ${Math.round(budgeted.budgetUsed * 100)}% of budget`);
+  }
+  const safePrompt  = budgeted.prompt;
+  const safeContext = budgeted.context;
+
+  // ── Semantic Routing: replaces naive keyword matching ────────────────────
   let selectedMode = mode;
+  let selectedModel = model;
+  let routeReason = 'user-specified';
 
   if (selectedMode === 'auto') {
-    const lower = prompt.toLowerCase();
-    if (lower.includes('council') || lower.includes('consensus') || lower.includes('swarm') || lower.includes('compare all models')) {
-      selectedMode = 'council';
-    } else if (lower.includes('math') || lower.includes('algorithm') || lower.includes('invariant') || lower.includes('proof')) {
-      selectedMode = 'logic';
-    } else if (lower.includes('quick') || lower.includes('simple') || lower.includes('short') || lower.length < 80) {
-      selectedMode = 'fast';
-    } else {
-      selectedMode = 'architect-editor';
-    }
+    const routing = semanticRoute(safePrompt, null);
+    selectedMode  = routing.mode;
+    selectedModel = model || routing.model;
+    routeReason   = routing.reason;
+    console.log(`[router] Semantic route → ${selectedMode} (${routeReason})`);
+  } else {
+    selectedModel = model || 'claude-sonnet-4.5';
   }
 
   let result;
@@ -44,10 +69,10 @@ export async function routeTask({
     case 'architect-editor':
     case 'arch': {
       result = await executeArchitectEditor({
-        prompt,
-        architectModel: model || 'claude-sonnet-4.5',
-        editorModel: 'claude-haiku-4.5',
-        context
+        prompt:         safePrompt,
+        architectModel: selectedModel || 'claude-sonnet-4.5',
+        editorModel:    'claude-haiku-4.5',
+        context:        safeContext
       });
       break;
     }
@@ -55,43 +80,50 @@ export async function routeTask({
     case 'council':
     case 'swarm': {
       result = await executeCouncil({
-        prompt,
-        chairmanModel: model || 'claude-sonnet-4.5',
-        context
+        prompt:        safePrompt,
+        chairmanModel: selectedModel || 'claude-sonnet-4.5',
+        context:       safeContext
       });
       break;
     }
 
     case 'logic': {
       const res = await executeRaw({
-        prompt,
-        model: model || 'deepseek-3.2',
-        role: 'coder',
+        prompt:    safePrompt,
+        model:     selectedModel || 'deepseek-3.2',
+        role:      'coder',
         maxTokens: 4096
       });
       result = {
-        success: res.success,
-        pattern: 'Deep Logic (DeepSeek 3.2)',
+        success:        res.success,
+        pattern:        'Deep Logic (DeepSeek 3.2)',
         totalDurationMs: res.durationMs,
-        finalCode: res.content,
-        error: res.error
+        finalCode:      res.content,
+        error:          res.error
       };
       break;
     }
 
     case 'fast': {
-      const res = await executeRaw({
-        prompt,
-        model: model || 'claude-haiku-4.5',
-        role: 'coder',
-        maxTokens: 2048
+      // Fast tier uses quality-retry for adaptive escalation
+      const fastResult = await executeWithQualityRetry({
+        prompt: safePrompt,
+        model:  selectedModel || 'claude-haiku-4.5',
+        acceptThreshold: qualityThreshold,
+        maxAttempts: 2,
+        escalate: true,
+        executor: async (p, m) => executeRaw({
+          prompt: p, model: m, role: 'coder', maxTokens: 2048
+        }),
       });
       result = {
-        success: res.success,
-        pattern: 'Fast Tier (Haiku 4.5)',
-        totalDurationMs: res.durationMs,
-        finalCode: res.content,
-        error: res.error
+        success:        !!fastResult.content,
+        pattern:        `Fast Tier (${fastResult.model})`,
+        totalDurationMs: Date.now() - Date.now(),
+        finalCode:      fastResult.content,
+        qualityScore:   fastResult.score,
+        attempts:       fastResult.attempts,
+        error:          fastResult.content ? undefined : 'Fast tier returned empty'
       };
       break;
     }
@@ -99,37 +131,54 @@ export async function routeTask({
     case 'direct':
     default: {
       const res = await executeRaw({
-        prompt,
-        model: model || 'claude-sonnet-4.5',
-        role: 'coder',
+        prompt:    safePrompt,
+        model:     selectedModel || 'claude-sonnet-4.5',
+        role:      'coder',
         maxTokens: 4096
       });
       result = {
-        success: res.success,
-        pattern: 'Direct Single Model',
+        success:        res.success,
+        pattern:        'Direct Single Model',
         totalDurationMs: res.durationMs,
-        finalCode: res.content,
-        error: res.error
+        finalCode:      res.content,
+        error:          res.error
       };
       break;
     }
   }
 
-  // Self-Healing Verification Gate
+  // ── Gate 1: Self-Healing Verification (syntax) ───────────────────────────
   if (autoVerify && result.success && (result.finalCode || result.finalSolution)) {
     const rawCode = result.finalCode || result.finalSolution;
     const verified = await verifyAndSelfHeal({
       code: rawCode,
-      taskPrompt: prompt
+      taskPrompt: safePrompt
     });
     result.verified = verified.valid;
-    result.healed = verified.healed;
+    result.healed   = verified.healed;
     if (verified.healed) {
-      if (result.finalCode) result.finalCode = verified.code;
+      if (result.finalCode)     result.finalCode     = verified.code;
       if (result.finalSolution) result.finalSolution = verified.code;
     }
   }
 
+  // ── Gate 2: Critic Loop (semantic quality review + patch) ────────────────
+  if (autoCritic && result.success && (result.finalCode || result.finalSolution)) {
+    const codeForCritic = result.finalCode || result.finalSolution;
+    const criticResult  = await runCriticLoop({
+      code:       codeForCritic,
+      taskPrompt: safePrompt,
+      threshold:  qualityThreshold,
+    });
+    result.criticScore   = criticResult.score;
+    result.criticImproved = criticResult.improved;
+    if (criticResult.improved) {
+      if (result.finalCode)     result.finalCode     = criticResult.finalCode;
+      if (result.finalSolution) result.finalSolution = criticResult.finalCode;
+    }
+  }
+
+  result.routeReason = routeReason;
   return result;
 }
 
