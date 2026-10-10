@@ -13,6 +13,15 @@ import {
 import { executeArchitectEditor } from './engine-architect-editor.mjs';
 import { executeCouncil } from './engine-council.mjs';
 import {
+  getCacheStats,
+  clearCache,
+  addMemory,
+  searchMemories,
+  listMemories,
+  deleteMemory,
+  checkRedisStatus
+} from './engine-memory.mjs';
+import {
   applyAntiBanArmor,
   listAccounts,
   switchActiveAccount,
@@ -966,6 +975,76 @@ async function main() {
     console.log(`  • Kiro V1 Baseline (Observed): ~106.2s`);
     console.log(`  • Speedup Factor: ${(106200 / v2Time).toFixed(1)}x faster! 🚀`);
     return;
+  }
+
+  // --- CACHE ---
+  if (command === 'cache') {
+    const sub = flags._[1] || 'stats';
+    if (sub === 'stats') {
+      const stats = getCacheStats();
+      console.log('\n⚡ Semantic Cache Statistics:\n');
+      console.log(`  Backend:             ${stats.backend}`);
+      console.log(`  Cached Solutions:    ${stats.totalCachedQueries}`);
+      console.log(`  Cache Hits:          ${stats.totalCacheHits}`);
+      console.log(`  Est. Tokens Saved:   ${stats.estimatedTokensSaved.toLocaleString()}`);
+      console.log(`  Est. Time Saved:     ${stats.estimatedTimeSavedSeconds}s`);
+      return;
+    }
+    if (sub === 'clear') {
+      const res = clearCache();
+      console.log(`\n🧹 Cleared semantic cache (${res.count} entries removed).`);
+      return;
+    }
+  }
+
+  // --- MEMORY ---
+  if (command === 'memory' || command === 'mem') {
+    const sub = flags._[1] || 'list';
+    if (sub === 'list') {
+      const category = flags._[2] || null;
+      const memories = listMemories(category);
+      console.log(`\n🧠 Persistent Long-Term Memories (${memories.length} entries):\n`);
+      for (const m of memories) {
+        console.log(`[${m.id}] [${m.category}] (${new Date(m.timestamp).toLocaleDateString()})`);
+        console.log(`  ${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''}\n`);
+      }
+      return;
+    }
+    if (sub === 'add') {
+      const category = flags._[2] || 'project_invariants';
+      const content = flags._.slice(3).join(' ');
+      if (!content) {
+        console.error('Usage: kiro memory add <user_preferences|project_invariants|council_decisions> "<content>"');
+        process.exit(1);
+      }
+      const entry = addMemory({ category, content });
+      console.log(`\n✅ Saved to persistent memory [${entry.id}] (${entry.category}):\n  ${entry.content}`);
+      return;
+    }
+    if (sub === 'search') {
+      const query = flags._.slice(2).join(' ');
+      if (!query) {
+        console.error('Usage: kiro memory search "<query>"');
+        process.exit(1);
+      }
+      const results = searchMemories({ query, limit: 5 });
+      console.log(`\n🔍 Found ${results.length} relevant memories for: "${query}":\n`);
+      for (const r of results) {
+        console.log(`  [Match: ${Math.round(r.score * 100)}%] [${r.category}]`);
+        console.log(`  ${r.content}\n`);
+      }
+      return;
+    }
+    if (sub === 'delete' || sub === 'rm') {
+      const id = flags._[2];
+      if (!id) {
+        console.error('Usage: kiro memory delete <id>');
+        process.exit(1);
+      }
+      const res = deleteMemory(id);
+      console.log(`\n🗑️ Deleted memory entry: ${res.id}`);
+      return;
+    }
   }
 
   if (flags._.length > 0) {

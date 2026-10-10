@@ -69,7 +69,18 @@ flowchart TD
 | **List Models** | `kiro models` | `kiro_list_models` | List all available models & context limits |
 | **Live Benchmark** | `kiro benchmark` | — | Run head-to-head latency benchmark |
 
-### 2. Account & Security Management
+### 2. Semantic Cache & Long-Term Memory (Mem0 Pattern)
+
+| Action | CLI Command | Description |
+| :--- | :--- | :--- |
+| **Cache Stats** | `kiro cache stats` | View semantic cache hits, tokens saved, and backend status |
+| **Clear Cache** | `kiro cache clear` | Flush all cached responses |
+| **List Memories** | `kiro memory list [category]` | View persistent user preferences, invariants & decisions |
+| **Add Memory** | `kiro memory add <category> "<text>"` | Save a permanent preference or architectural invariant |
+| **Search Memories** | `kiro memory search "<query>"` | Semantic vector search across all memories in <1ms |
+| **Delete Memory** | `kiro memory delete <id>` | Remove a memory entry |
+
+### 3. Account & Security Management
 
 | Action | CLI Command | Description |
 | :--- | :--- | :--- |

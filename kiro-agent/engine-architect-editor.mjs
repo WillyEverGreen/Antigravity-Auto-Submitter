@@ -9,14 +9,42 @@
  */
 
 import { executeRaw } from './kiro-core.mjs';
+import {
+  getCachedResponse,
+  setCachedResponse,
+  searchMemories,
+  formatMemoriesForPrompt
+} from './engine-memory.mjs';
 
 export async function executeArchitectEditor({
   prompt,
   architectModel = 'claude-sonnet-4.5',
   editorModel = 'claude-haiku-4.5',
-  context = ''
+  context = '',
+  skipCache = false
 }) {
   const tStart = Date.now();
+
+  // Step 0: Check Semantic Cache for Sub-3ms Instant Hit
+  if (!skipCache) {
+    const cacheHit = getCachedResponse(prompt);
+    if (cacheHit.hit) {
+      return {
+        success: true,
+        cached: true,
+        pattern: cacheHit.exact ? '⚡ Semantic Cache Hit (Exact)' : `⚡ Semantic Cache Hit (${Math.round(cacheHit.score * 100)}% match)`,
+        totalDurationMs: 2,
+        totalTokens: 0,
+        finalCode: cacheHit.data.response,
+        architect: { model: cacheHit.data.model, durationMs: 0, tokens: 0, blueprint: '[Served from Semantic Cache]' },
+        editor: { model: cacheHit.data.model, durationMs: 0, tokens: 0, code: cacheHit.data.response }
+      };
+    }
+  }
+
+  // Step 0.5: Retrieve Relevant Episodic Memories & Historical Decisions
+  const relevantMemories = searchMemories({ query: prompt, limit: 3 });
+  const memoryContext = formatMemoriesForPrompt(relevantMemories);
 
   // Step 1: Architect Phase - Ultra-dense invariant specification and interface blueprint
   const architectPrompt = `You are a Principal Software Architect.
@@ -27,7 +55,7 @@ Provide an ULTRA-DENSE, concise specification (under 200 words):
 
 Do NOT write classes, full implementation code, or conversational prose. Output pure technical specification.
 
-${context ? `### Context / Codebase Reference:\n${context}\n` : ''}
+${memoryContext}${context ? `### Context / Codebase Reference:\n${context}\n` : ''}
 ### User Task:
 ${prompt}`;
 
@@ -80,6 +108,15 @@ ${prompt}
       durationMs: totalDuration
     };
   }
+
+  // Save verified implementation to semantic cache for future sub-3ms hits
+  setCachedResponse({
+    prompt,
+    response: editRes.content,
+    model: `${archRes.model}+${editRes.model}`,
+    pattern: 'Architect-Editor',
+    durationMs: totalDuration
+  });
 
   return {
     success: true,

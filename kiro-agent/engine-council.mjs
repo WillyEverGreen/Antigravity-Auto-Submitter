@@ -9,6 +9,13 @@
  */
 
 import { executeRaw } from './kiro-core.mjs';
+import {
+  getCachedResponse,
+  setCachedResponse,
+  addMemory,
+  searchMemories,
+  formatMemoriesForPrompt
+} from './engine-memory.mjs';
 
 export async function executeCouncil({
   prompt,
@@ -120,6 +127,24 @@ ${evaluatorB.content || 'N/A'}
   });
 
   const totalDuration = Date.now() - tStart;
+
+  // Persist council consensus to long-term memory & semantic cache
+  if (chairmanRes.success && chairmanRes.content) {
+    try {
+      addMemory({
+        category: 'council_decisions',
+        content: `Council Consensus for "${prompt.slice(0, 100)}":\n${chairmanRes.content.slice(0, 500)}...`,
+        metadata: { prompt, models: councilModels }
+      });
+      setCachedResponse({
+        prompt,
+        response: chairmanRes.content,
+        model: `council-${chairmanModel}`,
+        pattern: 'LLM Council (Karpathy/Swarms)',
+        durationMs: totalDuration
+      });
+    } catch {}
+  }
 
   return {
     success: chairmanRes.success,
