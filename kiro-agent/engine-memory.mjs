@@ -298,17 +298,20 @@ export function clearCache() {
 export function addMemory({
   category = 'project_invariants',
   content,
+  value,
+  text,
   metadata = {}
 }) {
+  const actualContent = (content || value || text || '').toString();
   const currentStore = getMemoryStore();
   const id = `mem_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
   const entry = {
     id,
     category,
-    content: content.trim(),
+    content: actualContent.trim(),
     metadata,
-    vector: vectorizeText(content),
+    vector: vectorizeText(actualContent),
     timestamp: new Date().toISOString()
   };
 
@@ -324,7 +327,7 @@ export function searchMemories({
   query,
   category = null,
   limit = 4,
-  minScore = 0.25
+  minScore = 0.05
 }) {
   const currentStore = getMemoryStore();
   if (!currentStore.memories || currentStore.memories.length === 0) {
@@ -332,6 +335,7 @@ export function searchMemories({
   }
 
   const queryVec = vectorizeText(query);
+  const queryWords = query.toLowerCase().split(/[\s,\-_/]+/).filter(w => w.length > 2);
   const candidates = [];
 
   for (const mem of currentStore.memories) {
@@ -341,11 +345,23 @@ export function searchMemories({
       mem.vector = vectorizeText(mem.content);
     }
 
-    const score = cosineSimilarity(queryVec, mem.vector);
-    if (score >= minScore) {
+    const vecScore = cosineSimilarity(queryVec, mem.vector);
+
+    // Keyword & Tag overlap (BM25-style term occurrence)
+    const targetText = `${mem.content} ${JSON.stringify(mem.metadata || {})}`.toLowerCase();
+    let matchedWords = 0;
+    for (const w of queryWords) {
+      if (targetText.includes(w)) matchedWords++;
+    }
+    const keywordScore = queryWords.length > 0 ? (matchedWords / queryWords.length) : 0;
+
+    // Hybrid score: 40% vector similarity + 60% keyword/tag precision
+    const totalScore = (vecScore * 0.4) + (keywordScore * 0.6);
+
+    if (totalScore >= minScore) {
       candidates.push({
         ...mem,
-        score
+        score: totalScore
       });
     }
   }
