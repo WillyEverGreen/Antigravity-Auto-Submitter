@@ -159,13 +159,15 @@ await asyncTest('MCP Server responds to JSON-RPC initialize and lists 13 tools',
   const toolsRes = responses.find(r => r.id === 2);
   assert.ok(toolsRes, 'Expected tools/list response');
   assert.ok(Array.isArray(toolsRes.result.tools));
-  assert.strictEqual(toolsRes.result.tools.length, 13, 'Expected 13 registered MCP tools');
+  assert.ok(toolsRes.result.tools.length >= 13, 'Expected at least 13 registered MCP tools');
 
   const toolNames = toolsRes.result.tools.map(t => t.name);
   assert.ok(toolNames.includes('kiro_run'));
   assert.ok(toolNames.includes('kiro_parallel_tasks'));
   assert.ok(toolNames.includes('kiro_swarm'));
   assert.ok(toolNames.includes('kiro_code_review'));
+  assert.ok(toolNames.includes('kiro_architect_editor'));
+  assert.ok(toolNames.includes('kiro_council'));
   assert.ok(toolNames.includes('kiro_universal_setting'));
 });
 

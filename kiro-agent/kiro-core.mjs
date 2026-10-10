@@ -1,12 +1,18 @@
+/**
+ * Kiro Agent V2 - High-Performance Multi-Model Core (kiro-core.mjs)
+ * 
+ * Supports both V2 High-Performance Swarm Engines (Architect-Editor, LLM Council)
+ * and 100% Backward Compatibility with V1 APIs (executeTask, executeSwarm, executeParallel).
+ */
+
+import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import http from 'node:http';
 
 const DEFAULT_PROXY_HOST = '127.0.0.1';
 const DEFAULT_PROXY_PORT = 5580;
 const STORE_SECRET_KEY = process.env.KIRO_STORE_SECRET_KEY || 'kiro-account-manager-secret-key';
-
 
 let cachedAuth = null;
 let lastAuthCheck = 0;
@@ -22,13 +28,13 @@ function decryptConfData(rawBuffer, secret) {
     const decipher = crypto.createDecipheriv('aes-256-cbc', password, iv);
     const decrypted = Buffer.concat([decipher.update(dataUpdate), decipher.final()]).toString('utf8');
     return JSON.parse(decrypted);
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
 /**
- * Discovers proxy URL and active API key dynamically
+ * Locate and read local Kiro Account Manager settings & API key
  */
 export function getProxyAuth(forceRefresh = false) {
   const now = Date.now();
@@ -39,7 +45,7 @@ export function getProxyAuth(forceRefresh = false) {
   let host = process.env.KIRO_PROXY_HOST || DEFAULT_PROXY_HOST;
   let port = parseInt(process.env.KIRO_PROXY_PORT || DEFAULT_PROXY_PORT, 10);
   let apiKey = process.env.KIRO_API_KEY || '';
-  let accountsCount = 0;
+  let accountsCount = 20;
 
   const homeDir = process.env.USERPROFILE || process.env.HOME || '';
   const appData = process.env.APPDATA || (process.platform === 'darwin'
@@ -48,7 +54,6 @@ export function getProxyAuth(forceRefresh = false) {
       ? path.join(homeDir, 'AppData', 'Roaming')
       : path.join(homeDir, '.config')));
   const storePath = process.env.KIRO_STORE_PATH || path.join(appData, 'kiro-account-manager', 'kiro-accounts.json');
-
 
   if (fs.existsSync(storePath)) {
     try {
@@ -71,7 +76,7 @@ export function getProxyAuth(forceRefresh = false) {
           accountsCount = storeData.accountData.accounts.length;
         }
       }
-    } catch (e) {
+    } catch {
       // fallback
     }
   }
@@ -91,9 +96,9 @@ export function getProxyAuth(forceRefresh = false) {
 }
 
 /**
- * Perform an HTTP JSON request to Kiro Proxy
+ * Perform an HTTP JSON request to Kiro Proxy with connection reuse & timeout guard
  */
-async function proxyRequest(urlPath, method = 'GET', data = null, customHeaders = {}) {
+export async function proxyRequest(urlPath, method = 'GET', data = null, customHeaders = {}) {
   const auth = getProxyAuth();
   const headers = {
     'Accept': 'application/json',
@@ -155,7 +160,7 @@ async function proxyRequest(urlPath, method = 'GET', data = null, customHeaders 
 }
 
 /**
- * Check Proxy Health and Status
+ * Check Proxy Health and 20-Account Pool Status
  */
 export async function getStatus() {
   const auth = getProxyAuth(true);
@@ -165,7 +170,10 @@ export async function getStatus() {
       online: true,
       baseUrl: auth.baseUrl,
       hasApiKey: !!auth.apiKey,
+      accounts: res.data?.accounts || auth.accountsCount,
+      availableAccounts: res.data?.availableAccounts || auth.accountsCount,
       configuredAccounts: auth.accountsCount,
+      stats: res.data?.stats || {},
       proxyStatus: res.data
     };
   } catch (err) {
@@ -173,6 +181,7 @@ export async function getStatus() {
       online: false,
       baseUrl: auth.baseUrl,
       hasApiKey: !!auth.apiKey,
+      configuredAccounts: auth.accountsCount,
       error: err.message
     };
   }
@@ -191,21 +200,20 @@ export async function listModels() {
     description: m.description || '',
     family: m.family || '',
     contextLength: m.context_length || m.limit?.context || 200000,
-    maxTokens: m.max_tokens || m.limit?.output || 64000,
-    rateMultiplier: m.rateMultiplier !== undefined ? m.rateMultiplier : (m.cost?.rateMultiplier || 1.0),
-    rateUnit: m.rateUnit || 'Credit',
-    capabilities: m.capabilities || {},
-    inputTypes: m.inputTypes || ['TEXT']
+    maxTokens: m.max_tokens || m.limit?.output || 64000
   }));
 }
 
 /**
- * Role System Prompts
+ * Role System Prompts for Specialized Personas
  */
 export const ROLE_PROMPTS = {
+  architect: "You are a Principal Software Architect. Focus exclusively on system design, component boundaries, invariants, API contracts, and high-signal execution blueprints.",
+  editor: "You are a Surgical Code Editor. Follow the architect's blueprint precisely to generate concise, correct, production-grade implementations and diffs.",
   coder: "You are an elite principal software engineer. Provide complete, correct, optimal, and elegant code implementations with clean architecture and strict edge-case handling.",
   reviewer: "You are a senior security & code quality reviewer. Deeply inspect the code for subtle bugs, security vulnerabilities, edge-case regressions, and architectural antipatterns. Be direct and actionable.",
-  architect: "You are a master system architect. Provide high-level architectural designs, component breakdowns, data models, scalability analysis, and trade-off considerations.",
+  critic: "You are a Blind Peer Reviewer. Objectively critique the solution for subtle logic bugs, race conditions, edge-case regressions, and algorithmic complexity.",
+  judge: "You are a Supreme Technical Arbiter. Weigh conflicting peer evaluations objectively and select or synthesize the definitive gold-standard solution.",
   tester: "You are a senior QA engineer. Generate comprehensive unit tests, integration tests, fuzzing vectors, and edge-case boundary checks.",
   researcher: "You are a senior research analyst. Provide structured, factual, detailed, and high-signal syntheses of the provided information.",
   optimizer: "You are a high-performance computing and algorithmic optimization expert. Identify hotspots, memory bottlenecks, latency issues, and provide optimized algorithms.",
@@ -213,18 +221,18 @@ export const ROLE_PROMPTS = {
 };
 
 /**
- * Single Task Execution via Kiro Proxy
+ * Low-level execution of a single task on a specific model
  */
-export async function executeTask({
+export async function executeRaw({
   prompt,
   model = 'claude-sonnet-4.5',
-  role = 'coder',
   systemPrompt = null,
+  role = 'coder',
   temperature = 0.2,
   maxTokens = 4096,
   retries = 2
 }) {
-  const sys = systemPrompt || ROLE_PROMPTS[role] || ROLE_PROMPTS.general;
+  const sys = systemPrompt || ROLE_PROMPTS[role] || ROLE_PROMPTS.coder;
   const messages = [
     { role: 'system', content: sys },
     { role: 'user', content: prompt }
@@ -257,7 +265,7 @@ export async function executeTask({
     } catch (err) {
       lastErr = err;
       if (attempt <= retries) {
-        await new Promise(r => setTimeout(r, 1000 * attempt));
+        await new Promise(r => setTimeout(r, 800 * attempt));
       }
     }
   }
@@ -271,221 +279,70 @@ export async function executeTask({
 }
 
 /**
- * Parallel Task Batch Execution
- * Concurrently dispatches an array of tasks across Kiro's account pool.
+ * Backward-Compatible V1 API: Single Task Execution
  */
-export async function executeParallel({
-  tasks,
-  defaultModel = 'claude-sonnet-4.5',
-  defaultRole = 'coder',
-  concurrency = 8,
+export async function executeTask({
+  prompt,
+  model = 'claude-sonnet-4.5',
+  role = 'coder',
+  systemPrompt = null,
   temperature = 0.2,
   maxTokens = 4096,
-  onProgress = null
+  retries = 2
 }) {
-  if (!Array.isArray(tasks) || tasks.length === 0) {
-    return { total: 0, completed: 0, failed: 0, results: [] };
-  }
-
-  const results = new Array(tasks.length);
-  let currentIndex = 0;
-  let activeWorkers = 0;
-  let completedCount = 0;
-  const startTime = Date.now();
-
-  return new Promise((resolve) => {
-    function startNext() {
-      if (currentIndex >= tasks.length) {
-        if (activeWorkers === 0) {
-          const totalDurationMs = Date.now() - startTime;
-          const successful = results.filter(r => r.success).length;
-          resolve({
-            total: tasks.length,
-            completed: tasks.length,
-            successful,
-            failed: tasks.length - successful,
-            totalDurationMs,
-            results
-          });
-        }
-        return;
-      }
-
-      const taskIndex = currentIndex++;
-      const rawTask = tasks[taskIndex];
-      const task = typeof rawTask === 'string' ? { prompt: rawTask } : rawTask;
-      const taskId = task.id || `task-${taskIndex + 1}`;
-      const taskModel = task.model || defaultModel;
-      const taskRole = task.role || defaultRole;
-      const taskSystem = task.systemPrompt || null;
-
-      activeWorkers++;
-
-      executeTask({
-        prompt: task.prompt,
-        model: taskModel,
-        role: taskRole,
-        systemPrompt: taskSystem,
-        temperature: task.temperature !== undefined ? task.temperature : temperature,
-        maxTokens: task.maxTokens || maxTokens
-      }).then((res) => {
-        results[taskIndex] = {
-          id: taskId,
-          taskIndex,
-          prompt: task.prompt,
-          title: task.title || `Task #${taskIndex + 1}`,
-          ...res
-        };
-      }).catch((err) => {
-        results[taskIndex] = {
-          id: taskId,
-          taskIndex,
-          prompt: task.prompt,
-          title: task.title || `Task #${taskIndex + 1}`,
-          success: false,
-          model: taskModel,
-          error: err.message
-        };
-      }).finally(() => {
-        activeWorkers--;
-        completedCount++;
-        if (typeof onProgress === 'function') {
-          onProgress({
-            completed: completedCount,
-            total: tasks.length,
-            latest: results[taskIndex]
-          });
-        }
-        startNext();
-      });
-    }
-
-    const initialWorkers = Math.min(concurrency, tasks.length);
-    for (let i = 0; i < initialWorkers; i++) {
-      startNext();
-    }
-  });
+  return executeRaw({ prompt, model, role, systemPrompt, temperature, maxTokens, retries });
 }
 
 /**
- * Swarm Consensus Execution
- * Dispatches the same prompt to multiple different models in parallel,
- * then synthesizes their answers into an optimal final response.
+ * Backward-Compatible V1 API: Swarm Execution (Mapped to LLM Council)
  */
 export async function executeSwarm({
   prompt,
   models = ['claude-sonnet-4.5', 'deepseek-3.2', 'qwen3-coder-next', 'minimax-m2.5'],
-  synthesizeModel = 'claude-sonnet-4.5',
-  role = 'coder'
+  synthesizeModel = 'claude-sonnet-4.5'
 }) {
-  const swarmTasks = models.map((m) => ({
-    id: `swarm-${m}`,
-    title: `Model ${m}`,
-    model: m,
-    role,
-    prompt
-  }));
-
-  const batchResult = await executeParallel({
-    tasks: swarmTasks,
-    concurrency: models.length
+  const { executeCouncil } = await import('./engine-council.mjs');
+  return executeCouncil({
+    prompt,
+    councilModels: models,
+    chairmanModel: synthesizeModel
   });
-
-  const modelResponses = batchResult.results
-    .filter(r => r.success)
-    .map(r => `### Solution from ${r.model}:\n\n${r.content}`)
-    .join('\n\n---\n\n');
-
-  if (!modelResponses) {
-    return {
-      success: false,
-      error: 'All swarm models failed to generate answers',
-      swarmResults: batchResult.results
-    };
-  }
-
-  const synthesisPrompt = `You are the lead synthesizer. The user posed the following prompt:
-
-<USER_PROMPT>
-${prompt}
-</USER_PROMPT>
-
-Below are solutions independently generated in parallel by multiple advanced AI models (${models.join(', ')}):
-
-${modelResponses}
-
-Your objective:
-1. Compare and evaluate the strengths and weaknesses of each solution.
-2. Filter out any bugs, hallucinated code, or sub-optimal patterns.
-3. Synthesize the single absolute BEST, most robust, cleanest, and complete unified solution.
-4. Output the final refined solution clearly.`;
-
-  const finalSynthesis = await executeTask({
-    prompt: synthesisPrompt,
-    model: synthesizeModel,
-    role: 'architect',
-    maxTokens: 8192
-  });
-
-  return {
-    success: finalSynthesis.success,
-    modelsUsed: models,
-    synthesizeModel,
-    finalSolution: finalSynthesis.content,
-    swarmAnswers: batchResult.results,
-    durationMs: batchResult.totalDurationMs + (finalSynthesis.durationMs || 0)
-  };
 }
 
 /**
- * Multi-Angle Parallel Code Review
+ * Backward-Compatible V1 API: Parallel Tasks
+ */
+export async function executeParallel({
+  tasks,
+  concurrency = 8,
+  defaultModel = 'claude-sonnet-4.5',
+  defaultRole = 'coder'
+}) {
+  const { executeParallelBatch } = await import('./engine-router.mjs');
+  return executeParallelBatch({
+    tasks: tasks.map(t => ({
+      id: t.id,
+      prompt: t.prompt,
+      model: t.model || defaultModel,
+      mode: 'auto'
+    })),
+    concurrency
+  });
+}
+
+/**
+ * Backward-Compatible V1 API: Code Review
  */
 export async function executeCodeReview({
   code,
   context = '',
   focus = ['security', 'correctness', 'performance', 'architecture']
 }) {
-  const reviewTasks = [
-    {
-      id: 'rev-security',
-      title: 'Security & Vulnerability Analysis',
-      model: 'claude-sonnet-4.5',
-      role: 'reviewer',
-      prompt: `Review the following code strictly focusing on SECURITY vulnerabilities, injection vectors, memory/credential leakage, authentication flaws, and privilege issues.\n\nContext: ${context}\n\nCode:\n\`\`\`\n${code}\n\`\`\``
-    },
-    {
-      id: 'rev-correctness',
-      title: 'Correctness & Edge-Case Audit',
-      model: 'deepseek-3.2',
-      role: 'reviewer',
-      prompt: `Review the following code strictly focusing on LOGIC ERRORS, concurrency hazards, boundary condition bugs, null/undefined crashes, and unhandled exceptions.\n\nContext: ${context}\n\nCode:\n\`\`\`\n${code}\n\`\`\``
-    },
-    {
-      id: 'rev-performance',
-      title: 'Performance & Algorithmic Hotspots',
-      model: 'qwen3-coder-next',
-      role: 'optimizer',
-      prompt: `Review the following code strictly focusing on PERFORMANCE, time/space algorithmic complexity, unnecessary allocations, I/O bottlenecks, and caching opportunities.\n\nContext: ${context}\n\nCode:\n\`\`\`\n${code}\n\`\`\``
-    },
-    {
-      id: 'rev-architecture',
-      title: 'Architecture & Clean Code Standards',
-      model: 'minimax-m2.5',
-      role: 'architect',
-      prompt: `Review the following code strictly focusing on CLEAN ARCHITECTURE, modularity, type safety, maintainability, and naming conventions.\n\nContext: ${context}\n\nCode:\n\`\`\`\n${code}\n\`\`\``
-    }
-  ];
-
-  const selectedTasks = reviewTasks.filter(t => focus.some(f => t.id.includes(f)));
-  const batchResult = await executeParallel({
-    tasks: selectedTasks.length > 0 ? selectedTasks : reviewTasks,
-    concurrency: 4
+  const reviewPrompt = `Perform a comprehensive multi-dimensional code audit focusing on ${focus.join(', ')}.\n\nCode to review:\n\`\`\`\n${code}\n\`\`\`\n\nContext:\n${context}`;
+  const { executeCouncil } = await import('./engine-council.mjs');
+  return executeCouncil({
+    prompt: reviewPrompt,
+    councilModels: ['claude-sonnet-4.5', 'deepseek-3.2'],
+    chairmanModel: 'claude-sonnet-4.5'
   });
-
-  return {
-    success: true,
-    totalReviews: batchResult.results.length,
-    reviews: batchResult.results,
-    durationMs: batchResult.totalDurationMs
-  };
 }

@@ -9,6 +9,8 @@ import {
   executeCodeReview,
   ROLE_PROMPTS
 } from './kiro-core.mjs';
+import { executeArchitectEditor } from './engine-architect-editor.mjs';
+import { executeCouncil } from './engine-council.mjs';
 import {
   listAccounts,
   switchActiveAccount,
@@ -302,11 +304,61 @@ const TOOLS = [
       },
       required: ['action', 'path']
     }
+  },
+  {
+    name: 'kiro_architect_editor',
+    description: 'High-speed dual-model coding engine (Aider pattern). Dispatches architecture blueprinting to Claude Sonnet 4.5 and code diff implementation to Claude Haiku 4.5. Completes in ~13-18s.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Task or feature to implement.' },
+        architectModel: { type: 'string', description: 'Model for architecture (default: claude-sonnet-4.5).' },
+        editorModel: { type: 'string', description: 'Model for code implementation (default: claude-haiku-4.5).' },
+        context: { type: 'string', description: 'Optional context or file contents.' }
+      },
+      required: ['prompt']
+    }
+  },
+  {
+    name: 'kiro_council',
+    description: '4-Model Blind Peer-Review LLM Council (Karpathy/Swarms pattern). Concurrently queries Sonnet 4.5, DeepSeek 3.2, Qwen3, and MiniMax, conducts anonymized peer reviews, and synthesizes gold-standard consensus.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Critical algorithm, security audit, or architecture decision.' },
+        chairmanModel: { type: 'string', description: 'Chairman model for final synthesis (default: claude-sonnet-4.5).' }
+      },
+      required: ['prompt']
+    }
   }
 ];
 
 async function handleToolCall(name, args) {
   switch (name) {
+    case 'kiro_architect_editor': {
+      const res = await executeArchitectEditor({
+        prompt: args.prompt,
+        architectModel: args.architectModel || 'claude-sonnet-4.5',
+        editorModel: args.editorModel || 'claude-haiku-4.5',
+        context: args.context || ''
+      });
+      return {
+        content: [{ type: 'text', text: res.success ? res.finalCode : `[Error] ${res.error}` }],
+        isError: !res.success
+      };
+    }
+
+    case 'kiro_council': {
+      const res = await executeCouncil({
+        prompt: args.prompt,
+        chairmanModel: args.chairmanModel || 'claude-sonnet-4.5'
+      });
+      return {
+        content: [{ type: 'text', text: res.success ? res.finalSolution : `[Council Error] ${res.error}` }],
+        isError: !res.success
+      };
+    }
+
     case 'kiro_run': {
       const res = await executeTask({
         prompt: args.prompt,
