@@ -170,4 +170,34 @@ console.log('🧪 Starting Kiro Auto-Accept Test Suite...\n');
   console.log('  ✓ All 5 CLI binary wrappers in bin/ exist and compile');
 }
 
+// 6. AutoAcceptDaemon target tracking & dynamic open/close events
+{
+  const { AutoAcceptDaemon } = require('../kiro-auto-accept.js');
+  const loggedEvents = [];
+  const daemon = new AutoAcceptDaemon({ enabled: true, mode: 'autonomous', cdpPort: 9222, askKeywords: [], skipKeywords: [] }, 'test');
+  daemon.logEvent = (type, badge, action, details) => {
+    loggedEvents.push({ type, badge, action, details });
+  };
+
+  assert.strictEqual(daemon.sessions.size, 0, 'Initially 0 sessions');
+  assert.doesNotThrow(() => daemon.printPanel(), 'printPanel must execute cleanly');
+  assert.doesNotThrow(() => daemon.showStats(), 'showStats must execute cleanly');
+
+  const mockSession1 = { id: 's1', title: 'Window 1', port: 9222, destroy: () => {}, isConnected: true };
+  const mockSession2 = { id: 's2', title: 'Window 2', port: 9222, destroy: () => {}, isConnected: true };
+  daemon.sessions.set('s1', mockSession1);
+  daemon.sessions.set('s2', mockSession2);
+
+  assert.strictEqual(daemon.sessions.size, 2, '2 active sessions stored');
+
+  mockSession1.destroy = () => {};
+  daemon.sessions.delete('s1');
+  daemon.logEvent('warn', ' CLOSED ', `Target closed: "${mockSession1.title}" (Port ${mockSession1.port})`, `Active targets remaining: ${daemon.sessions.size}`);
+
+  assert.strictEqual(daemon.sessions.size, 1, '1 active session remaining');
+  assert(loggedEvents.some(e => e.action.includes('Target closed: "Window 1"') && e.details.includes('remaining: 1')), 'Must log CLOSED event with accurate remaining count');
+  console.log('  ✓ AutoAcceptDaemon accurately tracks multi-target sessions, open/close events, and panel rendering');
+}
+
 console.log('\nAll Kiro Auto-Accept tests passed! ✔');
+

@@ -70,10 +70,12 @@ const C = {
   magenta: '\x1b[35m',
   red: '\x1b[31m',
   gray: '\x1b[90m',
+  white: '\x1b[37m',
   pillGreen: '\x1b[42m\x1b[30m\x1b[1m',
   pillYellow: '\x1b[43m\x1b[30m\x1b[1m',
   pillMagenta: '\x1b[45m\x1b[37m\x1b[1m',
   pillRed: '\x1b[41m\x1b[37m\x1b[1m',
+  pillCyan: '\x1b[46m\x1b[30m\x1b[1m',
 };
 
 function cleanStr(str, max = 50) {
@@ -391,6 +393,21 @@ async function handleLaunch(cfg, forceRestart = false, shouldExit = true) {
 }
 
 async function handleEasyStart(cfg, configSource) {
+  const portKey = cfg.cdpPort > 0 ? String(cfg.cdpPort) : 'auto';
+  const isForce = process.argv.includes('--force') || process.argv.includes('-f');
+  const lock = acquireDaemonLock(portKey, isForce);
+
+  if (!lock.locked) {
+    const runningPid = lock.runningPid || 'unknown';
+    console.log(`\n  ${C.yellow}⚠️ Another kiro-auto-accept daemon is already running (PID: ${runningPid})${C.reset}`);
+    console.log(`  ${C.dim}To override and restart it, run: ${C.bold}kiro-auto-accept --force${C.reset}\n`);
+    process.exit(0);
+  }
+
+  process.on('exit', () => releaseDaemonLock(portKey));
+  process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
+  process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
+
   const port = (cfg && cfg.cdpPort > 0) ? cfg.cdpPort : 9222;
   const endpoints = await findCdpEndpoints(port, cfg.cdpPorts || []);
 
@@ -418,21 +435,6 @@ async function handleEasyStart(cfg, configSource) {
     }
     console.log(connected ? ` ${C.green}Ready! ✔${C.reset}\n` : ` ${C.yellow}Continuing... ⚠️${C.reset}\n`);
   }
-
-  const portKey = cfg.cdpPort > 0 ? String(cfg.cdpPort) : 'auto';
-  const isForce = process.argv.includes('--force') || process.argv.includes('-f');
-  const lock = acquireDaemonLock(portKey, isForce);
-
-  if (!lock.locked) {
-    const runningPid = lock.runningPid || 'unknown';
-    console.log(`\n  ${C.yellow}⚠️ Another kiro-auto-accept daemon is already running (PID: ${runningPid})${C.reset}`);
-    console.log(`  ${C.dim}To override, run: ${C.bold}kiro-auto-accept --force${C.reset}\n`);
-    process.exit(0);
-  }
-
-  process.on('exit', () => releaseDaemonLock(portKey));
-  process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
-  process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
 
   const daemon = new AutoAcceptDaemon(cfg, configSource);
   await daemon.start();
@@ -905,6 +907,8 @@ class WindowSession {
     this.ws = null;
     this.isConnected = false;
     this.isScanning = false;
+    this.sessionApprovals = 0;
+    this.sessionBlocks = 0;
     this.pollTimer = null;
     this.scanTimeout = null;
     this.reqId = 1;
@@ -926,7 +930,7 @@ class WindowSession {
 
     const onOpen = () => {
       this.isConnected = true;
-      this.onEvent('info', ' READY ', `Connected to target: "${this.title}" (Port ${this.port})`, '', C.pillGreen);
+      this.onEvent('info', ' READY ', `Connected to window: "${this.title}" (Port ${this.port})`, `Target ID: ${this.target.id || 'N/A'}`, C.pillGreen);
       this.startScanner();
     };
 
@@ -1034,6 +1038,7 @@ class WindowSession {
       const blockKey = `${outcome.blockedType}:${outcome.matchedKeyword}:${actionClean}`;
       if (blockKey !== this.lastReportedBlock) {
         this.lastReportedBlock = blockKey;
+        this.sessionBlocks++;
         this.stats.recordBlock();
         if (outcome.blockedType === 'ask') {
           this.onEvent('warn', ' PAUSED ', `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Awaiting your manual click)`, C.pillYellow);
@@ -1043,13 +1048,17 @@ class WindowSession {
       }
     } else {
       this.lastReportedBlock = '';
+      this.sessionApprovals++;
       this.stats.recordApproval();
-      this.onEvent('info', ' APPROVE ', `[${this.title}] ${actionClean}`, `Total Approved: ${this.stats.accepted} | Command: "${contextClean}"`, C.pillGreen);
+      this.onEvent('info', ' APPROVE ', `[${this.title}] ${actionClean}`, `Lifetime: ${this.stats.accepted} (+${this.sessionApprovals} window / +${this.stats.accepted} total) | ${contextClean}`, C.pillGreen);
     }
   }
 
   destroy() {
     this.stopScanner();
+    if (this.isConnected) {
+      this.onEvent('warn', ' DISCON ', `Window disconnected: "${this.title}" (Port ${this.port})`, '', C.pillYellow);
+    }
     this.isConnected = false;
     if (this.ws) {
       try { this.ws.terminate(); } catch (e) {}
@@ -1077,26 +1086,65 @@ class AutoAcceptDaemon {
     }
   }
 
-  async start() {
-    console.log(`\n${C.bold}${C.brightCyan}⚡ Kiro Auto-Accept Daemon Starting...${C.reset}`);
-    console.log(`  ${C.bold}Config Source:${C.reset} ${this.configSource}`);
-    console.log(`  ${C.bold}Mode:${C.reset}          ${this.cfg.mode === 'autopilot' ? `${C.magenta}AUTOPILOT (100% hands-free)${C.reset}` : `${C.cyan}AUTONOMOUS${C.reset}`}`);
-    console.log(`  ${C.bold}Always-Allow:${C.reset}  ${this.cfg.autoSelectAlwaysAllow ? `${C.green}Enabled${C.reset}` : `${C.dim}Disabled (Uses "Allow")${C.reset}`}`);
-    console.log(`  ${C.bold}Poll Interval:${C.reset} ${this.cfg.pollIntervalMs}ms\n`);
+  printBanner() {
+    const statusPill = this.cfg.enabled
+      ? ` ${C.pillGreen} ● ACTIVE ${C.reset}`
+      : ` ${C.pillYellow} ⏸ PAUSED ${C.reset}`;
 
-    await this.syncTargets();
+    const modePill = this.cfg.mode === 'autopilot'
+      ? `${C.pillMagenta} 🚀 AUTOPILOT ${C.reset}`
+      : `${C.pillCyan} 🛡️ AUTONOMOUS ${C.reset}`;
 
-        if (this.sessions.size === 0) {
-      console.log(`  ${C.yellow}Searching for Kiro IDE on Port ${this.cfg.cdpPort || 9222}... ${C.reset}`);
-    } else {
-      console.log(`${C.bold}${C.green}✔ Daemon is now monitoring ${this.sessions.size} Kiro IDE target(s)... (Port 9222)${C.reset}`);
-      console.log(`
+    const connectedSessions = Array.from(this.sessions.values()).filter(s => s.isConnected);
+    const ports = Array.from(new Set(connectedSessions.map(s => s.port)));
+    const port = this.cfg.cdpPort || 9222;
+    const portStr = connectedSessions.length > 0
+      ? `${C.brightGreen}${connectedSessions.length} window(s) connected (${ports.map(p => 'Port ' + p).join(', ')})${C.reset}`
+      : `${C.yellow}Searching Port ${port}...${C.reset}`;
+
+    console.log(`
+  ${C.bold}${C.brightCyan}⚡ KIRO AUTO-ACCEPT${C.reset} ${C.gray}v${PKG_VERSION}${C.reset}
+  ${C.dim}Multi-window autonomous confirmation engine for Kiro IDE${C.reset}
+
+  ${C.dim}╭─────────────────────────────────────────────────────────────╮${C.reset}
+  ${C.dim}│${C.reset}  ${C.bold}Status:${C.reset}    ${statusPill}   ${C.bold}Mode:${C.reset} ${modePill}
+  ${C.dim}│${C.reset}  ${C.bold}Windows:${C.reset}   ${portStr}
+  ${C.dim}│${C.reset}  ${C.bold}Approvals:${C.reset} ${C.bold}${C.white}${this.stats.accepted}${C.reset} lifetime (${this.sessionApprovals || 0} session)   ${C.bold}Blocks:${C.reset} ${this.stats.skipped}
+  ${C.dim}│${C.reset}  ${C.bold}Guard:${C.reset}     ${C.yellow}${this.cfg.askKeywords.length} Ask rules${C.reset}  ${C.gray}|${C.reset}  ${C.magenta}${this.cfg.skipKeywords.length} Skip rules${C.reset}
+  ${C.dim}╰─────────────────────────────────────────────────────────────╯${C.reset}
   ${C.dim}Hotkeys:${C.reset}
-    ${C.yellow}p${C.reset} Pause/Resume   ${C.yellow}m${C.reset} Mode    ${C.yellow}l${C.reset} List Rules   ${C.yellow}s${C.reset} Live Stats
-    ${C.yellow}d${C.reset} Doctor Check   ${C.yellow}c${C.reset} Config  ${C.yellow}R${C.reset} Restart IDE  ${C.yellow}h${C.reset} Help (?)  ${C.yellow}q${C.reset} Quit
+    ${C.yellow}p${C.reset} Pause/Resume  •  ${C.yellow}m${C.reset} Mode    •  ${C.yellow}l${C.reset} List Rules   •  ${C.yellow}s${C.reset} Live Stats
+    ${C.yellow}d${C.reset} Doctor Check  •  ${C.yellow}c${C.reset} Config  •  ${C.yellow}R${C.reset} Restart IDE  •  ${C.yellow}h${C.reset} Help (?)     •  ${C.yellow}q${C.reset} Quit
 `);
-    }
+  }
 
+  printPanel() {
+    this.printBanner();
+  }
+
+  showStats() {
+    const activeSessions = Array.from(this.sessions.values());
+    console.log(`
+  ${C.bold}--- Live Multi-Window Statistics ---${C.reset}
+  Windows Attached:   ${activeSessions.length > 0 ? `${C.green}${activeSessions.length} connected${C.reset}` : `${C.yellow}0 (Searching...)${C.reset}`}
+  Session Approvals:  ${C.bold}${this.stats.accepted}${C.reset} total
+  Lifetime Approvals: ${C.bold}${this.stats.accepted}${C.reset}
+  Intercepted Blocks: ${C.bold}${this.stats.skipped}${C.reset}
+  Last Action:        ${this.stats.lastAction || 'None'}
+`);
+    if (activeSessions.length > 0) {
+      console.log(`  ${C.bold}Active Window Breakdown:${C.reset}`);
+      activeSessions.forEach((s, idx) => {
+        const status = s.isConnected ? `${C.green}Connected${C.reset}` : `${C.yellow}Reconnecting${C.reset}`;
+        console.log(`    [${idx + 1}] "${s.title}" (Port ${s.port}) — ${status} — Approvals: ${s.sessionApprovals || 0}, Blocks: ${s.sessionBlocks || 0}`);
+      });
+      console.log('');
+    }
+  }
+
+  async start() {
+    await this.syncTargets();
+    this.printPanel();
     this.setupHotkeys();
     this.loop();
   }
@@ -1138,7 +1186,7 @@ class AutoAcceptDaemon {
         } else if (k === 'l') {
           handleList(this.cfg, false);
         } else if (k === 's') {
-          console.log('\n  ' + C.bold + C.cyan + 'Live Stats:' + C.reset + ' Approved: ' + this.stats.accepted + ' | Blocked: ' + this.stats.skipped + ' | Active Targets: ' + this.sessions.size + '\n');
+          this.showStats();
         } else if (k === 'c') {
           console.log('\n  ' + C.bold + C.cyan + 'Active Config:' + C.reset + ' Mode: ' + this.cfg.mode + ' | Delay: ' + this.cfg.safetyDelayMs + 'ms | Poll: ' + this.cfg.pollIntervalMs + 'ms | Port: ' + (this.cfg.cdpPort || 9222) + '\n');
         } else if (raw === 'R' || (raw && raw.shift && k === 'r')) {
@@ -1150,7 +1198,7 @@ class AutoAcceptDaemon {
     ${C.yellow}m${C.reset}  Toggle Autonomous / Autopilot
     ${C.yellow}l${C.reset}  List active keyword rules
     ${C.yellow}d${C.reset}  Run System Doctor check
-    ${C.yellow}s${C.reset}  Show live approval stats
+    ${C.yellow}s${C.reset}  Show live approval stats & active targets
     ${C.yellow}c${C.reset}  Show configuration
     ${C.yellow}R${C.reset}  Restart Kiro IDE with debugging port
     ${C.yellow}q${C.reset}  Quit daemon
@@ -1173,9 +1221,17 @@ class AutoAcceptDaemon {
   }
 
   async loop() {
+    let prevCount = this.sessions.size;
     while (true) {
       try {
         await this.syncTargets();
+        const curCount = this.sessions.size;
+        if (prevCount > 0 && curCount === 0) {
+          this.logEvent('warn', ' OFFLINE ', 'All Kiro IDE targets closed', `Searching for Kiro IDE on Port ${this.cfg.cdpPort || 9222}...`, C.pillRed);
+        } else if (prevCount === 0 && curCount > 0) {
+          this.logEvent('info', ' ONLINE ', `Kiro IDE reconnected (${curCount} target(s) active)`, '', C.pillGreen);
+        }
+        prevCount = curCount;
       } catch (e) {}
       await new Promise(r => setTimeout(r, 1500));
     }
@@ -1184,6 +1240,7 @@ class AutoAcceptDaemon {
   async syncTargets() {
     const endpoints = await findCdpEndpoints(this.cfg.cdpPort, this.cfg.cdpPorts);
     const activeKeys = new Set();
+    let changed = false;
 
     for (const ep of endpoints) {
       const targets = selectAllWorkbenchTargets(ep.targets);
@@ -1197,10 +1254,13 @@ class AutoAcceptDaemon {
           });
           this.sessions.set(key, session);
           session.connect();
+          changed = true;
         } else {
           const session = this.sessions.get(key);
+          session.title = cleanStr(t.type === 'iframe' ? 'Kiro Chat Webview' : (t.title || 'Kiro IDE'), 45);
           if (!session.isConnected && !session.ws) {
             session.connect();
+            changed = true;
           }
         }
       }
@@ -1210,9 +1270,166 @@ class AutoAcceptDaemon {
       if (!activeKeys.has(key)) {
         session.destroy();
         this.sessions.delete(key);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.showStats();
+    }
+  }
+}
+
+function getSaveTarget(isGlobal = false) {
+  if (isGlobal) return GLOBAL_CONFIG_FILE;
+  return path.join(process.cwd(), '.kiro-auto-accept.json');
+}
+
+function handleAddRuleCli(listType, rawArgs, cfg) {
+  const isGlobal = rawArgs.includes('-g') || rawArgs.includes('--global');
+  const patterns = rawArgs.filter(a => a !== '-g' && a !== '--global');
+  const saveTarget = getSaveTarget(isGlobal);
+  const listKey = (listType === 'skip') ? 'skipKeywords' : 'askKeywords';
+  const listTitle = (listType === 'skip') ? 'Directly Skip' : 'Ask Permission';
+
+  if (patterns.length === 0) {
+    console.error(`${C.red}Error: Keyword pattern required. Example: kiro-auto-accept add-${listType} "git push"${C.reset}`);
+    process.exit(1);
+  }
+
+  let fileConfig = { ...DEFAULTS };
+  if (fs.existsSync(saveTarget)) {
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) {}
+  } else {
+    fileConfig = { ...cfg };
+  }
+
+  const added = [];
+  for (const raw of patterns) {
+    const splitKws = raw.split(',').map(s => s.trim()).filter(Boolean);
+    for (const kw of splitKws) {
+      if (!fileConfig[listKey].includes(kw)) {
+        fileConfig[listKey].push(kw);
+        added.push(kw);
       }
     }
   }
+
+  try {
+    const dir = path.dirname(saveTarget);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(saveTarget, JSON.stringify(fileConfig, null, 2), 'utf8');
+    console.log(`\n${C.bold}${C.green}✔ Added ${added.length} rule(s) to ${listTitle} list!${C.reset}\n  ${added.map(k => `${C.cyan}• "${k}"${C.reset}`).join('\n  ')}\n  ${C.dim}Target config: ${saveTarget}${C.reset}\n`);
+  } catch (e) {
+    console.error(`${C.red}✗ Failed to write config: ${e.message}${C.reset}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+function handleRemoveRuleCli(listType, rawArgs, cfg) {
+  const isGlobal = rawArgs.includes('-g') || rawArgs.includes('--global');
+  const patterns = rawArgs.filter(a => a !== '-g' && a !== '--global');
+  const saveTarget = getSaveTarget(isGlobal);
+
+  let fileConfig = { ...DEFAULTS };
+  if (fs.existsSync(saveTarget)) {
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) {}
+  } else {
+    fileConfig = { ...cfg };
+  }
+
+  if (patterns.length === 0) {
+    console.error(`${C.red}Error: Keyword pattern required. Example: kiro-auto-accept rm "git reset --hard"${C.reset}`);
+    process.exit(1);
+  }
+
+  const removed = [];
+  for (const raw of patterns) {
+    const splitKws = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    for (const kw of splitKws) {
+      if (listType === 'ask' || listType === 'all') {
+        const idx = fileConfig.askKeywords.findIndex(k => k.toLowerCase() === kw);
+        if (idx !== -1) {
+          removed.push({ list: 'Ask Permission', kw: fileConfig.askKeywords[idx] });
+          fileConfig.askKeywords.splice(idx, 1);
+        }
+      }
+      if (listType === 'skip' || listType === 'all') {
+        const idx = fileConfig.skipKeywords.findIndex(k => k.toLowerCase() === kw);
+        if (idx !== -1) {
+          removed.push({ list: 'Directly Skip', kw: fileConfig.skipKeywords[idx] });
+          fileConfig.skipKeywords.splice(idx, 1);
+        }
+      }
+    }
+  }
+
+  if (removed.length === 0) {
+    console.log(`\n${C.yellow}⚠️ No matching rules found for: ${patterns.join(', ')}${C.reset}\n`);
+    process.exit(0);
+  }
+
+  try {
+    fs.writeFileSync(saveTarget, JSON.stringify(fileConfig, null, 2), 'utf8');
+    console.log(`\n${C.bold}${C.green}✔ Removed ${removed.length} rule(s)!${C.reset}\n  ${removed.map(r => `${C.yellow}• "${r.kw}" (${r.list})${C.reset}`).join('\n  ')}\n  ${C.dim}Updated config: ${saveTarget}${C.reset}\n`);
+  } catch (e) {
+    console.error(`${C.red}✗ Failed to write config: ${e.message}${C.reset}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+function handleModeCli(rawArgs, cfg) {
+  const target = getSaveTarget();
+  let fileConfig = { ...DEFAULTS, ...cfg };
+  if (fs.existsSync(target)) {
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(target, 'utf8')) }; } catch (e) {}
+  }
+  const modeVal = (rawArgs[0] || '').toLowerCase().trim();
+  if (modeVal === 'autopilot' || modeVal === 'autonomous') {
+    fileConfig.mode = modeVal;
+  } else {
+    fileConfig.mode = fileConfig.mode === 'autonomous' ? 'autopilot' : 'autonomous';
+  }
+  try {
+    fs.writeFileSync(target, JSON.stringify(fileConfig, null, 2), 'utf8');
+    console.log(`\n${C.green}✔ Mode set to: ${C.bold}${fileConfig.mode.toUpperCase()}${C.reset}\n  ${C.dim}Saved to: ${target}${C.reset}\n`);
+  } catch (e) {
+    console.error(`${C.red}✗ Failed: ${e.message}${C.reset}`);
+  }
+  process.exit(0);
+}
+
+function handleToggleCli(enable, cfg) {
+  const target = getSaveTarget();
+  let fileConfig = { ...DEFAULTS, ...cfg };
+  if (fs.existsSync(target)) {
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(target, 'utf8')) }; } catch (e) {}
+  }
+  fileConfig.enabled = enable;
+  try {
+    fs.writeFileSync(target, JSON.stringify(fileConfig, null, 2), 'utf8');
+    console.log(`\n${C.green}✔ Kiro Auto-Accept is now: ${C.bold}${enable ? 'ACTIVE' : 'PAUSED'}${C.reset}\n  ${C.dim}Saved to: ${target}${C.reset}\n`);
+  } catch (e) {
+    console.error(`${C.red}✗ Failed: ${e.message}${C.reset}`);
+  }
+  process.exit(0);
+}
+
+async function handleStatusCli(cfg) {
+  const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
+  const totalTargets = endpoints.reduce((acc, ep) => acc + selectAllWorkbenchTargets(ep.targets).length, 0);
+  const status = {
+    running: isKiroRunning(),
+    connected: totalTargets > 0,
+    targets: totalTargets,
+    mode: cfg.mode,
+    enabled: cfg.enabled,
+    ports: endpoints.map(e => e.port)
+  };
+  console.log(JSON.stringify(status, null, 2));
+  process.exit(0);
 }
 
 // ─── CLI Entry Point ───
@@ -1225,29 +1442,45 @@ async function main() {
     process.exit(0);
   }
 
-  if (args.includes('--help') || args.includes('-h')) {
+  if (args.includes('--help') || args.includes('-h') || (args[0] && args[0].toLowerCase() === 'help')) {
     console.log(`
-${C.bold}${C.brightCyan}Kiro Auto-Accept${C.reset} v${PKG_VERSION}
+${C.bold}${C.brightCyan}⚡ KIRO AUTO-ACCEPT${C.reset} ${C.gray}v${PKG_VERSION}${C.reset}
+${C.dim}Multi-window autonomous confirmation engine for Kiro IDE${C.reset}
 
-${C.bold}USAGE:${C.reset}
-  ${C.cyan}kiro-auto-accept${C.reset}              Start daemon (default)
-  ${C.cyan}kiro-auto-accept start${C.reset}        Launch IDE + start daemon
-  ${C.cyan}kiro-auto-accept init${C.reset}         Create .kiro-auto-accept.json in current dir
-  ${C.cyan}kiro-auto-accept list${C.reset}         Show active rules
-  ${C.cyan}kiro-auto-accept doctor${C.reset}       System diagnostics
-  ${C.cyan}kiro-auto-accept setup${C.reset}        Configure shortcuts with debug port 9222
-  ${C.cyan}kiro-auto-accept launch${C.reset}       Launch Kiro IDE with debug port 9222
-  ${C.cyan}kiro-auto-accept restart${C.reset}      Restart Kiro IDE with debug port 9222
+${C.bold}COMMANDS:${C.reset}
+  ${C.green}kiro-auto-accept${C.reset}               Start the auto-approval daemon (default)
+  ${C.green}kiro-auto-accept start${C.reset}         Easy Start: launch/restart IDE with debug port & connect daemon
+  ${C.green}kiro-auto-accept launch${C.reset}        Auto-launch Kiro IDE with remote debugging port
+  ${C.green}kiro-auto-accept setup${C.reset}         Configure Desktop & Start Menu shortcuts with Port 9222
+  ${C.green}kiro-auto-accept restart${C.reset}       Restart Kiro IDE with remote debugging port enabled
+  ${C.green}kiro-auto-accept init${C.reset}          Generate .kiro-auto-accept.json in the current directory
+  ${C.green}kiro-auto-accept status${C.reset}        Query live Kiro IDE status as JSON
+  ${C.green}kiro-auto-accept list${C.reset}          List active keywords and mode configuration
+  ${C.green}kiro-auto-accept doctor${C.reset}        Diagnose Kiro connection & print setup guide
+  ${C.green}kiro-auto-accept add-ask <kw>${C.reset}    Add keyword to Ask list (manual permission)
+  ${C.green}kiro-auto-accept add-skip <kw>${C.reset}   Add keyword to Skip list (direct skip)
+  ${C.green}kiro-auto-accept rm <kw>${C.reset}         Remove keyword from active rules
+  ${C.green}kiro-auto-accept rm-ask <kw>${C.reset}     Remove keyword from Ask list
+  ${C.green}kiro-auto-accept rm-skip <kw>${C.reset}    Remove keyword from Skip list
+  ${C.green}kiro-auto-accept mode [mode]${C.reset}   Get or switch operating mode (autonomous | autopilot)
+  ${C.green}kiro-auto-accept pause${C.reset}         Pause auto-approvals without stopping daemon
+  ${C.green}kiro-auto-accept resume${C.reset}        Resume active auto-approvals
 
 ${C.bold}OPTIONS:${C.reset}
-  --mode=autopilot       100% hands-free mode
-  --mode=autonomous      Review plans before execution
-  --always-allow         Auto-select "Always allow" button
-  --port=9222            Specific CDP port
-  --quiet, -q            Minimal output
-  --force, -f            Force restart/override locks
-  --help, -h             Show this help
-  --version, -v          Show version
+  ${C.cyan}--mode=autopilot${C.reset}       100% hands-free mode
+  ${C.cyan}--mode=autonomous${C.reset}      Review plans before execution
+  ${C.cyan}--always-allow${C.reset}         Auto-select "Always allow" button
+  ${C.cyan}--port=9222${C.reset}            Specific CDP port
+  ${C.cyan}--quiet, -q${C.reset}            Minimal output
+  ${C.cyan}--force, -f${C.reset}            Force restart/override locks
+  ${C.cyan}--help, -h${C.reset}             Show this help
+  ${C.cyan}--version, -v${C.reset}          Show version
+
+${C.bold}INSTANT HOTKEYS:${C.reset}
+  ${C.yellow}p${C.reset}  Pause / Resume approvals       ${C.yellow}m${C.reset}  Toggle Autonomous / Autopilot
+  ${C.yellow}s${C.reset}  Live session stats             ${C.yellow}c${C.reset}  Show active configuration
+  ${C.yellow}d${C.reset}  Doctor check                   ${C.yellow}R${C.reset}  Restart IDE
+  ${C.yellow}h${C.reset}  Help reference guide           ${C.yellow}q${C.reset}  Quit daemon
 `);
     process.exit(0);
   }
@@ -1256,7 +1489,7 @@ ${C.bold}OPTIONS:${C.reset}
   let cmd = rawCmd;
   if (['d', 'doc', 'doctor', 'check'].includes(rawCmd)) cmd = 'doctor';
   else if (['l', 'ls', 'list', 'rules'].includes(rawCmd)) cmd = 'list';
-  else if (['s', 'stat', 'stats', 'status'].includes(rawCmd)) cmd = 'stats';
+  else if (['s', 'stat', 'stats'].includes(rawCmd)) cmd = 'stats';
   else if (['c', 'cfg', 'config'].includes(rawCmd)) cmd = 'config';
   else if (['r', 'restart'].includes(rawCmd)) cmd = 'restart';
   else if (['setup', 'shortcuts'].includes(rawCmd)) cmd = 'setup';
@@ -1276,6 +1509,28 @@ ${C.bold}OPTIONS:${C.reset}
     await handleLaunch(cfg);
   } else if (cmd === 'restart') {
     await handleRestart(cfg);
+  } else if (cmd === 'add-ask') {
+    handleAddRuleCli('ask', args.slice(1), cfg);
+  } else if (cmd === 'add-skip') {
+    handleAddRuleCli('skip', args.slice(1), cfg);
+  } else if (cmd === 'rm-ask') {
+    handleRemoveRuleCli('ask', args.slice(1), cfg);
+  } else if (cmd === 'rm-skip') {
+    handleRemoveRuleCli('skip', args.slice(1), cfg);
+  } else if (cmd === 'rm') {
+    handleRemoveRuleCli('all', args.slice(1), cfg);
+  } else if (cmd === 'mode') {
+    handleModeCli(args.slice(1), cfg);
+  } else if (cmd === 'pause') {
+    handleToggleCli(false, cfg);
+  } else if (cmd === 'resume') {
+    handleToggleCli(true, cfg);
+  } else if (cmd === 'status') {
+    await handleStatusCli(cfg);
+  } else if (cmd === 'stats') {
+    const daemon = new AutoAcceptDaemon(cfg, source);
+    daemon.showStats();
+    process.exit(0);
   } else if (cmd === 'start') {
     await handleEasyStart(cfg, source);
   } else {

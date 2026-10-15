@@ -2400,6 +2400,7 @@ class AutoSubmitDaemon {
   async connectLoop() {
     let emptyCycles = 0;
     let warnedUnpatchedRunning = false;
+    let prevConnectedCount = Array.from(this.sessions.values()).filter(s => s.isConnected).length;
 
     while (true) {
       try {
@@ -2407,6 +2408,14 @@ class AutoSubmitDaemon {
         await this.syncWindows();
 
         const connectedCount = Array.from(this.sessions.values()).filter(s => s.isConnected).length;
+        if (prevConnectedCount > 0 && connectedCount === 0) {
+          const port = this.config.cdpPort > 0 ? this.config.cdpPort : 9333;
+          this.logEvent('warn', ' OFFLINE ', 'All Antigravity IDE windows closed', `Searching for Antigravity IDE on Port ${port}...`, C.pillRed);
+        } else if (prevConnectedCount === 0 && connectedCount > 0) {
+          this.logEvent('info', ' ONLINE ', `Antigravity IDE reconnected (${connectedCount} window(s) active)`, '', C.pillGreen);
+        }
+        prevConnectedCount = connectedCount;
+
         if (connectedCount === 0) {
           emptyCycles++;
           if (emptyCycles >= 4 && !warnedUnpatchedRunning) {
