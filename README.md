@@ -629,19 +629,26 @@ agy-check
 
 ---
 
-### 🔍 3-Tier Workstation Audit Reference (`antigravity-check` / `agy-check`)
+### 🔍 Workstation Audit Reference (`agy-check`, `check-ides`, `check-ag`)
 
-Run at any time in any terminal to inspect system temporary space categorized into the 3 safety tiers:
+Run at any time in any terminal to inspect system temporary space categorized into safety tiers:
 
 ```bash
-antigravity-check
-# or short alias: agy-check
-# or via daemon:  auto-accept check
-```
+# 1. Full Workstation Audit (Antigravity + All Other IDEs + Package Caches)
+agy-check
+# or: antigravity-check / auto-accept check
 
-**JSON Output Mode:**
-```bash
+# 2. Check All Other External IDEs Specifically (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)
+check-ides
+# or: ides-check / agy-check-ides / antigravity-check --ides
+
+# 3. Check Antigravity Only (Scratch, Recordings, Logs, Electron Caches)
+check-ag
+# or: agy-check-ag / antigravity-check --ag
+
+# JSON Output Mode:
 antigravity-check --json
+check-ides --json
 ```
 
 ---

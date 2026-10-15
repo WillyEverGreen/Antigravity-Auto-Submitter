@@ -803,6 +803,117 @@ def run_comprehensive_audit(stale_days=7):
     print()
 
 
+def run_ide_audit():
+    print()
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      MULTI-IDE & EDITOR DELETION AUDIT & SAFETY GUIDE                         {RESET}")
+    print(f"{BOLD}{CYAN}      Auditing: Kiro, Zed, VS Code, Cursor, Windsurf, Trae, Qoder, Claude      {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+    metrics = collect_audit_metrics(stale_days=7, collect_files=False)
+
+    ide_safe_names = [
+        "Kiro IDE Crash Dumps & Caches",
+        "Zed Editor Logs & Traces",
+        "VS Code / CodeX Caches & Logs",
+        "Cursor Caches & Logs",
+        "Windsurf Caches & Logs",
+        "Trae Caches & Logs",
+        "Qoder Caches & Logs",
+        "Claude Desktop Logs",
+    ]
+
+    print(f"{BOLD}{GREEN}[SAFE TO DELETE] EPHEMERAL CACHES, LOGS & CRASHPADS:{RESET}")
+    tot_cnt = 0
+    tot_sz = 0
+    for name in ide_safe_names:
+        info = metrics["tier1_safe"].get(name, {"count": 0, "size": 0})
+        cnt = info["count"]
+        sz = info["size"]
+        tot_cnt += cnt
+        tot_sz += sz
+        color = YELLOW if sz > 10 * 1024 * 1024 else GREEN
+        print(f"  + {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {color}{format_size(sz):>10s}{RESET}")
+
+    print(f"  {BOLD}------------------------------------------------------------------------------{RESET}")
+    print(f"  {BOLD}{GREEN}TOTAL EXTERNAL IDE RECLAIMABLE SPACE: {format_size(tot_sz)} ({tot_cnt:,} files){RESET}")
+    print()
+
+    ide_prot_names = [
+        "Kiro Protected Settings & Extensions",
+        "Zed Language Servers & Toolchains",
+        "VS Code & Cursor Extensions & Settings",
+        "Windsurf & Trae Extensions & Settings",
+    ]
+
+    print(f"{BOLD}{RED}[DO NOT DELETE] PROTECTED EXTENSIONS, SETTINGS & RUNTIMES:{RESET}")
+    for name in ide_prot_names:
+        info = metrics["tier3_protected"].get(name, {"count": 0, "size": 0})
+        cnt = info["count"]
+        sz = info["size"]
+        print(f"  🛑 {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {RED}{format_size(sz):>10s}{RESET}")
+
+    print()
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}ACTION GUIDE:{RESET}")
+    print(f"  • Run {BOLD}{GREEN}clean-ides{RESET} (or {GREEN}antigravity-clean --ides{RESET}) to safely purge these caches.")
+    print(f"  • Run {BOLD}{GREEN}clean-all{RESET} for a complete workstation sweep.")
+    print(f"  • Individual IDE flags: {CYAN}--kiro, --zed, --code, --cursor, --windsurf, --trae, --qoder, --claude{RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+
+def run_ag_audit(stale_days=7):
+    print()
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      ANTIGRAVITY DELETION AUDIT & SAFETY GUIDE                                 {RESET}")
+    print(f"{BOLD}{CYAN}      Multi-Root Architecture: ~/.gemini/antigravity-ide & ~/.gemini/antigravity{RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+    metrics = collect_audit_metrics(stale_days=stale_days, collect_files=False)
+
+    ag_categories = [
+        "Global Scratch Scripts",
+        "Browser WebP Recordings",
+        "Session Scratch Folders",
+        "Session Transcripts & Logs",
+        "Cached AST Annotations",
+        "Crash Dump Logs",
+        "Implicit Context Cache",
+        "Context State Caches",
+        "HTML Artifact Previews",
+        "Prompting Step Caches",
+        "Browser Profile Web Caches",
+        "Electron IDE Runtime Caches",
+        "Gemini Root Loose Scratch Files",
+    ]
+
+    print(f"{BOLD}{GREEN}[SAFE TO DELETE] ANTIGRAVITY TEMPORARY FILES:{RESET}")
+    tot_cnt = 0
+    tot_sz = 0
+    for name in ag_categories:
+        info = metrics["tier1_safe"].get(name, {"count": 0, "size": 0})
+        cnt = info["count"]
+        sz = info["size"]
+        tot_cnt += cnt
+        tot_sz += sz
+        color = YELLOW if sz > 100 * 1024 * 1024 else GREEN
+        print(f"  + {BOLD}{name:<38s}{RESET} : {cnt:7,d} files | {color}{format_size(sz):>10s}{RESET}")
+
+    print(f"  {BOLD}------------------------------------------------------------------------------{RESET}")
+    print(f"  {BOLD}{GREEN}TOTAL ANTIGRAVITY SAFE RECLAIMABLE SPACE: {format_size(tot_sz)} ({tot_cnt:,} files){RESET}")
+    print()
+
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}ACTION GUIDE:{RESET}")
+    print(f"  • Run {BOLD}{GREEN}clean-ag{RESET} (or {GREEN}antigravity-clean --ag{RESET}) to safely purge these files.")
+    print(f"  • Run {BOLD}{GREEN}clean-all{RESET} for a complete workstation sweep.")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print()
+
+
 def run_temp_scanner(stale_days=7, limit=35, output_json=False):
     metrics = collect_audit_metrics(stale_days=stale_days, collect_files=True)
 
@@ -1006,7 +1117,12 @@ def main():
             }
             print(json.dumps(data, indent=2))
         else:
-            run_comprehensive_audit(stale_days=args.days)
+            if args.ides:
+                run_ide_audit()
+            elif args.ag:
+                run_ag_audit(stale_days=args.days)
+            else:
+                run_comprehensive_audit(stale_days=args.days)
         return
 
     # Collect cleanup targets
