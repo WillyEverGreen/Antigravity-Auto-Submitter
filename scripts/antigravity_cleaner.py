@@ -228,6 +228,66 @@ def scan_browser_caches(collect_files=False):
     return total_cnt, total_sz, file_list
 
 
+def scan_external_ide_caches(collect_files=False):
+    """
+    Scans safe ephemeral caches, crash dumps, and logs across external IDEs:
+    - Kiro (Crashpad, Cache, GPUCache, logs, ~/.kiro/logs)
+    - Zed (~/AppData/Local/Zed/logs)
+    - VS Code / CodeX (~/AppData/Roaming/Code/Cache, GPUCache, logs, Crashpad)
+    - Cursor (~/AppData/Roaming/Cursor/Cache, GPUCache, logs, Crashpad)
+    Strictly shields: user settings, extensions, keybindings, language servers, skills, and projects.
+    """
+    ide_categories = {}
+    total_sz = 0
+    total_cnt = 0
+
+    targets = [
+        ("Kiro IDE Crash Dumps & Caches", [
+            os.path.expanduser("~/AppData/Roaming/Kiro/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Kiro/logs"),
+            os.path.expanduser("~/.kiro/logs"),
+        ]),
+        ("Zed Editor Logs & Traces", [
+            os.path.expanduser("~/AppData/Local/Zed/logs"),
+        ]),
+        ("VS Code / CodeX Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/Code/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Code/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Code/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Code/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Code/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Code/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Code/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/Code/logs"),
+        ]),
+        ("Cursor Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/Cursor/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/logs"),
+        ]),
+    ]
+
+    for label, paths in targets:
+        c_tot, s_tot, fl_tot = 0, 0, []
+        for p in paths:
+            if os.path.exists(p):
+                c, s, fl = fast_scan_dir(p, collect_files)
+                c_tot += c; s_tot += s; fl_tot.extend(fl)
+        if c_tot > 0 or not collect_files:
+            ide_categories[label] = {"count": c_tot, "size": s_tot, "files": fl_tot}
+            total_cnt += c_tot
+            total_sz += s_tot
+
+    return ide_categories, total_cnt, total_sz
+
+
 def collect_audit_metrics(stale_days=7, collect_files=False):
     now = time.time()
     stale_sec = stale_days * 86400
@@ -389,6 +449,12 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     # 11. Antigravity Electron IDE Runtime Caches (%APPDATA%\Antigravity IDE)
     e_cnt, e_sz, e_fl = scan_electron_caches(collect_files)
     add_tier1("Electron IDE Runtime Caches", e_cnt, e_sz, e_fl)
+
+    # 12. External AI IDEs & Editors (Kiro, Zed, Code, Cursor)
+    ext_ides, ext_cnt, ext_sz = scan_external_ide_caches(collect_files)
+    for cat_name, cat_data in ext_ides.items():
+        if cat_data["count"] > 0:
+            add_tier1(cat_name, cat_data["count"], cat_data["size"], cat_data["files"])
 
     # 12. System Temp Scripts & Dumps
     sys_temp_dir = os.environ.get("TEMP", "")
@@ -573,6 +639,28 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
         ]),
         ("OAuth Tokens State", [
             os.path.expanduser("~/.gemini/oauth_creds.json"),
+        ]),
+        ("Kiro Protected Settings & Extensions", [
+            os.path.expanduser("~/.kiro/settings"),
+            os.path.expanduser("~/.kiro/skills"),
+            os.path.expanduser("~/.kiro/agents"),
+            os.path.expanduser("~/.kiro/powers"),
+            os.path.expanduser("~/.kiro/extensions"),
+            os.path.expanduser("~/.kiro/argv.json"),
+        ]),
+        ("Zed Language Servers & Toolchains", [
+            os.path.expanduser("~/AppData/Local/Zed/languages"),
+            os.path.expanduser("~/AppData/Local/Zed/node"),
+            os.path.expanduser("~/AppData/Local/Zed/prettier"),
+            os.path.expanduser("~/AppData/Local/Zed/threads"),
+            os.path.expanduser("~/AppData/Local/Zed/prompts"),
+        ]),
+        ("VS Code & Cursor Extensions & Settings", [
+            os.path.expanduser("~/.vscode/extensions"),
+            os.path.expanduser("~/.cursor/extensions"),
+            os.path.expanduser("~/.cursor/skills-cursor"),
+            os.path.expanduser("~/.cursor/mcp.json"),
+            os.path.expanduser("~/.cursor/projects"),
         ]),
     ]
     for name, p_list in tier_critical_definitions:
@@ -798,6 +886,11 @@ def main():
     parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
     parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
     parser.add_argument("--electron-cache", "--ide-cache", dest="electron_cache", action="store_true", help="Clean Antigravity Electron IDE runtime caches (%%APPDATA%%\\Antigravity IDE)")
+    parser.add_argument("--ides", action="store_true", help="Clean ephemeral caches & logs from external IDEs (Kiro, Zed, Code, Cursor)")
+    parser.add_argument("--kiro", action="store_true", help="Clean Kiro IDE crash dumps, web caches, and daemon logs")
+    parser.add_argument("--zed", action="store_true", help="Clean Zed editor logs and trace reports")
+    parser.add_argument("--code", action="store_true", help="Clean VS Code / CodeX runtime caches, logs, and crash dumps")
+    parser.add_argument("--cursor", action="store_true", help="Clean Cursor caches, logs, and crashpad dumps")
     parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
     parser.add_argument("--tmp", action="store_true", help="Clean cloned temporary workspaces in ~/.gemini/tmp")
     parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
@@ -821,6 +914,7 @@ def main():
     is_clean = (
         args.scratch or args.logs or args.recordings or args.annotations or
         args.temp or args.caches or args.browser_cache or args.electron_cache or
+        args.ides or args.kiro or args.zed or args.code or args.cursor or
         args.conversations or args.tmp or args.history or args.stale or args.deep or args.all
     )
 
@@ -891,6 +985,22 @@ def main():
         if args.electron_cache:
             raw_targets.extend(metrics["tier1_safe"]["Electron IDE Runtime Caches"]["files"])
             target_names.append("Electron IDE Runtime Caches")
+        if args.ides or args.kiro:
+            if "Kiro IDE Crash Dumps & Caches" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Kiro IDE Crash Dumps & Caches"]["files"])
+                target_names.append("Kiro IDE Crash Dumps & Caches")
+        if args.ides or args.zed:
+            if "Zed Editor Logs & Traces" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Zed Editor Logs & Traces"]["files"])
+                target_names.append("Zed Editor Logs & Traces")
+        if args.ides or args.code:
+            if "VS Code / CodeX Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["VS Code / CodeX Caches & Logs"]["files"])
+                target_names.append("VS Code / CodeX Caches & Logs")
+        if args.ides or args.cursor:
+            if "Cursor Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Cursor Caches & Logs"]["files"])
+                target_names.append("Cursor Caches & Logs")
         if args.conversations:
             raw_targets.extend(metrics["tier2_review"][f"Stale Conversation DBs (> {args.days}d)"]["files"])
             target_names.append("Stale Conversation DBs")
