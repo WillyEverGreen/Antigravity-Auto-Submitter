@@ -90,6 +90,12 @@ function buildPyWrapper(scriptName, extraArgs = '') {
 const pyWrappers = [
   { file: 'agy-clean.cmd', script: 'antigravity_cleaner.py', args: '' },
   { file: 'antigravity-clean.cmd', script: 'antigravity_cleaner.py', args: '' },
+  { file: 'clean-ag.cmd', script: 'antigravity_cleaner.py', args: '--ag' },
+  { file: 'agy-clean-ag.cmd', script: 'antigravity_cleaner.py', args: '--ag' },
+  { file: 'clean-ides.cmd', script: 'antigravity_cleaner.py', args: '--ides' },
+  { file: 'agy-clean-ides.cmd', script: 'antigravity_cleaner.py', args: '--ides' },
+  { file: 'clean-all.cmd', script: 'antigravity_cleaner.py', args: '--all' },
+  { file: 'agy-clean-all.cmd', script: 'antigravity_cleaner.py', args: '--all' },
   { file: 'agy-check.cmd', script: 'antigravity_cleaner.py', args: '--check' },
   { file: 'antigravity-check.cmd', script: 'antigravity_cleaner.py', args: '--check' },
   { file: 'agy-find-temp.cmd', script: 'antigravity_cleaner.py', args: '--scan' },

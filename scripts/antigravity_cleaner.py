@@ -969,7 +969,8 @@ def main():
     parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
 
     # Bundled cleanup flags
-    parser.add_argument("--all", action="store_true", help="Clean ALL Tier 1 safe temporary categories")
+    parser.add_argument("--all", action="store_true", help="Clean ALL Tier 1 safe temporary categories across workstation")
+    parser.add_argument("--ag", "--antigravity", dest="ag", action="store_true", help="Clean all Antigravity temporary files (scratch, recordings, logs, caches)")
     parser.add_argument("--stale", action="store_true", help="Clean Tier 1 safe items + stale brain/conversations (> 7 days)")
     parser.add_argument("--deep", action="store_true", help="Deep clean (Tier 1 safe + stale brain + stale DBs + temp repos)")
 
@@ -985,7 +986,7 @@ def main():
 
     # Determine if cleaning action requested
     is_clean = (
-        args.scratch or args.logs or args.recordings or args.annotations or
+        args.ag or args.scratch or args.logs or args.recordings or args.annotations or
         args.temp or args.caches or args.browser_cache or args.electron_cache or
         args.ides or args.kiro or args.zed or args.code or args.cursor or
         args.windsurf or args.trae or args.qoder or args.claude or
@@ -1033,6 +1034,26 @@ def main():
         for k, v in metrics["tier1_safe"].items():
             raw_targets.extend(v["files"])
             target_names.append(k)
+    elif args.ag:
+        ag_categories = [
+            "Global Scratch Scripts",
+            "Browser WebP Recordings",
+            "Session Scratch Folders",
+            "Session Transcripts & Logs",
+            "Cached AST Annotations",
+            "Crash Dump Logs",
+            "Implicit Context Cache",
+            "Context State Caches",
+            "HTML Artifact Previews",
+            "Prompting Step Caches",
+            "Browser Profile Web Caches",
+            "Electron IDE Runtime Caches",
+            "Gemini Root Loose Scratch Files",
+        ]
+        for cat in ag_categories:
+            if cat in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"][cat]["files"])
+                target_names.append(cat)
     else:
         if args.scratch:
             raw_targets.extend(metrics["tier1_safe"]["Global Scratch Scripts"]["files"])

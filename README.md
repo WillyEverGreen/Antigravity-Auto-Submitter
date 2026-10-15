@@ -218,11 +218,13 @@ auto-accept
 <a id="updating"></a>
 ## 🔄 Updating to the Latest Version
 
-To update Antigravity Auto-Submitter to the newest release with the latest bugfixes, Taskbar auto-patching, and features:
+To update Antigravity Auto-Submitter to the newest release with the latest commands (`clean-ag`, `clean-ides`, `clean-all`, multi-IDE cleaner, and bugfixes):
 
 ### Option A: 1-Command CLI Update (Recommended)
 ```bash
 auto-accept update
+# or
+agy-update
 ```
 *(Automatically pulls and installs the latest version globally from GitHub).*
 
@@ -231,12 +233,22 @@ auto-accept update
 npm install -g WillyEverGreen/Antigravity-Auto-Submitter
 ```
 
-### Option C: If You Cloned the Repository Locally
+### Option C: If You Cloned the Repository Locally (Active Development)
 ```bash
 cd antigravity-auto-submit
-git pull
-npm install -g .
+git pull origin main
+npm run sync
 ```
+> [!TIP]
+> Running `npm run sync` synchronizes all global `.cmd` CLI launchers directly into `C:\tools` (global system PATH) and your local npm module. New commands like `clean-ag`, `clean-ides`, and `clean-all` become instantly available across any terminal without restarting your session.
+
+### 🪟 Platform Support: Windows-First Architecture
+> [!NOTE]
+> **Windows (Windows 10 / 11) is the primary first-class platform for this project.**
+> - **Native Shortcut COM Patching**: Automates Taskbar, Start Menu, and Desktop `.lnk` targets via `WScript.Shell`.
+> - **Direct `%APPDATA%` / `%LOCALAPPDATA%` Path Resolution**: Pre-configured for Windows Electron app architectures (Antigravity, Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder).
+> - **C:\tools Global System PATH Integration**: All tools (`agy-*`, `auto-accept`, `clean-*`) are globally indexed.
+> - *Cross-platform compatibility (macOS/Linux) is maintained as secondary fallback launchers.*
 
 After updating, restart Antigravity with the debug port enabled:
 ```bash
@@ -651,32 +663,53 @@ antigravity-find-temp --json
 
 ---
 
-### 🧹 Purging Temporary & Stale Files (`antigravity-clean` / `agy-clean`)
+### 🧹 Fast One-Command Cleaners (`clean-ag`, `clean-ides`, `clean-all`)
+
+Three dedicated commands make safe workstation cleanup effortless:
+
+| Command | Scope | What Gets Purged | What is Strictly Protected |
+| :--- | :--- | :--- | :--- |
+| **`clean-ag`**<br>`agy-clean-ag` | **Antigravity Only** | Global & session scratch scripts, browser recordings (.webp), session transcripts & logs, AST annotations, Electron runtime caches | Active sessions (< 2h / .db-wal locks), user_settings.pb, memory_graph, MCP tokens, credentials |
+| **`clean-ides`**<br>`agy-clean-ides` | **All Other IDEs** | Kiro, Zed, VS Code/CodeX, VS Code Insiders, Cursor, Windsurf, Trae, Qoder, Claude Desktop (caches, crash dumps, hang traces, logs) | All extensions, settings.json, keybindings, language server runtimes (Zed node/languages), user threads |
+| **`clean-all`**<br>`agy-clean-all` | **Full Workstation Sweep** | All Tier 1 safe categories: Antigravity + All Other IDEs + Package Caches (UV, NPM, PNPM, Pip, Yarn) | All active projects, credentials, language servers, and settings |
 
 ```bash
-# Purge ALL Tier 1 safe temporary items (~1.09 GB freed)
-antigravity-clean --all
+# 1. Clean Antigravity Only (Scratch scripts, WebP recordings, Electron caches)
+clean-ag
+# or: agy-clean-ag / antigravity-clean --ag
 
-# Purge Tier 1 safe items + stale brain sessions & conversation DBs (> 7 days)
-antigravity-clean --stale
+# 2. Clean All Other External IDEs Combined (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)
+clean-ides
+# or: agy-clean-ides / antigravity-clean --ides
 
-# Perform a COMPLETE DEEP CLEAN (Tier 1 + stale brain + stale DBs + temp repos + deps: ~4.96 GB)
-antigravity-clean --deep
+# 3. Clean Everything Across Workstation (Antigravity + All IDEs + Package Caches)
+clean-all
+# or: agy-clean-all / antigravity-clean --all
 
-# Custom age threshold (e.g. purge stale items > 3 days old)
-antigravity-clean --stale --days 3
+# Granular single-IDE cleanups:
+antigravity-clean --kiro         # Kiro IDE crashpad dumps & web caches
+antigravity-clean --zed          # Zed editor logs & hang traces
+antigravity-clean --code         # VS Code / CodeX & Insiders runtime caches
+antigravity-clean --cursor       # Cursor AI editor caches & crashpad dumps
+antigravity-clean --windsurf     # Windsurf (Codeium) caches & crashpad
+antigravity-clean --trae         # Trae (ByteDance) AI IDE caches & logs
+antigravity-clean --qoder        # Qoder caches & logs
+antigravity-clean --claude       # Claude Desktop application logs
 
-# Skip confirmation prompt (non-interactive automation)
-antigravity-clean --all --force
+# Granular Antigravity cleanups:
+antigravity-clean --browser-cache   # Chromium browser profile web caches
+antigravity-clean --conversations   # Stale conversation SQLite databases (> 7 days)
+antigravity-clean --tmp              # Cloned temporary workspaces in ~/.gemini/tmp
+antigravity-clean --history          # Workspace file history snapshots
+antigravity-clean --scratch          # Global and session scratch scripts
+antigravity-clean --recordings       # Browser WebP video recordings
+antigravity-clean --caches           # Package manager caches (UV, NPM, PNPM, Pip, Yarn)
 
-# Granular targeted cleanups:
-antigravity-clean --browser-cache      # Clean Chromium browser profile web caches
-antigravity-clean --conversations       # Clean stale conversation SQLite databases
-antigravity-clean --tmp                 # Clean cloned temporary workspaces in ~/.gemini/tmp
-antigravity-clean --history             # Clean workspace file history snapshots
-antigravity-clean --scratch             # Clean global and session scratch scripts
-antigravity-clean --recordings          # Clean browser WebP video recordings
-antigravity-clean --caches              # Clean NPM, Pip, and UV package caches
+# Deep & Stale cleanups:
+antigravity-clean --stale            # Tier 1 safe + stale brain & DBs (> 7 days)
+antigravity-clean --deep             # Complete purge (safe + stale + temp repos)
+antigravity-clean --stale --days 3   # Custom age threshold (e.g. > 3 days old)
+antigravity-clean --all -f           # Non-interactive force mode (skips confirmation)
 ```
 
 ---
