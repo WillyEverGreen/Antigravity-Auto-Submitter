@@ -493,11 +493,10 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     e_cnt, e_sz, e_fl = scan_electron_caches(collect_files)
     add_tier1("Electron IDE Runtime Caches", e_cnt, e_sz, e_fl)
 
-    # 12. External AI IDEs & Editors (Kiro, Zed, Code, Cursor)
+    # 12. External AI IDEs & Editors (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)
     ext_ides, ext_cnt, ext_sz = scan_external_ide_caches(collect_files)
     for cat_name, cat_data in ext_ides.items():
-        if cat_data["count"] > 0:
-            add_tier1(cat_name, cat_data["count"], cat_data["size"], cat_data["files"])
+        add_tier1(cat_name, cat_data["count"], cat_data["size"], cat_data["files"])
 
     # 12. System Temp Scripts & Dumps
     sys_temp_dir = os.environ.get("TEMP", "")
