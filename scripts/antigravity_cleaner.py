@@ -254,6 +254,7 @@ def scan_external_ide_caches(collect_files=False):
         ]),
         ("Zed Editor Logs & Traces", [
             os.path.expanduser("~/AppData/Local/Zed/logs"),
+            os.path.expanduser("~/AppData/Local/Zed/hang_traces"),
         ]),
         ("VS Code / CodeX Caches & Logs", [
             os.path.expanduser("~/AppData/Roaming/Code/Crashpad"),
@@ -264,13 +265,55 @@ def scan_external_ide_caches(collect_files=False):
             os.path.expanduser("~/AppData/Roaming/Code/DawnWebGPUCache"),
             os.path.expanduser("~/AppData/Roaming/Code/CachedData"),
             os.path.expanduser("~/AppData/Roaming/Code/logs"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/logs"),
         ]),
         ("Cursor Caches & Logs", [
             os.path.expanduser("~/AppData/Roaming/Cursor/Crashpad"),
             os.path.expanduser("~/AppData/Roaming/Cursor/Cache"),
             os.path.expanduser("~/AppData/Roaming/Cursor/Code Cache"),
             os.path.expanduser("~/AppData/Roaming/Cursor/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/CachedExtensionVSIXs"),
             os.path.expanduser("~/AppData/Roaming/Cursor/logs"),
+        ]),
+        ("Windsurf Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/Windsurf/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/logs"),
+        ]),
+        ("Trae Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/Trae/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Trae/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Trae/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/Trae/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Trae/DawnGraphiteCache"),
+            os.path.expanduser("~/AppData/Roaming/Trae/DawnWebGPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Trae/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/Trae/logs"),
+        ]),
+        ("Qoder Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/Qoder/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/Qoder/Cache"),
+            os.path.expanduser("~/AppData/Roaming/Qoder/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/Qoder/logs"),
+        ]),
+        ("Claude Desktop Logs", [
+            os.path.expanduser("~/AppData/Local/Claude/logs"),
+            os.path.expanduser("~/AppData/Local/Claude-Data/logs"),
         ]),
     ]
 
@@ -476,11 +519,13 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pass
     add_tier1("System Temp Scripts", temp_cnt, temp_sz, temp_fl)
 
-    # 13. Package Caches (UV, NPM, Pip)
+    # 13. Package Caches (UV, NPM, PNPM, Pip, Yarn)
     pkg_caches = [
         os.path.expanduser("~/AppData/Local/uv/cache"),
         os.path.expanduser("~/AppData/Local/npm-cache"),
+        os.path.expanduser("~/AppData/Local/pnpm-cache"),
         os.path.expanduser("~/AppData/Local/pip/Cache"),
+        os.path.expanduser("~/AppData/Local/Yarn/Cache"),
     ]
     pkg_cnt, pkg_sz, pkg_fl = 0, 0, []
     for pc in pkg_caches:
@@ -654,13 +699,37 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             os.path.expanduser("~/AppData/Local/Zed/prettier"),
             os.path.expanduser("~/AppData/Local/Zed/threads"),
             os.path.expanduser("~/AppData/Local/Zed/prompts"),
+            os.path.expanduser("~/AppData/Local/Zed/extensions"),
+            os.path.expanduser("~/AppData/Local/Zed/db"),
+            os.path.expanduser("~/AppData/Local/Zed/copilot"),
+            os.path.expanduser("~/AppData/Roaming/Zed/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Zed/AGENTS.md"),
+            os.path.expanduser("~/AppData/Roaming/Zed/themes"),
         ]),
         ("VS Code & Cursor Extensions & Settings", [
             os.path.expanduser("~/.vscode/extensions"),
+            os.path.expanduser("~/.vscode-insiders/extensions"),
+            os.path.expanduser("~/.vscode-insiders/argv.json"),
             os.path.expanduser("~/.cursor/extensions"),
             os.path.expanduser("~/.cursor/skills-cursor"),
             os.path.expanduser("~/.cursor/mcp.json"),
             os.path.expanduser("~/.cursor/projects"),
+            os.path.expanduser("~/AppData/Roaming/Code/User/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Code/User/keybindings.json"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/keybindings.json"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/User/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Cursor/User/keybindings.json"),
+        ]),
+        ("Windsurf & Trae Extensions & Settings", [
+            os.path.expanduser("~/.windsurf/extensions"),
+            os.path.expanduser("~/.windsurf/argv.json"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/User/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Windsurf/User/keybindings.json"),
+            os.path.expanduser("~/.trae/extensions"),
+            os.path.expanduser("~/.trae/argv.json"),
+            os.path.expanduser("~/AppData/Roaming/Trae/User/settings.json"),
+            os.path.expanduser("~/AppData/Roaming/Trae/User/keybindings.json"),
         ]),
     ]
     for name, p_list in tier_critical_definitions:
@@ -886,11 +955,15 @@ def main():
     parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
     parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
     parser.add_argument("--electron-cache", "--ide-cache", dest="electron_cache", action="store_true", help="Clean Antigravity Electron IDE runtime caches (%%APPDATA%%\\Antigravity IDE)")
-    parser.add_argument("--ides", action="store_true", help="Clean ephemeral caches & logs from external IDEs (Kiro, Zed, Code, Cursor)")
+    parser.add_argument("--ides", action="store_true", help="Clean ephemeral caches & logs from external IDEs (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)")
     parser.add_argument("--kiro", action="store_true", help="Clean Kiro IDE crash dumps, web caches, and daemon logs")
     parser.add_argument("--zed", action="store_true", help="Clean Zed editor logs and trace reports")
     parser.add_argument("--code", action="store_true", help="Clean VS Code / CodeX runtime caches, logs, and crash dumps")
     parser.add_argument("--cursor", action="store_true", help="Clean Cursor caches, logs, and crashpad dumps")
+    parser.add_argument("--windsurf", action="store_true", help="Clean Windsurf caches, logs, and crash dumps")
+    parser.add_argument("--trae", action="store_true", help="Clean Trae AI IDE caches, logs, and crashpad dumps")
+    parser.add_argument("--qoder", action="store_true", help="Clean Qoder caches and logs")
+    parser.add_argument("--claude", action="store_true", help="Clean Claude Desktop application logs")
     parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
     parser.add_argument("--tmp", action="store_true", help="Clean cloned temporary workspaces in ~/.gemini/tmp")
     parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
@@ -915,6 +988,7 @@ def main():
         args.scratch or args.logs or args.recordings or args.annotations or
         args.temp or args.caches or args.browser_cache or args.electron_cache or
         args.ides or args.kiro or args.zed or args.code or args.cursor or
+        args.windsurf or args.trae or args.qoder or args.claude or
         args.conversations or args.tmp or args.history or args.stale or args.deep or args.all
     )
 
@@ -1001,6 +1075,22 @@ def main():
             if "Cursor Caches & Logs" in metrics["tier1_safe"]:
                 raw_targets.extend(metrics["tier1_safe"]["Cursor Caches & Logs"]["files"])
                 target_names.append("Cursor Caches & Logs")
+        if args.ides or args.windsurf:
+            if "Windsurf Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Windsurf Caches & Logs"]["files"])
+                target_names.append("Windsurf Caches & Logs")
+        if args.ides or args.trae:
+            if "Trae Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Trae Caches & Logs"]["files"])
+                target_names.append("Trae Caches & Logs")
+        if args.ides or args.qoder:
+            if "Qoder Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Qoder Caches & Logs"]["files"])
+                target_names.append("Qoder Caches & Logs")
+        if args.ides or args.claude:
+            if "Claude Desktop Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Claude Desktop Logs"]["files"])
+                target_names.append("Claude Desktop Logs")
         if args.conversations:
             raw_targets.extend(metrics["tier2_review"][f"Stale Conversation DBs (> {args.days}d)"]["files"])
             target_names.append("Stale Conversation DBs")
