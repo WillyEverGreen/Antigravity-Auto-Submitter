@@ -982,6 +982,19 @@ it('buildScannerScript compound regex blocks "git push origin main --force" and 
   }
 });
 
+it('antigravity_cleaner.py executes --check --json cleanly and returns valid 3-tier metrics', () => {
+  const { execSync } = require('child_process');
+  const pythonCmd = process.platform === 'win32' ? 'py' : 'python3';
+  const script = path.join(__dirname, '..', 'scripts', 'antigravity_cleaner.py');
+  const out = execSync(`${pythonCmd} "${script}" --check --json`, { encoding: 'utf8' });
+  const data = JSON.parse(out);
+  assert(typeof data.safe_bytes === 'number', 'safe_bytes must be number');
+  assert(data.tier1_safe && typeof data.tier1_safe === 'object', 'tier1_safe must exist');
+  assert(data.tier2_review && typeof data.tier2_review === 'object', 'tier2_review must exist');
+  assert(data.tier1_safe['Electron IDE Runtime Caches'] !== undefined, 'Electron IDE Runtime Caches must be tracked');
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);
+

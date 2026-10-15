@@ -95,27 +95,101 @@ def fast_scan_dir(path, collect_files=False):
     return total_cnt, total_sz, file_list
 
 
+def get_active_session_ids():
+    active_ids = set()
+    env_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+    if env_id:
+        active_ids.add(env_id.strip())
+
+    cwd = os.getcwd()
+    if "brain" in cwd:
+        parts = cwd.replace("\\", "/").split("/")
+        if "brain" in parts:
+            idx = parts.index("brain")
+            if idx + 1 < len(parts) and len(parts[idx + 1]) >= 8:
+                active_ids.add(parts[idx + 1].strip())
+
+    # Dynamically scan conversation databases modified or active in the last 2 hours (or with active .db-wal)
+    now = time.time()
+    for r in get_antigravity_roots():
+        cp = os.path.join(r, "conversations")
+        if os.path.exists(cp):
+            try:
+                with os.scandir(cp) as it:
+                    for entry in it:
+                        try:
+                            if entry.is_file(follow_symlinks=False):
+                                stat = entry.stat(follow_symlinks=False)
+                                name = entry.name
+                                # If .db-wal exists or any db modified within last 2 hours, it is an active session
+                                if name.endswith(".db-wal") or (name.endswith(".db") and (now - stat.st_mtime) < 7200):
+                                    conv_id = name.split(".")[0]
+                                    if len(conv_id) >= 8:
+                                        active_ids.add(conv_id)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    return active_ids
+
+
 def get_active_session_id():
-    active_id = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-    if not active_id:
-        cwd = os.getcwd()
-        if "brain" in cwd:
-            parts = cwd.replace("\\", "/").split("/")
-            if "brain" in parts:
-                idx = parts.index("brain")
-                if idx + 1 < len(parts) and len(parts[idx + 1]) >= 8:
-                    active_id = parts[idx + 1]
-    return active_id
+    ids = get_active_session_ids()
+    return next(iter(ids)) if ids else None
 
 
 def get_antigravity_roots():
     gemini_dir = os.path.expanduser("~/.gemini")
     roots = []
-    for candidate in ["antigravity-ide", "antigravity"]:
+    for candidate in ["antigravity-ide", "antigravity", "antigravity-cli"]:
         p = os.path.join(gemini_dir, candidate)
         if os.path.exists(p):
             roots.append(p)
     return roots
+
+
+def scan_electron_caches(collect_files=False):
+    appdata = os.environ.get("APPDATA", "")
+    if not appdata:
+        return 0, 0, []
+
+    ide_appdata = os.path.join(appdata, "Antigravity IDE")
+    if not os.path.exists(ide_appdata):
+        return 0, 0, []
+
+    target_subdirs = {
+        "cache", "code cache", "gpucache", "dawngraphitecache", "dawnwebgpucache",
+        "crashpad", "logs", "cacheddata", "cachedextensionvsixs"
+    }
+    total_cnt = 0
+    total_sz = 0
+    file_list = []
+
+    try:
+        with os.scandir(ide_appdata) as it:
+            for entry in it:
+                try:
+                    name_lower = entry.name.lower()
+                    if entry.is_dir(follow_symlinks=False) and name_lower in target_subdirs:
+                        c, s, fl = fast_scan_dir(entry.path, collect_files)
+                        total_cnt += c
+                        total_sz += s
+                        if collect_files:
+                            file_list.extend(fl)
+                    elif entry.is_dir(follow_symlinks=False) and name_lower == "service worker":
+                        sw_cache = os.path.join(entry.path, "CacheStorage")
+                        if os.path.exists(sw_cache):
+                            c, s, fl = fast_scan_dir(sw_cache, collect_files)
+                            total_cnt += c
+                            total_sz += s
+                            if collect_files:
+                                file_list.extend(fl)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return total_cnt, total_sz, file_list
 
 
 def scan_browser_caches(collect_files=False):
@@ -157,7 +231,7 @@ def scan_browser_caches(collect_files=False):
 def collect_audit_metrics(stale_days=7, collect_files=False):
     now = time.time()
     stale_sec = stale_days * 86400
-    active_session_id = get_active_session_id()
+    active_session_ids = get_active_session_ids()
     roots = get_antigravity_roots()
 
     metrics = {
@@ -219,7 +293,7 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
                     if not conv.is_dir(follow_symlinks=False):
                         continue
                     conv_id = conv.name
-                    is_active = (active_session_id and conv_id == active_session_id)
+                    is_active = (conv_id in active_session_ids)
 
                     # Session scratch
                     s_scratch = os.path.join(conv.path, "scratch")
@@ -312,7 +386,11 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     b_cnt, b_sz, b_fl = scan_browser_caches(collect_files)
     add_tier1("Browser Profile Web Caches", b_cnt, b_sz, b_fl)
 
-    # 11. System Temp Scripts & Dumps
+    # 11. Antigravity Electron IDE Runtime Caches (%APPDATA%\Antigravity IDE)
+    e_cnt, e_sz, e_fl = scan_electron_caches(collect_files)
+    add_tier1("Electron IDE Runtime Caches", e_cnt, e_sz, e_fl)
+
+    # 12. System Temp Scripts & Dumps
     sys_temp_dir = os.environ.get("TEMP", "")
     temp_cnt, temp_sz, temp_fl = 0, 0, []
     if sys_temp_dir and os.path.exists(sys_temp_dir):
@@ -332,7 +410,7 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pass
     add_tier1("System Temp Scripts", temp_cnt, temp_sz, temp_fl)
 
-    # 12. Package Caches (UV, NPM, Pip)
+    # 13. Package Caches (UV, NPM, Pip)
     pkg_caches = [
         os.path.expanduser("~/AppData/Local/uv/cache"),
         os.path.expanduser("~/AppData/Local/npm-cache"),
@@ -345,11 +423,12 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pkg_cnt += c; pkg_sz += s; pkg_fl.extend(fl)
     add_tier1("Package Manager Caches (UV/NPM/Pip)", pkg_cnt, pkg_sz, pkg_fl)
 
-    # 13. Loose Gemini Root Scratch Scripts (~/.gemini/*.js, *.py, *.tmp)
+    # 14. Loose Gemini Root Scratch Scripts (~/.gemini/*.js, *.py, *.tmp)
     gemini_root = os.path.expanduser("~/.gemini")
     protected_root_files = {
-        "gemini.md", "google_accounts.json", "installation_id", "memory_graph.json",
-        "oauth_creds.json", "projects.json", "settings.json", "state.json", "trustedfolders.json"
+        "gemini.md", "agents.md", "claude.md", "google_accounts.json", "installation_id",
+        "memory_graph.json", "oauth_creds.json", "projects.json", "settings.json",
+        "state.json", "trustedfolders.json"
     }
     loose_cnt, loose_sz, loose_fl = 0, 0, []
     if os.path.exists(gemini_root):
@@ -366,7 +445,7 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pass
     add_tier1("Gemini Root Loose Scratch Files", loose_cnt, loose_sz, loose_fl)
 
-    # 13. Conversations SQLite Databases & State (.db, .db-shm, .db-wal, .pb)
+    # 15. Conversations SQLite Databases & State (.db, .db-shm, .db-wal, .pb)
     stale_conv_cnt, stale_conv_sz, stale_conv_fl = 0, 0, []
     active_conv_cnt, active_conv_sz, active_conv_fl = 0, 0, []
 
@@ -380,7 +459,7 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
                     if entry.is_file(follow_symlinks=False):
                         stat = entry.stat(follow_symlinks=False)
                         conv_id = entry.name.split(".")[0]
-                        is_active = (active_session_id and conv_id == active_session_id)
+                        is_active = (conv_id in active_session_ids)
                         if not is_active and (now - stat.st_mtime) > stale_sec:
                             stale_conv_cnt += 1; stale_conv_sz += stat.st_size
                             if collect_files:
@@ -395,53 +474,47 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     add_tier2(f"Stale Conversation DBs (> {stale_days}d)", stale_conv_cnt, stale_conv_sz, stale_conv_fl, is_advisable=True)
     add_tier2(f"Active Conversation DBs (< {stale_days}d)", active_conv_cnt, active_conv_sz, active_conv_fl, is_advisable=False)
 
-    # 14. Cloned Temp Workspaces & Sandboxes (~/.gemini/tmp)
+    # 16. Cloned Temp Workspaces & Sandboxes (~/.gemini/tmp)
     gemini_tmp = os.path.expanduser("~/.gemini/tmp")
     tmp_cnt, tmp_sz, tmp_fl = 0, 0, []
     if os.path.exists(gemini_tmp):
         tmp_cnt, tmp_sz, tmp_fl = fast_scan_dir(gemini_tmp, collect_files)
     add_tier2("Temporary Cloned Workspaces (~/.gemini/tmp)", tmp_cnt, tmp_sz, tmp_fl, is_advisable=True)
 
-    # 15. Workspace History Snapshots (~/.gemini/history)
+    # 17. Workspace History Snapshots (~/.gemini/history)
     gemini_hist = os.path.expanduser("~/.gemini/history")
     hist_cnt, hist_sz, hist_fl = 0, 0, []
     if os.path.exists(gemini_hist):
         hist_cnt, hist_sz, hist_fl = fast_scan_dir(gemini_hist, collect_files)
     add_tier2("Workspace History Snapshots (~/.gemini/history)", hist_cnt, hist_sz, hist_fl, is_advisable=True)
 
-    # 16. Stale Project Dependencies (~/tools/**/node_modules, .venv)
+    # 18. Project Dependencies (~/tools/**/node_modules, .venv) — Shielded from auto-deletion
     tools_dir = os.path.expanduser("~/tools")
-    stale_deps_cnt, stale_deps_sz, stale_deps_fl = 0, 0, []
-    active_deps_cnt, active_deps_sz, active_deps_fl = 0, 0, []
+    deps_cnt, deps_sz, deps_fl = 0, 0, []
     if os.path.exists(tools_dir):
         try:
             with os.scandir(tools_dir) as it:
                 for entry in it:
                     if entry.is_dir(follow_symlinks=False):
-                        mtime = entry.stat(follow_symlinks=False).st_mtime
-                        is_stale = (now - mtime) > (14 * 86400)
                         for dep_sub in ["node_modules", ".venv", "venv"]:
                             dp = os.path.join(entry.path, dep_sub)
                             if os.path.exists(dp):
                                 c, s, fl = fast_scan_dir(dp, collect_files)
-                                if is_stale:
-                                    stale_deps_cnt += c; stale_deps_sz += s; stale_deps_fl.extend(fl)
-                                else:
-                                    active_deps_cnt += c; active_deps_sz += s; active_deps_fl.extend(fl)
+                                deps_cnt += c; deps_sz += s; deps_fl.extend(fl)
         except Exception:
             pass
 
-    add_tier2("Stale Project Dependencies (> 14d)", stale_deps_cnt, stale_deps_sz, stale_deps_fl, is_advisable=True)
-    add_tier2("Active Project Dependencies (< 14d)", active_deps_cnt, active_deps_sz, active_deps_fl, is_advisable=False)
+    # Strictly is_advisable=False so --deep will NEVER delete project dependencies
+    add_tier2("Project Dependencies (~/tools/**/node_modules, .venv)", deps_cnt, deps_sz, deps_fl, is_advisable=False)
 
-    # 17. Playwright Browser Binaries
+    # 19. Playwright Browser Binaries
     pw_dir = os.path.expanduser("~/AppData/Local/ms-playwright")
     pw_cnt, pw_sz, pw_fl = 0, 0, []
     if os.path.exists(pw_dir):
         pw_cnt, pw_sz, pw_fl = fast_scan_dir(pw_dir, collect_files)
     add_tier2("Playwright Browser Binaries", pw_cnt, pw_sz, pw_fl, is_advisable=False)
 
-    # 18. IDE Code Tracker History
+    # 20. IDE Code Tracker History
     t_cnt, t_sz, t_fl = 0, 0, []
     for r in roots:
         tp = os.path.join(r, "code_tracker")
@@ -450,32 +523,57 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             t_cnt += c; t_sz += s; t_fl.extend(fl)
     add_tier2("IDE Code Tracker History", t_cnt, t_sz, t_fl, is_advisable=False)
 
-    # 19. Protected Tier 3 Systems (Strictly shielded from deletion)
+    # 21. Protected Tier 3 Systems (Strictly shielded from deletion)
     tier_critical_definitions = [
-        ("Global Config, Rules & Skills", [os.path.expanduser("~/.gemini/config")]),
-        ("Built-in Core Skills & Assets", [os.path.expanduser("~/.gemini/antigravity-ide/builtin")]),
+        ("Global Config, Rules & Skills", [
+            os.path.expanduser("~/.gemini/config"),
+            os.path.expanduser("~/.gemini/antigravity-ide/plugins"),
+            os.path.expanduser("~/.gemini/antigravity/plugins"),
+        ]),
+        ("Built-in Core Skills & Assets", [
+            os.path.expanduser("~/.gemini/antigravity-ide/builtin"),
+            os.path.expanduser("~/.gemini/antigravity/builtin"),
+        ]),
+        ("Knowledge Items (KI Artifacts)", [
+            os.path.expanduser("~/.gemini/antigravity-ide/knowledge"),
+            os.path.expanduser("~/.gemini/antigravity/knowledge"),
+            os.path.expanduser("~/.gemini/knowledge"),
+        ]),
         ("MCP Configuration & Schemas", [
             os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json"),
             os.path.expanduser("~/.gemini/antigravity/mcp_config.json"),
             os.path.expanduser("~/.gemini/antigravity-ide/mcp"),
             os.path.expanduser("~/.gemini/antigravity/mcp"),
+            os.path.expanduser("~/.gemini/antigravity-ide/mcp_oauth_tokens.json"),
+            os.path.expanduser("~/.gemini/antigravity/mcp_oauth_tokens.json"),
         ]),
         ("IDE & Root Settings State", [
             os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb"),
             os.path.expanduser("~/.gemini/antigravity/user_settings.pb"),
             os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt"),
+            os.path.expanduser("~/.gemini/antigravity-ide/browserAllowlist.txt"),
+            os.path.expanduser("~/.gemini/antigravity-ide/browserOnboardingStatus.txt"),
             os.path.expanduser("~/.gemini/settings.json"),
             os.path.expanduser("~/.gemini/state.json"),
             os.path.expanduser("~/.gemini/trustedFolders.json"),
             os.path.expanduser("~/.gemini/memory_graph.json"),
+            os.path.expanduser("~/.gemini/projects.json"),
+            os.path.expanduser("~/.gemini/GEMINI.md"),
+            os.path.expanduser("~/.gemini/AGENTS.md"),
+            os.path.expanduser("~/.gemini/CLAUDE.md"),
         ]),
         ("Installation Identifiers", [
             os.path.expanduser("~/.gemini/antigravity-ide/installation_id"),
             os.path.expanduser("~/.gemini/antigravity/installation_id"),
             os.path.expanduser("~/.gemini/installation_id"),
         ]),
-        ("Gemini Account Auth Creds", [os.path.expanduser("~/.gemini/google_accounts.json")]),
-        ("OAuth Tokens State", [os.path.expanduser("~/.gemini/oauth_creds.json")]),
+        ("Gemini Account Auth Creds", [
+            os.path.expanduser("~/.gemini/google_accounts.json"),
+            os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
+        ]),
+        ("OAuth Tokens State", [
+            os.path.expanduser("~/.gemini/oauth_creds.json"),
+        ]),
     ]
     for name, p_list in tier_critical_definitions:
         t3_cnt, t3_sz, t3_fl = 0, 0, []
@@ -639,13 +737,16 @@ def purge_files(files_to_delete):
     for fp in files_to_delete:
         try:
             if os.path.exists(fp):
-                sz = os.path.getsize(fp)
                 if os.path.isfile(fp):
+                    sz = os.path.getsize(fp)
                     os.remove(fp)
+                    deleted_count += 1
+                    deleted_bytes += sz
                 elif os.path.isdir(fp):
+                    cnt, dir_sz, _ = fast_scan_dir(fp, collect_files=False)
                     shutil.rmtree(fp, ignore_errors=True)
-                deleted_count += 1
-                deleted_bytes += sz
+                    deleted_count += cnt
+                    deleted_bytes += dir_sz
         except Exception:
             errors += 1
 
@@ -674,8 +775,9 @@ def main():
   antigravity-find-temp                      Scan and preview candidate temp files
   antigravity-clean --all                    Purge all Tier 1 safe temporary categories
   antigravity-clean --stale                  Purge Tier 1 safe + stale brain/conversations (> 7 days)
-  antigravity-clean --deep                   Deep clean (Tier 1 safe + stale brain + temp workspaces + deps)
+  antigravity-clean --deep                   Deep clean (Tier 1 safe + stale brain + temp workspaces)
   antigravity-clean --browser-cache          Purge Antigravity browser profile web caches
+  antigravity-clean --electron-cache         Purge Antigravity Electron IDE runtime caches (%APPDATA%)
   antigravity-clean --tmp                    Purge ~/.gemini/tmp cloned workspaces
   antigravity-clean --history                Purge ~/.gemini/history snapshots
   antigravity-clean --days 3                 Custom age threshold (e.g. stale items > 3 days)
@@ -695,6 +797,7 @@ def main():
     parser.add_argument("--temp", action="store_true", help="Clean system temp scripts (%%TEMP%%)")
     parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
     parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
+    parser.add_argument("--electron-cache", "--ide-cache", dest="electron_cache", action="store_true", help="Clean Antigravity Electron IDE runtime caches (%%APPDATA%%\\Antigravity IDE)")
     parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
     parser.add_argument("--tmp", action="store_true", help="Clean cloned temporary workspaces in ~/.gemini/tmp")
     parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
@@ -702,7 +805,7 @@ def main():
     # Bundled cleanup flags
     parser.add_argument("--all", action="store_true", help="Clean ALL Tier 1 safe temporary categories")
     parser.add_argument("--stale", action="store_true", help="Clean Tier 1 safe items + stale brain/conversations (> 7 days)")
-    parser.add_argument("--deep", action="store_true", help="Deep clean (Tier 1 safe + stale brain + stale DBs + temp repos + deps)")
+    parser.add_argument("--deep", action="store_true", help="Deep clean (Tier 1 safe + stale brain + stale DBs + temp repos)")
 
     parser.add_argument("--days", type=int, default=7, help="Stale age threshold in days (default: 7)")
     parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation prompt during deletion")
@@ -717,8 +820,8 @@ def main():
     # Determine if cleaning action requested
     is_clean = (
         args.scratch or args.logs or args.recordings or args.annotations or
-        args.temp or args.caches or args.browser_cache or args.conversations or
-        args.tmp or args.history or args.stale or args.deep or args.all
+        args.temp or args.caches or args.browser_cache or args.electron_cache or
+        args.conversations or args.tmp or args.history or args.stale or args.deep or args.all
     )
 
     if args.check or not is_clean:
@@ -785,6 +888,9 @@ def main():
         if args.browser_cache:
             raw_targets.extend(metrics["tier1_safe"]["Browser Profile Web Caches"]["files"])
             target_names.append("Browser Profile Web Caches")
+        if args.electron_cache:
+            raw_targets.extend(metrics["tier1_safe"]["Electron IDE Runtime Caches"]["files"])
+            target_names.append("Electron IDE Runtime Caches")
         if args.conversations:
             raw_targets.extend(metrics["tier2_review"][f"Stale Conversation DBs (> {args.days}d)"]["files"])
             target_names.append("Stale Conversation DBs")
@@ -798,10 +904,10 @@ def main():
     # Extract file paths from (path, sz, mtime)
     targets = [item[0] for item in raw_targets]
 
-    # Filter out active session artifacts
-    active_id = get_active_session_id()
-    if active_id:
-        targets = [t for t in targets if active_id not in t]
+    # Filter out active session artifacts across all discovered active session IDs
+    active_ids = get_active_session_ids()
+    if active_ids:
+        targets = [t for t in targets if not any(aid in t for aid in active_ids)]
 
     targets = list(dict.fromkeys(targets))
 
