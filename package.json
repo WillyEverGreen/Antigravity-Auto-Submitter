@@ -62,7 +62,9 @@
     "agy-start": "./auto-accept.js",
     "kiro": "./kiro-agent/kiro-cli.mjs",
     "kiro-agent": "./kiro-agent/kiro-cli.mjs",
-    "kiro-mcp": "./kiro-agent/kiro-mcp.mjs"
+    "kiro-mcp": "./kiro-agent/kiro-mcp.mjs",
+    "claude-auto-accept": "./claude-auto-accept/claude-auto-accept.js",
+    "claude-accept": "./claude-auto-accept/claude-auto-accept.js"
   },
   "scripts": {
     "start": "node auto-accept.js start",
@@ -80,8 +82,12 @@
     "clean": "node bin/antigravity-clean.js",
     "brain": "node bin/antigravity-brain.js",
     "sync": "node scripts/sync_wrappers.js",
-    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js",
+    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js",
     "test:kiro": "node test/kiro-agent.test.mjs",
+    "test:claude": "node claude-auto-accept/test/claude-hook.test.js",
+    "claude:setup": "node claude-auto-accept/claude-auto-accept.js setup",
+    "claude:doctor": "node claude-auto-accept/claude-auto-accept.js doctor",
+    "claude:status": "node claude-auto-accept/claude-auto-accept.js status",
     "easy-start": "node auto-accept.js start",
     "kiro": "node kiro-agent/kiro-cli.mjs",
     "kiro:status": "node kiro-agent/kiro-cli.mjs status",

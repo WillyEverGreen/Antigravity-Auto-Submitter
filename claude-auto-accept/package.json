@@ -1,0 +1,38 @@
+{
+  "name": "claude-auto-accept",
+  "displayName": "Claude Auto-Accept CLI",
+  "description": "Production-grade native PreToolUse hook and auto-approval daemon for Claude Code CLI",
+  "version": "1.0.0",
+  "publisher": "WillyEverGreen",
+  "author": {
+    "name": "WillyEverGreen / advdi"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "auto-accept",
+    "auto-approve",
+    "cli",
+    "pre-tool-use",
+    "hooks",
+    "guardrails",
+    "automation",
+    "developer-tools"
+  ],
+  "main": "claude-auto-accept.js",
+  "bin": {
+    "claude-auto-accept": "./claude-auto-accept.js",
+    "claude-accept": "./claude-auto-accept.js"
+  },
+  "scripts": {
+    "setup": "node claude-auto-accept.js setup",
+    "uninstall": "node claude-auto-accept.js uninstall",
+    "doctor": "node claude-auto-accept.js doctor",
+    "status": "node claude-auto-accept.js status",
+    "test": "node test/claude-hook.test.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
