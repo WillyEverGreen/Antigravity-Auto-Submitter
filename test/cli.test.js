@@ -890,6 +890,98 @@ it('buildScannerScript strictly ignores completed task logs and accordions', () 
   assert.strictEqual(clicked, false, 'Must not click completed task logs');
 });
 
+// ── 34. Whitespace Normalization & Keyword Bypass Prevention ──
+it('buildScannerScript normalizes whitespace and catches multi-space keywords like "git   push"', () => {
+  const cfg = { mode: 'autonomous', askKeywords: ['git push'], skipKeywords: ['rm -rf'] };
+  const script = buildScannerScript(cfg);
+
+  let clicked = false;
+  const mockCard = {
+    tagName: 'DIV',
+    className: 'interaction-card',
+    innerText: 'Run Command\ngit   push origin main\nAllow this time (1)',
+    parentElement: null
+  };
+
+  const mockContinueBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Submit',
+    className: 'btn-primary',
+    parentElement: mockCard,
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { clicked = true; }
+  };
+
+  const sandbox = {
+    document: {
+      querySelector: (selector) => {
+        if (selector === '[data-testid="interaction-continue-button"]') return mockContinueBtn;
+        return null;
+      },
+      querySelectorAll: () => [],
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner should catch card');
+  assert.strictEqual(result.blocked, true, 'git   push with extra spaces must be blocked');
+  assert.strictEqual(result.matchedKeyword, 'git push');
+  assert.strictEqual(clicked, false, 'Button must not be clicked');
+});
+
+// ── 35. Compound Regex Protection for Force Push & rm -rf ──
+it('buildScannerScript compound regex blocks "git push origin main --force" and "rm   -rf /"', () => {
+  const cfg = { mode: 'autonomous', askKeywords: ['git push'], skipKeywords: ['git push --force', 'rm -rf'] };
+  const script = buildScannerScript(cfg);
+
+  const testCases = [
+    { text: 'git push origin main --force', expectedType: 'skip', expectedKw: 'git push --force' },
+    { text: 'git  push  origin  -f', expectedType: 'skip', expectedKw: 'git push --force' },
+    { text: 'rm   -rf   /var/data', expectedType: 'skip', expectedKw: 'rm -rf' }
+  ];
+
+  for (const tc of testCases) {
+    let clicked = false;
+    const mockCard = {
+      tagName: 'DIV',
+      className: 'interaction-card',
+      innerText: `Run Command\n${tc.text}\nAllow this time (1)`,
+      parentElement: null
+    };
+
+    const mockBtn = {
+      tagName: 'BUTTON',
+      innerText: 'Submit',
+      className: 'btn-primary',
+      parentElement: mockCard,
+      getBoundingClientRect: () => ({ width: 80, height: 32 }),
+      click: () => { clicked = true; }
+    };
+
+    const sandbox = {
+      document: {
+        querySelector: (sel) => sel === '[data-testid="interaction-continue-button"]' ? mockBtn : null,
+        querySelectorAll: () => [],
+        body: { innerText: '', dispatchEvent: () => {} }
+      },
+      window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+      KeyboardEvent: function() {},
+      MouseEvent: function() {}
+    };
+
+    const result = vm.runInNewContext(script, sandbox);
+    assert(result !== null, `Scanner should process card for: ${tc.text}`);
+    assert.strictEqual(result.blocked, true, `Should block ${tc.text}`);
+    assert.strictEqual(result.blockedType, tc.expectedType, `Expected blockedType ${tc.expectedType} for ${tc.text}`);
+    assert.strictEqual(result.matchedKeyword, tc.expectedKw, `Expected matchedKeyword ${tc.expectedKw} for ${tc.text}`);
+    assert.strictEqual(clicked, false, `Button must not be clicked for ${tc.text}`);
+  }
+});
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);

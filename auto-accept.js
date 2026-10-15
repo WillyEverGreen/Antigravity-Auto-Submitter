@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.8.1';
+let PKG_VERSION = '1.8.2';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -144,7 +144,7 @@ const C = {
 function cleanStr(s, maxLen = 70) {
   if (s == null) return '';
   try {
-    const cleaned = String(s)
+    const cleaned = String(s).replace(/\x1b\[[0-9;]*m/g, '')
       .replace(/[\r\n\t\u21b5\u23ce\u21a9]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -339,7 +339,8 @@ function killAntigravity(target = 'all') {
       }
       try {
         const psKillChrome = 'Get-CimInstance Win32_Process -Filter "name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*antigravity-browser-profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }';
-        execSync(`powershell -NoProfile -NonInteractive -Command "${psKillChrome}" 2>nul`, { stdio: 'ignore', timeout: 3000 });
+        const b64Kill = Buffer.from(psKillChrome, 'utf16le').toString('base64');
+        execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64Kill}`, { stdio: 'ignore', timeout: 3000 });
       } catch (e) {}
     } else if (process.platform === 'darwin') {
       if (target === 'all' || target === 'ide') {
@@ -414,7 +415,8 @@ function findAntigravityExecutables() {
           Write-Output "IDE:$foundIde"
           Write-Output "APP:$foundApp"
         `;
-        const lines = execSync(`powershell -NoProfile -Command "${psFind.replace(/[\r\n]+/g, '; ')}"`, { encoding: 'utf8' }).trim().split(/[\r\n]+/);
+        const b64Find = Buffer.from(psFind, 'utf16le').toString('base64');
+        const lines = execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64Find}`, { encoding: 'utf8', timeout: 5000 }).trim().split(/[\r\n]+/);
         lines.forEach(l => {
           if (l.startsWith('IDE:') && !result.ide) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.ide = p; }
           if (l.startsWith('APP:') && !result.app) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.app = p; }
@@ -630,6 +632,16 @@ async function handleEasyStart(cfg, configSource) {
   process.on('exit', () => releaseDaemonLock(portKey));
   process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
   process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
+  process.on('uncaughtException', (err) => {
+    releaseDaemonLock(portKey);
+    console.error('Uncaught exception in daemon:', err);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (err) => {
+    releaseDaemonLock(portKey);
+    console.error('Unhandled rejection in daemon:', err);
+    process.exit(1);
+  });
 
   const daemon = new AutoSubmitDaemon(cfg, configSource);
   daemon.start().catch((err) => {
@@ -1248,7 +1260,7 @@ function resolveConfig() {
     binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
-  if (['d', 'doc', 'check'].includes(firstArg)) firstArg = 'doctor';
+  if (['d', 'doc'].includes(firstArg)) firstArg = 'doctor';
   else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
   else if (['s', 'stat', 'stats'].includes(firstArg)) firstArg = 'status';
   else if (['c', 'cfg', 'config'].includes(firstArg)) firstArg = 'config';
@@ -1633,12 +1645,25 @@ function buildScannerScript(cfg) {
       const autoSelectAlwaysAllow = ${alwaysAllow};
 
       const checkKeywords = (text) => {
-        const t = String(text || '').toLowerCase();
+        const raw = String(text || '').toLowerCase();
+        const t = raw.replace(/\\s+/g, ' ');
+        if (/\\bgit\\s+push\\b.*(?:\\s|^)(--force|-f|--force-with-lease)(?:\\s|$)/i.test(t)) {
+          return { blocked: true, type: 'skip', kw: 'git push --force' };
+        }
+        if (/(?:\\s|^)rm\\s+-[a-z]*r[a-z]*f\\b/i.test(t) || /(?:\\s|^)rm\\s+-[a-z]*f[a-z]*r\\b/i.test(t)) {
+          return { blocked: true, type: 'skip', kw: 'rm -rf' };
+        }
         for (const kw of skipKeywords) {
-          if (kw && t.includes(kw)) return { blocked: true, type: 'skip', kw: kw };
+          if (kw && (raw.includes(kw) || t.includes(kw))) return { blocked: true, type: 'skip', kw: kw };
         }
         for (const kw of askKeywords) {
-          if (kw && t.includes(kw)) return { blocked: true, type: 'ask', kw: kw };
+          if (kw && (raw.includes(kw) || t.includes(kw))) return { blocked: true, type: 'ask', kw: kw };
+        }
+        if (/\\bgit\\s+push\\b/i.test(t)) {
+          return { blocked: true, type: 'ask', kw: 'git push' };
+        }
+        if (/\\bgit\\s+reset\\s+--hard\\b/i.test(t)) {
+          return { blocked: true, type: 'ask', kw: 'git reset --hard' };
         }
         return null;
       };
@@ -2796,7 +2821,7 @@ if (require.main === module) {
     binName.includes('uninstall') ? 'uninstall' :
     binName.includes('launch') ? 'launch' : ''
   );
-  if (['d', 'doc', 'check'].includes(firstArg)) firstArg = 'doctor';
+  if (['d', 'doc'].includes(firstArg)) firstArg = 'doctor';
   else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
   else if (['s', 'stat', 'stats'].includes(firstArg)) firstArg = 'status';
   else if (['c', 'cfg', 'config'].includes(firstArg)) firstArg = 'config';

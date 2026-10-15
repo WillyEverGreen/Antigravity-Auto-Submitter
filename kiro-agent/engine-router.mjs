@@ -18,7 +18,7 @@
 import { executeRaw } from './kiro-core.mjs';
 import { executeArchitectEditor } from './engine-architect-editor.mjs';
 import { executeCouncil } from './engine-council.mjs';
-import { verifyAndSelfHeal } from './engine-verifier.mjs';
+import { verifyAndSelfHeal, validateCodeSyntax } from './engine-verifier.mjs';
 import { semanticRoute } from './engine-semantic-router.mjs';
 import { runCriticLoop } from './engine-critic.mjs';
 import { fitToContextBudget } from './engine-context-budget.mjs';
@@ -171,10 +171,14 @@ export async function routeTask({
       threshold:  qualityThreshold,
     });
     result.criticScore   = criticResult.score;
-    result.criticImproved = criticResult.improved;
-    if (criticResult.improved) {
-      if (result.finalCode)     result.finalCode     = criticResult.finalCode;
-      if (result.finalSolution) result.finalSolution = criticResult.finalCode;
+    result.criticImproved = false;
+    if (criticResult.improved && criticResult.finalCode) {
+      const syntaxCheck = validateCodeSyntax(criticResult.finalCode);
+      if (syntaxCheck.valid) {
+        result.criticImproved = true;
+        if (result.finalCode)     result.finalCode     = criticResult.finalCode;
+        if (result.finalSolution) result.finalSolution = criticResult.finalCode;
+      }
     }
   }
 

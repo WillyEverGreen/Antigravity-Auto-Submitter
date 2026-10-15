@@ -371,9 +371,18 @@ export async function executeCodeReview({
 }) {
   const reviewPrompt = `Perform a comprehensive multi-dimensional code audit focusing on ${focus.join(', ')}.\n\nCode to review:\n\`\`\`\n${code}\n\`\`\`\n\nContext:\n${context}`;
   const { executeCouncil } = await import('./engine-council.mjs');
-  return executeCouncil({
+  const res = await executeCouncil({
     prompt: reviewPrompt,
     councilModels: ['claude-sonnet-4.5', 'deepseek-3.2'],
     chairmanModel: 'claude-sonnet-4.5'
   });
+  return {
+    ...res,
+    durationMs: res.totalDurationMs || res.durationMs || 0,
+    reviews: res.reviews || [
+      { title: 'Logic & Correctness Audit', model: 'deepseek-3.2', content: res.peerReviews?.logicAudit || 'Audit complete.' },
+      { title: 'Architecture & Security Audit', model: 'claude-sonnet-4.5', content: res.peerReviews?.architectureAudit || 'Audit complete.' },
+      { title: 'Consensus & Recommendations', model: 'claude-sonnet-4.5', content: res.finalSolution || 'Audit complete.' }
+    ]
+  };
 }

@@ -15,13 +15,15 @@ const os = require('os');
 const http = require('http');
 const { execSync, spawn } = require('child_process');
 
-let WebSocket;
-try {
-  WebSocket = require('ws');
-} catch (e) {
+let WebSocket = globalThis.WebSocket;
+if (!WebSocket) {
   try {
-    WebSocket = require(path.join(__dirname, 'node_modules', 'ws'));
-  } catch (err) {}
+    WebSocket = require('ws');
+  } catch (e) {
+    try {
+      WebSocket = require(path.join(__dirname, 'node_modules', 'ws'));
+    } catch (err) {}
+  }
 }
 
 const PKG_VERSION = '1.1.0';
@@ -684,12 +686,25 @@ function buildScannerScript(cfg) {
       const autoSelectAlwaysAllow = ${alwaysAllow};
 
       const checkKeywords = (text) => {
-        const t = String(text || '').toLowerCase();
+        const raw = String(text || '').toLowerCase();
+        const t = raw.replace(/\\s+/g, ' ');
+        if (/\\bgit\\s+push\\b.*(?:\\s|^)(--force|-f|--force-with-lease)(?:\\s|$)/i.test(t)) {
+          return { blocked: true, type: 'skip', kw: 'git push --force' };
+        }
+        if (/(?:\\s|^)rm\\s+-[a-z]*r[a-z]*f\\b/i.test(t) || /(?:\\s|^)rm\\s+-[a-z]*f[a-z]*r\\b/i.test(t)) {
+          return { blocked: true, type: 'skip', kw: 'rm -rf' };
+        }
         for (const kw of skipKeywords) {
-          if (kw && t.includes(kw)) return { blocked: true, type: 'skip', kw: kw };
+          if (kw && (raw.includes(kw) || t.includes(kw))) return { blocked: true, type: 'skip', kw: kw };
         }
         for (const kw of askKeywords) {
-          if (kw && t.includes(kw)) return { blocked: true, type: 'ask', kw: kw };
+          if (kw && (raw.includes(kw) || t.includes(kw))) return { blocked: true, type: 'ask', kw: kw };
+        }
+        if (/\\bgit\\s+push\\b/i.test(t)) {
+          return { blocked: true, type: 'ask', kw: 'git push' };
+        }
+        if (/\\bgit\\s+reset\\s+--hard\\b/i.test(t)) {
+          return { blocked: true, type: 'ask', kw: 'git reset --hard' };
         }
         return null;
       };

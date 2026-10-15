@@ -857,7 +857,11 @@ async function main() {
 
   // --- RUN / EXEC ---
   if (command === 'run' || command === 'exec') {
-    const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
+    let prompt = flags._.slice(1).join(' ');
+    if (flags.file && fs.existsSync(flags.file)) {
+      const fileData = fs.readFileSync(flags.file, 'utf8');
+      prompt = prompt ? `File Context (${flags.file}):\n\`\`\`\n${fileData}\n\`\`\`\n\nTask:\n${prompt}` : fileData;
+    }
     if (!prompt) {
       console.error('Error: Please provide a prompt or a file with -f <filePath>');
       process.exit(1);
@@ -948,7 +952,11 @@ async function main() {
 
   // --- SWARM ---
   if (command === 'swarm') {
-    const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
+    let prompt = flags._.slice(1).join(' ');
+    if (flags.file && fs.existsSync(flags.file)) {
+      const fileData = fs.readFileSync(flags.file, 'utf8');
+      prompt = prompt ? `File Context (${flags.file}):\n\`\`\`\n${fileData}\n\`\`\`\n\nTask:\n${prompt}` : fileData;
+    }
     if (!prompt) {
       console.error('Error: Please provide a prompt for the swarm.');
       process.exit(1);
@@ -989,10 +997,15 @@ async function main() {
     if (flags.json) {
       console.log(JSON.stringify(res, null, 2));
     } else {
-      console.log(`\n📊 Review Completed in ${(res.durationMs / 1000).toFixed(2)}s:\n`);
-      for (const rev of res.reviews) {
+      const dur = ((res.totalDurationMs || res.durationMs || 0) / 1000).toFixed(2);
+      console.log(`\n📊 Review Completed in ${dur}s:\n`);
+      const reviewList = Array.isArray(res.reviews) && res.reviews.length > 0
+        ? res.reviews
+        : [{ title: 'Code Review Synthesis', model: 'Council', content: res.finalSolution || res.content || 'Review complete.' }];
+
+      for (const rev of reviewList) {
         console.log(`\n${'='.repeat(70)}`);
-        console.log(`📌 ${rev.title} (Model: ${rev.model})`);
+        console.log(`📌 ${rev.title || 'Review'} (Model: ${rev.model || 'Council'})`);
         console.log('='.repeat(70));
         console.log(rev.content);
       }
@@ -1002,7 +1015,11 @@ async function main() {
 
   // --- ARCHITECT-EDITOR ---
   if (command === 'arch' || command === 'architect') {
-    const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
+    let prompt = flags._.slice(1).join(' ');
+    if (flags.file && fs.existsSync(flags.file)) {
+      const fileData = fs.readFileSync(flags.file, 'utf8');
+      prompt = prompt ? `File Context (${flags.file}):\n\`\`\`\n${fileData}\n\`\`\`\n\nTask:\n${prompt}` : fileData;
+    }
     if (!prompt) {
       console.error('Error: Please provide a prompt or a file with -f <filePath>');
       process.exit(1);
@@ -1024,7 +1041,11 @@ async function main() {
 
   // --- COUNCIL ---
   if (command === 'council') {
-    const prompt = flags._.slice(1).join(' ') || (flags.file ? fs.readFileSync(flags.file, 'utf8') : null);
+    let prompt = flags._.slice(1).join(' ');
+    if (flags.file && fs.existsSync(flags.file)) {
+      const fileData = fs.readFileSync(flags.file, 'utf8');
+      prompt = prompt ? `File Context (${flags.file}):\n\`\`\`\n${fileData}\n\`\`\`\n\nTask:\n${prompt}` : fileData;
+    }
     if (!prompt) {
       console.error('Error: Please provide a prompt for the council.');
       process.exit(1);

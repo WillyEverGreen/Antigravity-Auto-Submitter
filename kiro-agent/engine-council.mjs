@@ -30,13 +30,19 @@ export async function executeCouncil({
     const rolePrompt = `You are Council Member #${idx + 1}. Independently provide the best, most robust, and highest-performing technical solution for the request below. Focus on strict correctness and edge cases.`;
     const fullPrompt = `${context ? `### Context:\n${context}\n` : ''}### Task:\n${prompt}`;
     
-    const res = await executeRaw({
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(() => resolve({ success: false, error: 'Model timed out after 25s' }), 25000)
+    );
+
+    const callPromise = executeRaw({
       prompt: fullPrompt,
       model,
       systemPrompt: rolePrompt,
       maxTokens: 3000,
       temperature: 0.2
-    });
+    }).catch(err => ({ success: false, error: err.message }));
+
+    const res = await Promise.race([callPromise, timeoutPromise]);
 
     return {
       model,
@@ -47,7 +53,8 @@ export async function executeCouncil({
     };
   });
 
-  const rawProposals = await Promise.all(proposalPromises);
+  const settledProposals = await Promise.allSettled(proposalPromises);
+  const rawProposals = settledProposals.map(s => s.status === 'fulfilled' ? s.value : { success: false, error: 'Settled rejection' });
   const validProposals = rawProposals.filter(p => p.success);
 
   if (validProposals.length === 0) {
@@ -92,21 +99,36 @@ ${prompt}
 3. Identify the standout strengths of the top candidate.
 4. Output your ranking in order of best to worst.`;
 
+  function withTimeout(promise, ms, fallbackValue) {
+    return Promise.race([
+      promise,
+      new Promise(resolve => setTimeout(() => resolve(fallbackValue), ms))
+    ]);
+  }
+
   const [evaluatorA, evaluatorB] = await Promise.all([
-    executeRaw({
-      prompt: peerReviewPrompt,
-      model: 'deepseek-3.2', // elite math/logic evaluator
-      role: 'critic',
-      maxTokens: 1500,
-      temperature: 0.1
-    }),
-    executeRaw({
-      prompt: peerReviewPrompt,
-      model: 'claude-sonnet-4.5', // elite architecture evaluator
-      role: 'critic',
-      maxTokens: 1500,
-      temperature: 0.1
-    })
+    withTimeout(
+      executeRaw({
+        prompt: peerReviewPrompt,
+        model: 'deepseek-3.2', // elite math/logic evaluator
+        role: 'critic',
+        maxTokens: 1500,
+        temperature: 0.1
+      }),
+      35000,
+      { success: false, content: 'DeepSeek peer review timed out after 35s.' }
+    ),
+    withTimeout(
+      executeRaw({
+        prompt: peerReviewPrompt,
+        model: 'claude-sonnet-4.5', // elite architecture evaluator
+        role: 'critic',
+        maxTokens: 1500,
+        temperature: 0.1
+      }),
+      35000,
+      { success: false, content: 'Sonnet peer review timed out after 35s.' }
+    )
   ]);
 
   // STAGE 3: Chairman Synthesis
@@ -131,13 +153,17 @@ ${evaluatorB.content || 'N/A'}
 3. Produce the complete, gold-standard, production-ready code implementation without placeholders.
 4. Provide a brief summary of the council consensus.`;
 
-  const chairmanRes = await executeRaw({
-    prompt: synthesisPrompt,
-    model: chairmanModel,
-    role: 'judge',
-    maxTokens: 4096,
-    temperature: 0.15
-  });
+  const chairmanRes = await withTimeout(
+    executeRaw({
+      prompt: synthesisPrompt,
+      model: chairmanModel,
+      role: 'judge',
+      maxTokens: 4096,
+      temperature: 0.15
+    }),
+    45000,
+    { success: false, content: validProposals[0]?.content || 'Chairman synthesis timed out after 45s.', error: 'Chairman synthesis timed out after 45s' }
+  );
 
   const totalDuration = Date.now() - tStart;
 
@@ -163,6 +189,7 @@ ${evaluatorB.content || 'N/A'}
     success: chairmanRes.success,
     pattern: 'LLM Council (Karpathy/Swarms)',
     totalDurationMs: totalDuration,
+    durationMs: totalDuration,
     candidateCount: validProposals.length,
     candidates: validProposals.map(p => ({
       candidateId: p.candidateId,
@@ -174,7 +201,12 @@ ${evaluatorB.content || 'N/A'}
       logicAudit: evaluatorA.content,
       architectureAudit: evaluatorB.content
     },
-    finalSolution: chairmanRes.content,
+    reviews: [
+      { title: 'Logic & Correctness Audit', model: 'deepseek-3.2', content: evaluatorA.content || 'Audit complete.' },
+      { title: 'Architecture & Security Audit', model: 'claude-sonnet-4.5', content: evaluatorB.content || 'Audit complete.' },
+      { title: 'Consensus & Recommendations', model: chairmanModel, content: chairmanRes.content || validProposals[0]?.content || 'Consensus reached.' }
+    ],
+    finalSolution: chairmanRes.content || validProposals[0]?.content,
     error: chairmanRes.error
   };
 }

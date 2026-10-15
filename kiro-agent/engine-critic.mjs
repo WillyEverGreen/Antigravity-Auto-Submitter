@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Kiro Agent V2 - Critic / Peer-Review Loop (engine-critic.mjs)
  *
  * Runs a structured 2-turn critic loop after code generation:
@@ -16,6 +16,7 @@
  */
 
 import { executeRaw } from './kiro-core.mjs';
+import { extractCodeBlocks } from './engine-verifier.mjs';
 
 // ─── Critique parser ──────────────────────────────────────────────────────────
 
@@ -171,11 +172,14 @@ export async function runCriticLoop({
     };
   }
 
+  const blocks = extractCodeBlocks(patchRes.content);
+  const cleanCode = (blocks && blocks.length > 0 && blocks[0].trim().length > 0) ? blocks[0] : patchRes.content;
+
   return {
     improved: true,
     score,
     critique: criticRes.content,
-    finalCode: patchRes.content,
+    finalCode: cleanCode,
     durationMs: Date.now() - tStart,
   };
 }

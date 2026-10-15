@@ -125,7 +125,7 @@ export function saveMemoryStore() {
  * Tokenize and generate sparse TF-IDF / character n-gram feature vector
  */
 export function vectorizeText(text) {
-  const normalized = (text || '').slice(0, 10000).toLowerCase().replace(/[^a-z0-9_\s]/g, ' ');
+  const normalized = String(text || '').slice(0, 10000).toLowerCase().replace(/[^a-z0-9_\s]/g, ' ');
   const words = normalized.split(/\s+/).filter(w => w.length > 1);
   const freq = {};
 
@@ -170,8 +170,9 @@ export function cosineSimilarity(vecA, vecB) {
 /**
  * Hash string to 32-char hex
  */
-function hashString(str) {
-  return crypto.createHash('sha256').update(str.trim().toLowerCase()).digest('hex').slice(0, 32);
+export function hashString(str) {
+  const safe = String(str || '').trim().toLowerCase();
+  return crypto.createHash('sha256').update(safe).digest('hex').slice(0, 32);
 }
 
 // -------------------------------------------------------------
@@ -182,6 +183,7 @@ function hashString(str) {
  * Retrieve cached solution if exact or semantically equivalent
  */
 export function getCachedResponse(prompt, similarityThreshold = 0.92) {
+  if (!prompt || typeof prompt !== 'string') return { hit: false };
   const currentStore = getMemoryStore();
   const exactKey = hashString(prompt);
 
@@ -336,18 +338,21 @@ export function addMemory({
  * Query long-term memories relevant to a prompt/context
  */
 export function searchMemories({
-  query,
+  query = '',
   category = null,
   limit = 4,
   minScore = 0.05
-}) {
+} = {}) {
+  const safeQuery = String(query || '').trim();
+  if (!safeQuery) return [];
+
   const currentStore = getMemoryStore();
   if (!currentStore.memories || currentStore.memories.length === 0) {
     return [];
   }
 
-  const queryVec = vectorizeText(query);
-  const queryWords = query.toLowerCase().split(/[\s,\-_/]+/).filter(w => w.length > 2);
+  const queryVec = vectorizeText(safeQuery);
+  const queryWords = safeQuery.toLowerCase().split(/[\s,\-_/]+/).filter(w => w.length > 2);
   const candidates = [];
 
   for (const mem of currentStore.memories) {

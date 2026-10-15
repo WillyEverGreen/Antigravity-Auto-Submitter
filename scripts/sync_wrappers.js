@@ -14,6 +14,8 @@ const path = require('path');
 
 console.log('🔄 Synchronizing Master Workstation Tools & Wrappers...\n');
 
+const hasCTools = process.platform === 'win32' && fs.existsSync('C:/tools');
+
 // 1. auto-accept, antigravity-auto-accept, & antigravity-auto-submit wrappers
 const autoAcceptWrapper = [
   '@echo off',
@@ -43,24 +45,28 @@ function buildSubcommandWrapper(subcmd) {
   ].join('\r\n');
 }
 
-fs.writeFileSync('C:/tools/auto-accept.cmd', autoAcceptWrapper, 'utf8');
-fs.writeFileSync('C:/tools/antigravity-auto-accept.cmd', autoAcceptWrapper, 'utf8');
-fs.writeFileSync('C:/tools/antigravity-auto-submit.cmd', autoAcceptWrapper, 'utf8');
-fs.writeFileSync('C:/tools/agy-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
-fs.writeFileSync('C:/tools/agy-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
-fs.writeFileSync('C:/tools/agy-start.cmd', buildSubcommandWrapper('start'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-start.cmd', buildSubcommandWrapper('start'), 'utf8');
-fs.writeFileSync('C:/tools/agy-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
-fs.writeFileSync('C:/tools/agy-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
-fs.writeFileSync('C:/tools/agy-update.cmd', buildSubcommandWrapper('update'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-update.cmd', buildSubcommandWrapper('update'), 'utf8');
-fs.writeFileSync('C:/tools/agy-uninstall.cmd', buildSubcommandWrapper('uninstall'), 'utf8');
-fs.writeFileSync('C:/tools/antigravity-uninstall.cmd', buildSubcommandWrapper('uninstall'), 'utf8');
-console.log('  ✔ Updated C:/tools auto-accept, doctor, setup, launch, restart, update, and uninstall wrappers');
+if (hasCTools) {
+  fs.writeFileSync('C:/tools/auto-accept.cmd', autoAcceptWrapper, 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-auto-accept.cmd', autoAcceptWrapper, 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-auto-submit.cmd', autoAcceptWrapper, 'utf8');
+  fs.writeFileSync('C:/tools/agy-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-setup.cmd', buildSubcommandWrapper('setup'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-doctor.cmd', buildSubcommandWrapper('doctor'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-start.cmd', buildSubcommandWrapper('start'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-start.cmd', buildSubcommandWrapper('start'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-launch.cmd', buildSubcommandWrapper('launch'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-restart.cmd', buildSubcommandWrapper('restart'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-update.cmd', buildSubcommandWrapper('update'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-update.cmd', buildSubcommandWrapper('update'), 'utf8');
+  fs.writeFileSync('C:/tools/agy-uninstall.cmd', buildSubcommandWrapper('uninstall'), 'utf8');
+  fs.writeFileSync('C:/tools/antigravity-uninstall.cmd', buildSubcommandWrapper('uninstall'), 'utf8');
+  console.log('  ✔ Updated C:/tools auto-accept, doctor, setup, launch, restart, update, and uninstall wrappers');
+} else {
+  console.log('  ℹ Skipping C:/tools cmd wrappers (platform is not win32 or C:/tools does not exist)');
+}
 
 // 2. Helper to build resilient Python wrapper
 function buildPyWrapper(scriptName, extraArgs = '') {
@@ -92,10 +98,12 @@ const pyWrappers = [
   { file: 'antigravity-brain.cmd', script: 'antigravity_brain.py', args: '' }
 ];
 
-pyWrappers.forEach(w => {
-  fs.writeFileSync(path.join('C:/tools', w.file), buildPyWrapper(w.script, w.args), 'utf8');
-  console.log(`  ✔ Updated C:/tools/${w.file}`);
-});
+if (hasCTools) {
+  pyWrappers.forEach(w => {
+    fs.writeFileSync(path.join('C:/tools', w.file), buildPyWrapper(w.script, w.args), 'utf8');
+    console.log(`  ✔ Updated C:/tools/${w.file}`);
+  });
+}
 
 // 4. Fix C:\tools\line-cap.js to handle close & end events properly
 const lineCapContent = [
@@ -129,8 +137,10 @@ const lineCapContent = [
   ''
 ].join('\r\n');
 
-fs.writeFileSync('C:/tools/line-cap.js', lineCapContent, 'utf8');
-console.log('  ✔ Patched C:/tools/line-cap.js (Eliminated stdin hang on <= 20 results)');
+if (hasCTools) {
+  fs.writeFileSync('C:/tools/line-cap.js', lineCapContent, 'utf8');
+  console.log('  ✔ Patched C:/tools/line-cap.js (Eliminated stdin hang on <= 20 results)');
+}
 
 // 5. Sync updated files to C:\tools\daemon\auto-accept & global npm module
 const daemonDir = 'C:/tools/daemon/auto-accept';
@@ -164,8 +174,10 @@ if (fs.existsSync(globalNpmDir)) {
 }
 
 // 6. Sync cleaner and brain scripts to C:\tools
-fs.copyFileSync('scripts/antigravity_cleaner.py', 'C:/tools/antigravity_cleaner.py');
-fs.copyFileSync('scripts/antigravity_brain.py', 'C:/tools/antigravity_brain.py');
-console.log('  ✔ Synced cleaner & brain to C:/tools');
+if (hasCTools) {
+  fs.copyFileSync('scripts/antigravity_cleaner.py', 'C:/tools/antigravity_cleaner.py');
+  fs.copyFileSync('scripts/antigravity_brain.py', 'C:/tools/antigravity_brain.py');
+  console.log('  ✔ Synced cleaner & brain to C:/tools');
+}
 
 console.log('\n✨ All workstation tools and wrappers are 100% synchronized and resilient!');

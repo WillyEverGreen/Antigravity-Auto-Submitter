@@ -71,36 +71,74 @@ export function saveFullStore(storeData) {
 /**
  * Backup full database to a specified or auto-generated path
  */
-export function backupStore(targetPath = null) {
+/**
+ * Backup full database to a specified or auto-generated path (encrypted by default)
+ */
+export function backupStore(targetPath = null, encrypt = true) {
   const store = getFullStore();
-  const dest = targetPath || path.join(APPDATA_DIR, 'kiro-account-manager', `kiro-backup-${Date.now()}.json`);
-  fs.writeFileSync(dest, JSON.stringify(store, null, 2), 'utf8');
-  return { success: true, backupPath: dest };
+  const ext = encrypt ? 'enc' : 'json';
+  const dest = targetPath || path.join(APPDATA_DIR, 'kiro-account-manager', `kiro-backup-${Date.now()}.${ext}`);
+  const dir = path.dirname(dest);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  if (encrypt) {
+    const iv = crypto.randomBytes(16);
+    const password = crypto.pbkdf2Sync(STORE_SECRET_KEY, iv, 10000, 32, 'sha512');
+    const cipher = crypto.createCipheriv('aes-256-cbc', password, iv);
+    const payload = Buffer.from(JSON.stringify(store), 'utf8');
+    const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
+    const finalBuf = Buffer.concat([iv, Buffer.from(':'), encrypted]);
+    fs.writeFileSync(dest, finalBuf);
+  } else {
+    // Redact sensitive secrets if exporting to plain JSON
+    const sanitized = JSON.parse(JSON.stringify(store));
+    const accounts = sanitized.accountData?.accounts || {};
+    for (const acc of Object.values(accounts)) {
+      if (acc.credentials) {
+        if (acc.credentials.refreshToken) acc.credentials.refreshToken = '[REDACTED]';
+        if (acc.credentials.accessToken) acc.credentials.accessToken = '[REDACTED]';
+        if (acc.credentials.clientSecret) acc.credentials.clientSecret = '[REDACTED]';
+      }
+    }
+    fs.writeFileSync(dest, JSON.stringify(sanitized, null, 2), 'utf8');
+  }
+  return { success: true, backupPath: dest, encrypted };
 }
 
 /**
- * Restore database from a backup JSON file
+ * Restore database from a backup JSON or encrypted .enc file
  */
 export function restoreStore(sourcePath) {
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`Backup file not found at: ${sourcePath}`);
   }
-  const content = fs.readFileSync(sourcePath, 'utf8');
-  const data = JSON.parse(content);
+  const raw = fs.readFileSync(sourcePath);
+  let data;
+  try {
+    data = decryptStore(raw);
+  } catch {
+    data = JSON.parse(raw.toString('utf8'));
+  }
   saveFullStore(data);
   return { success: true, restoredFrom: sourcePath, accounts: Object.keys(data.accountData?.accounts || {}).length };
 }
 
 /**
- * Set any arbitrary key/path inside store using dot notation
+ * Set any arbitrary key/path inside store using dot notation (prototype-pollution protected)
  */
 export function setAnySetting(dotPath, value) {
+  if (!dotPath || typeof dotPath !== 'string' || /__proto__|constructor|prototype/i.test(dotPath)) {
+    throw new Error('Access denied: Invalid or unsafe setting path pattern');
+  }
   const store = getFullStore();
   const parts = dotPath.split('.');
   let curr = store;
 
   for (let i = 0; i < parts.length - 1; i++) {
     const p = parts[i];
+    if (p === '__proto__' || p === 'constructor' || p === 'prototype') {
+      throw new Error('Access denied: Prototype traversal forbidden');
+    }
     if (curr[p] === undefined || curr[p] === null || typeof curr[p] !== 'object') {
       curr[p] = {};
     }
@@ -108,6 +146,9 @@ export function setAnySetting(dotPath, value) {
   }
 
   const lastKey = parts[parts.length - 1];
+  if (lastKey === '__proto__' || lastKey === 'constructor' || lastKey === 'prototype') {
+    throw new Error('Access denied: Prototype key mutation forbidden');
+  }
   curr[lastKey] = value;
 
   saveFullStore(store);
@@ -118,8 +159,11 @@ export function setAnySetting(dotPath, value) {
  * Get any arbitrary key/path inside store using dot notation
  */
 export function getAnySetting(dotPath) {
+  if (!dotPath) return getFullStore();
+  if (typeof dotPath !== 'string' || /__proto__|constructor|prototype/i.test(dotPath)) {
+    return undefined;
+  }
   const store = getFullStore();
-  if (!dotPath) return store;
   const parts = dotPath.split('.');
   let curr = store;
 

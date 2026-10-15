@@ -2,9 +2,12 @@
   "enabled": true,
   "mode": "autonomous",
   "cdpPort": 0,
+  "cdpPorts": [],
   "safetyDelayMs": 200,
   "pollIntervalMs": 250,
   "autoSelectAlwaysAllow": false,
+  "daemon": false,
+  "quiet": false,
   "askKeywords": [
     "git push",
     "git reset --hard"

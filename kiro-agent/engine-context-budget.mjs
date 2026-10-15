@@ -79,41 +79,57 @@ export function fitToContextBudget({
              budgetUsed: totalTokens / inputBudget, truncated: false };
   }
 
-  // Strategy 1: trim context first (it''s usually the most expendable)
+  // Strategy 1: Trim or drop context first (most expendable)
   let trimmedContext = context;
-  const availableForCtx = inputBudget - sysTokens - promptTokens - 200; // safety margin
-  if (availableForCtx > 0 && ctxTokens > availableForCtx) {
-    const targetChars = Math.floor(availableForCtx * CHARS_PER_TOKEN);
-    trimmedContext = context.slice(0, targetChars) + '\n\n[... context truncated to fit context window ...]';
+  const availableForCtx = inputBudget - sysTokens - promptTokens - 200;
+  if (ctxTokens > 0) {
+    if (availableForCtx > 100) {
+      const targetChars = Math.floor(availableForCtx * CHARS_PER_TOKEN);
+      trimmedContext = context.slice(0, targetChars) + '\n\n[... context truncated to fit context window ...]';
+    } else {
+      trimmedContext = '[... context omitted to fit context window ...]';
+    }
     ctxTokens = estimateTokens(trimmedContext);
   }
 
-  // Strategy 2: trim system prompt (keep last 200 tokens worth)
+  // Strategy 2: Trim system prompt if still exceeding and system prompt is large
   let trimmedSys = systemPrompt;
   const availableForSys = inputBudget - promptTokens - ctxTokens - 100;
-  if (availableForSys > 0 && sysTokens > availableForSys) {
-    const targetChars = Math.floor(availableForSys * CHARS_PER_TOKEN);
+  if (sysTokens > 200 && availableForSys < sysTokens) {
+    const maxSysTokens = Math.max(100, Math.min(sysTokens, Math.max(50, availableForSys)));
+    const targetChars = Math.floor(maxSysTokens * CHARS_PER_TOKEN);
     trimmedSys = systemPrompt.slice(0, targetChars);
     sysTokens = estimateTokens(trimmedSys);
   }
 
-  // Strategy 3: last resort — trim prompt tail (preserve first 80%)
+  // Strategy 3: Trim prompt middle if still exceeding
   let trimmedPrompt = prompt;
   const remaining = inputBudget - sysTokens - ctxTokens - 100;
-  if (remaining > 0 && promptTokens > remaining) {
-    const targetChars = Math.floor(remaining * CHARS_PER_TOKEN);
+  if (promptTokens > remaining) {
+    const targetChars = Math.max(50, Math.floor(remaining * CHARS_PER_TOKEN));
     const keepHead = Math.floor(targetChars * 0.8);
-    const keepTail = targetChars - keepHead;
-    trimmedPrompt = prompt.slice(0, keepHead) + '\n\n[... middle truncated ...]\n\n' + prompt.slice(-keepTail);
+    const keepTail = Math.max(0, targetChars - keepHead);
+    trimmedPrompt = prompt.slice(0, keepHead) + '\n\n[... middle truncated ...]\n\n' + (keepTail > 0 ? prompt.slice(-keepTail) : '');
   }
 
-  const finalTokens = estimateTokens(trimmedSys) + estimateTokens(trimmedPrompt) + estimateTokens(trimmedContext);
+  let finalTokens = estimateTokens(trimmedSys) + estimateTokens(trimmedPrompt) + estimateTokens(trimmedContext);
+  
+  // Absolute clamp guard: ensure we never return more than inputBudget
+  if (finalTokens > inputBudget) {
+    const excess = finalTokens - inputBudget + 50;
+    const charsToRemove = Math.ceil(excess * CHARS_PER_TOKEN);
+    if (trimmedPrompt.length > charsToRemove + 100) {
+      trimmedPrompt = trimmedPrompt.slice(0, trimmedPrompt.length - charsToRemove);
+    }
+    finalTokens = estimateTokens(trimmedSys) + estimateTokens(trimmedPrompt) + estimateTokens(trimmedContext);
+  }
+
   return {
     prompt: trimmedPrompt,
     context: trimmedContext,
     systemPrompt: trimmedSys,
     estimatedInputTokens: finalTokens,
-    budgetUsed: finalTokens / inputBudget,
+    budgetUsed: Math.min(1.0, finalTokens / inputBudget),
     truncated: true,
   };
 }

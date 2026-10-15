@@ -10,12 +10,14 @@ import {
   getAccountManagerSettings,
   getWebhooks,
   getProxyPoolConfig,
-  getMachineIdConfig
+  getMachineIdConfig,
+  setAnySetting
 } from '../kiro-agent/kiro-controller.mjs';
 import { fitToContextBudget, estimateTokens, MODEL_CONTEXT_LIMITS, chunkPrompt } from '../kiro-agent/engine-context-budget.mjs';
 import { semanticRoute, scorePrompt } from '../kiro-agent/engine-semantic-router.mjs';
 import { scoreOutputQuality, buildCorrectionPrompt } from '../kiro-agent/engine-quality-retry.mjs';
 import { validateCodeSyntax } from '../kiro-agent/engine-verifier.mjs';
+import { searchMemories, getCachedResponse, hashString } from '../kiro-agent/engine-memory.mjs';
 
 console.log('🧪 Starting Kiro Agent & MCP Subsystem Test Suite...\n');
 
@@ -172,6 +174,49 @@ test('engine-verifier detects syntax errors and verifies valid code', () => {
   assert.ok(broken.error.length > 0);
 });
 
+test('engine-memory handles empty, null, or malformed inputs defensively', () => {
+  const emptyRes = searchMemories({});
+  assert.deepStrictEqual(emptyRes, []);
+
+  const nullRes = searchMemories({ query: null });
+  assert.deepStrictEqual(nullRes, []);
+
+  const noArgRes = searchMemories();
+  assert.deepStrictEqual(noArgRes, []);
+
+  const cached = getCachedResponse(null);
+  assert.deepStrictEqual(cached, { hit: false });
+
+  const hash = hashString(null);
+  assert.strictEqual(typeof hash, 'string');
+  assert.strictEqual(hash.length, 32);
+});
+
+test('engine-context-budget strictly clamps oversized prompts to inputBudget', () => {
+  const hugePrompt = 'A'.repeat(500000);
+  const clamped = fitToContextBudget({ prompt: hugePrompt, model: 'deepseek-3.2' });
+  assert.strictEqual(clamped.truncated, true);
+  assert.ok(clamped.estimatedInputTokens <= 61440, `Expected estimatedInputTokens <= 61440, got ${clamped.estimatedInputTokens}`);
+  assert.ok(clamped.budgetUsed <= 1.0, `Expected budgetUsed <= 1.0, got ${clamped.budgetUsed}`);
+});
+
+test('setAnySetting rejects prototype pollution attacks on __proto__, constructor, and prototype', () => {
+  assert.throws(() => {
+    setAnySetting('__proto__.polluted', true);
+  }, /Access denied/);
+  assert.strictEqual(({}).polluted, undefined, 'Prototype must not be polluted via __proto__');
+
+  assert.throws(() => {
+    setAnySetting('constructor.prototype.polluted', true);
+  }, /Access denied/);
+  assert.strictEqual(({}).polluted, undefined, 'Prototype must not be polluted via constructor');
+
+  assert.throws(() => {
+    setAnySetting('prototype.polluted', true);
+  }, /Access denied/);
+  assert.strictEqual(({}).polluted, undefined, 'Prototype must not be polluted via prototype');
+});
+
 // 3. MCP JSON-RPC Protocol Tests
 await asyncTest('MCP Server responds to JSON-RPC initialize and lists 14 tools', async () => {
   const mcpScript = path.resolve('kiro-agent/kiro-mcp.mjs');
@@ -238,4 +283,4 @@ await asyncTest('MCP Server responds to JSON-RPC initialize and lists 14 tools',
   assert.ok(toolNames.includes('kiro_universal_setting'));
 });
 
-console.log(`\nResults: ${passed}/11 Kiro Agent tests passed cleanly.\n`);
+console.log(`\nResults: ${passed}/14 Kiro Agent tests passed cleanly.\n`);
