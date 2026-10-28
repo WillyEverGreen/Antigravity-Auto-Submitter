@@ -1,5 +1,6 @@
 # Node dependencies
 node_modules/
+*.tgz
 
 # Logs & Debugging
 *.log
