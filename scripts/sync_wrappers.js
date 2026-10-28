@@ -12,6 +12,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const repoRoot = path.join(__dirname, '..');
+
 console.log('🔄 Synchronizing Master Workstation Tools & Wrappers...\n');
 
 const hasCTools = process.platform === 'win32' && fs.existsSync('C:/tools');
@@ -157,26 +159,26 @@ if (hasCTools) {
 // 5. Sync updated files to C:\tools\daemon\auto-accept & global npm module
 const daemonDir = 'C:/tools/daemon/auto-accept';
 if (fs.existsSync(daemonDir)) {
-  fs.copyFileSync('auto-accept.js', path.join(daemonDir, 'auto-accept.js'));
-  fs.copyFileSync('package.json', path.join(daemonDir, 'package.json'));
+  fs.copyFileSync(path.join(repoRoot, 'auto-accept.js'), path.join(daemonDir, 'auto-accept.js'));
+  fs.copyFileSync(path.join(repoRoot, 'package.json'), path.join(daemonDir, 'package.json'));
   console.log('  ✔ Synced auto-accept.js and package.json to C:/tools/daemon/auto-accept');
 }
 
 const globalNpmDir = path.join(process.env.APPDATA || '', 'npm/node_modules/antigravity-auto-submit');
 if (fs.existsSync(globalNpmDir)) {
-  fs.copyFileSync('auto-accept.js', path.join(globalNpmDir, 'auto-accept.js'));
-  fs.copyFileSync('package.json', path.join(globalNpmDir, 'package.json'));
+  fs.copyFileSync(path.join(repoRoot, 'auto-accept.js'), path.join(globalNpmDir, 'auto-accept.js'));
+  fs.copyFileSync(path.join(repoRoot, 'package.json'), path.join(globalNpmDir, 'package.json'));
 
   const globalBinDir = path.join(globalNpmDir, 'bin');
   if (!fs.existsSync(globalBinDir)) fs.mkdirSync(globalBinDir, { recursive: true });
-  fs.readdirSync('bin').forEach(f => {
-    fs.copyFileSync(path.join('bin', f), path.join(globalBinDir, f));
+  fs.readdirSync(path.join(repoRoot, 'bin')).forEach(f => {
+    fs.copyFileSync(path.join(repoRoot, 'bin', f), path.join(globalBinDir, f));
   });
 
   const globalScriptsDir = path.join(globalNpmDir, 'scripts');
   if (!fs.existsSync(globalScriptsDir)) fs.mkdirSync(globalScriptsDir, { recursive: true });
-  fs.readdirSync('scripts').forEach(f => {
-    const srcPath = path.join('scripts', f);
+  fs.readdirSync(path.join(repoRoot, 'scripts')).forEach(f => {
+    const srcPath = path.join(repoRoot, 'scripts', f);
     if (f !== 'sync_wrappers.js' && fs.statSync(srcPath).isFile()) {
       fs.copyFileSync(srcPath, path.join(globalScriptsDir, f));
     }
@@ -187,8 +189,8 @@ if (fs.existsSync(globalNpmDir)) {
 
 // 6. Sync cleaner and brain scripts to C:\tools
 if (hasCTools) {
-  fs.copyFileSync('scripts/antigravity_cleaner.py', 'C:/tools/antigravity_cleaner.py');
-  fs.copyFileSync('scripts/antigravity_brain.py', 'C:/tools/antigravity_brain.py');
+  fs.copyFileSync(path.join(repoRoot, 'scripts/antigravity_cleaner.py'), 'C:/tools/antigravity_cleaner.py');
+  fs.copyFileSync(path.join(repoRoot, 'scripts/antigravity_brain.py'), 'C:/tools/antigravity_brain.py');
   console.log('  ✔ Synced cleaner & brain to C:/tools');
 }
 
