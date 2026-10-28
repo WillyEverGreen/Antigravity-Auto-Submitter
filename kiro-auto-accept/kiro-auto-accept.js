@@ -1433,6 +1433,25 @@ async function handleStatusCli(cfg) {
 }
 
 // ─── CLI Entry Point ───
+// Returns true when the daemon can run; otherwise prints what to do and returns false.
+async function preflightKiro(cfg) {
+  if (!WebSocket) {
+    console.error(`\n  ${C.red}✖ No WebSocket support found (Node ${process.version}).${C.reset}`);
+    console.error('    Use Node.js 22+ (built-in WebSocket), or run "npm install ws" inside the kiro-auto-accept folder.\n');
+    return false;
+  }
+  if (findKiroExecutable() || isKiroRunning()) return true;
+  const endpoints = await findCdpEndpoints(cfg.cdpPort, cfg.cdpPorts);
+  if (endpoints.length > 0) return true;
+  console.error(`\n  ${C.yellow}⚠️  Kiro IDE doesn't appear to be installed on this machine.${C.reset}`);
+  console.error('    kiro-auto-accept approves prompts inside the Kiro IDE, so it needs Kiro installed first.');
+  console.error(`    1. Install Kiro from ${C.cyan}https://kiro.dev${C.reset} and sign in.`);
+  console.error(`    2. Run ${C.bold}kiro-auto-accept start${C.reset} (launches Kiro with the debug port and attaches).`);
+  console.error(`    Kiro is installed somewhere unusual? Open it with ${C.cyan}--remote-debugging-port=9222${C.reset} and re-run.`);
+  console.error(`    Using Antigravity IDE or Claude Code instead? See ${C.bold}auto-accept${C.reset} / ${C.bold}claude-auto-accept${C.reset}.\n`);
+  return false;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const { cfg, source } = loadConfig();
@@ -1496,6 +1515,12 @@ ${C.bold}INSTANT HOTKEYS:${C.reset}
   else if (['launch', 'open'].includes(rawCmd)) cmd = 'launch';
   else if (['start'].includes(rawCmd)) cmd = 'start';
   else if (['init'].includes(rawCmd)) cmd = 'init';
+
+  const needsKiro = ['launch', 'restart', 'start', 'status'].includes(cmd)
+    || !['init', 'list', 'doctor', 'setup', 'add-ask', 'add-skip', 'rm-ask', 'rm-skip', 'rm', 'mode', 'pause', 'resume', 'config'].includes(cmd);
+  if (needsKiro && !(await preflightKiro(cfg))) {
+    process.exit(1);
+  }
 
   if (cmd === 'init') {
     handleInit();

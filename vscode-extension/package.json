@@ -18,28 +18,96 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
-  "keywords": ["antigravity", "auto-accept", "auto-approve", "autopilot", "cdp", "automation"],
-  "extensionKind": ["ui"],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "antigravity",
+    "auto-accept",
+    "auto-approve",
+    "autopilot",
+    "cdp",
+    "automation"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
-      { "command": "antigravityAutoSubmit.start", "title": "Start Auto-Submit", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.stop", "title": "Stop Auto-Submit", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.toggle", "title": "Toggle Auto-Submit", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.setMode", "title": "Switch Mode (Autonomous / Autopilot)", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.showStatus", "title": "Show Connection Status", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.setup", "title": "Add Debug Port to IDE Shortcuts (setup)", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.doctor", "title": "Run Diagnostics (doctor)", "category": "Antigravity Auto-Submit" },
-      { "command": "antigravityAutoSubmit.showLog", "title": "Show Daemon Log", "category": "Antigravity Auto-Submit" }
+      {
+        "command": "antigravityAutoSubmit.start",
+        "title": "Start Auto-Submit",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.stop",
+        "title": "Stop Auto-Submit",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.toggle",
+        "title": "Toggle Auto-Submit",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.setMode",
+        "title": "Switch Mode (Autonomous / Autopilot)",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.showStatus",
+        "title": "Show Connection Status",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.setup",
+        "title": "Add Debug Port to IDE Shortcuts (setup)",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.doctor",
+        "title": "Run Diagnostics (doctor)",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.showLog",
+        "title": "Show Daemon Log",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.openDocs",
+        "title": "Open Documentation (GitHub)",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.copyInstall",
+        "title": "Copy npm Install Command",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.checkEnvironment",
+        "title": "Check Environment (Node, Debug Port)",
+        "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.openWalkthrough",
+        "title": "Open Getting Started Walkthrough",
+        "category": "Antigravity Auto-Submit"
+      }
     ],
     "configuration": {
       "title": "Antigravity Auto-Submit",
       "properties": {
         "antigravityAutoSubmit.mode": {
           "type": "string",
-          "enum": ["autonomous", "autopilot"],
+          "enum": [
+            "autonomous",
+            "autopilot"
+          ],
           "default": "autonomous",
           "description": "autonomous approves tool prompts only. autopilot also confirms implementation plan dialogs."
         },
@@ -55,23 +123,94 @@
         },
         "antigravityAutoSubmit.askKeywords": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["git push", "git reset --hard"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "git push",
+            "git reset --hard"
+          ],
           "description": "Prompts containing these keywords are left for you to confirm manually."
         },
         "antigravityAutoSubmit.skipKeywords": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["rm -rf", "drop table", "git push --force", "format c:", "del /f /s /q c:"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "rm -rf",
+            "drop table",
+            "git push --force",
+            "format c:",
+            "del /f /s /q c:"
+          ],
           "description": "Prompts containing these keywords are never approved."
         },
         "antigravityAutoSubmit.nodePath": {
           "type": "string",
           "default": "node",
-          "description": "Node.js executable used to run the daemon (Node 18+)."
+          "description": "Node.js executable used to run the daemon (Node 22+)."
+        },
+        "antigravityAutoSubmit.daemonSource": {
+          "type": "string",
+          "enum": [
+            "bundled",
+            "global"
+          ],
+          "default": "bundled",
+          "description": "bundled runs the daemon shipped inside this extension. global runs the auto-accept command from your npm install (npm install -g antigravity-auto-submit), so you can update the daemon without updating the extension."
+        },
+        "antigravityAutoSubmit.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra command-line flags passed to the daemon (for example [\"--poll\", \"500\"]). Use this to try new daemon options without waiting for an extension update."
         }
       }
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "antigravityAutoSubmit.gettingStarted",
+        "title": "Get started with Antigravity Auto-Submit",
+        "description": "Set up hands-free approvals in four steps.",
+        "steps": [
+          {
+            "id": "node",
+            "title": "Check Node.js 22+",
+            "description": "The daemon needs Node.js 22 or newer.\n[Check Environment](command:antigravityAutoSubmit.checkEnvironment)",
+            "media": {
+              "markdown": "media/step-node.md"
+            }
+          },
+          {
+            "id": "debugport",
+            "title": "Enable the debug port",
+            "description": "Patch your IDE shortcuts once, then restart the IDE from the patched shortcut.\n[Run Setup](command:antigravityAutoSubmit.setup)",
+            "media": {
+              "markdown": "media/step-setup.md"
+            }
+          },
+          {
+            "id": "start",
+            "title": "Start auto-submit",
+            "description": "Start the daemon from the status bar.\n[Start Auto-Submit](command:antigravityAutoSubmit.start)",
+            "media": {
+              "markdown": "media/step-start.md"
+            }
+          },
+          {
+            "id": "verify",
+            "title": "Verify the connection",
+            "description": "Confirm a window is attached.\n[Show Connection Status](command:antigravityAutoSubmit.showStatus)",
+            "media": {
+              "markdown": "media/step-verify.md"
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "prepackage": "node scripts/bundle.js",

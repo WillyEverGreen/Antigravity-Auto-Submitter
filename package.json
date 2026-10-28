@@ -122,8 +122,8 @@
     "clean:all": "node bin/clean-all.js",
     "brain": "node bin/antigravity-brain.js",
     "sync": "node scripts/sync_wrappers.js",
-    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js",
-    "test:kiro": "node test/kiro-agent.test.mjs",
+    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js && node test/kiro-setup.test.mjs",
+    "test:kiro": "node test/kiro-agent.test.mjs && node test/kiro-setup.test.mjs",
     "test:claude": "node claude-auto-accept/test/claude-hook.test.js",
     "claude:setup": "node claude-auto-accept/claude-auto-accept.js setup",
     "claude:doctor": "node claude-auto-accept/claude-auto-accept.js doctor",
@@ -135,6 +135,6 @@
     "kiro:mcp": "node kiro-agent/kiro-mcp.mjs"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }

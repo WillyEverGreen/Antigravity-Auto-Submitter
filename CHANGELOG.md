@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **VS Code Extension (`vscode-extension/`)**: Status bar toggle, mode switcher, connection status, setup/doctor commands, and keyword settings. Bundles the daemon so the `.vsix` is self-contained.
 
+### Added (continued)
+- **Kiro setup guidance**: `kiro-agent` now explains what is missing (Kiro Account Manager not installed, proxy offline) instead of raw `ECONNREFUSED`. `kiro swarm`, `kiro parallel` and `kiro review` require at least 3 accounts (override with `KIRO_MIN_ACCOUNTS`). `kiro status` shows Account Manager state.
+- **Kiro IDE preflight**: `kiro-auto-accept` tells users when Kiro IDE is not installed and points to the right tool for Antigravity or Claude Code.
+- **Extension getting-started walkthrough**, environment check, `daemonSource` (bundled or global npm install) and `extraArgs` settings so daemon updates do not require an extension update.
+
+### Fixed
+- **Node version requirement**: the CDP daemons rely on Node's built-in WebSocket (Node 22+). `engines` is now `>=22`, and the daemon exits with a clear message on older Node instead of silently never connecting.
+- `kiro-agent` no longer assumes 20 accounts when the Account Manager store is missing.
+
 ### Changed
 - **README**: npm-first install and update instructions, Antigravity IDE 2.6.0+ / App 2.23+ compatibility note, Claude Code auto-accept hook section, and expanded command alias list.
 

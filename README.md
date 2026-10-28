@@ -9,7 +9,7 @@
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License" /></a>
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange?style=for-the-badge" alt="Platform" />
-    <img src="https://img.shields.io/badge/Node-%3E%3D%2018.0.0-blue?style=for-the-badge" alt="Node" />
+    <img src="https://img.shields.io/badge/Node-%3E%3D%2022.0.0-blue?style=for-the-badge" alt="Node" />
     <img src="https://img.shields.io/badge/Dependencies-Zero-brightgreen?style=for-the-badge" alt="Dependencies" />
     <img src="https://img.shields.io/badge/Tests-All%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
   </p>
@@ -82,7 +82,7 @@ Following these **3 simple steps** guarantees Antigravity Auto-Submit works reli
 
 ### 🎯 Step 1: Install the CLI Globally
 
-Install from the npm registry (works on any Windows, macOS, or Linux machine with Node.js 18+):
+Install from the npm registry (works on any Windows, macOS, or Linux machine with Node.js 22+):
 
 ```bash
 npm install -g antigravity-auto-submit
@@ -779,7 +779,7 @@ antigravity-brain --interactive
 
 ## 🧩 VS Code Extension (`vscode-extension`)
 
-Prefer a status bar toggle over the terminal? [`vscode-extension/`](./vscode-extension) packages the daemon as a VS Code / Antigravity IDE extension with Start/Stop, mode switching, connection status, and keyword settings. Build it with `cd vscode-extension && npm run package`, then install the `.vsix` via **Extensions: Install from VSIX...**.
+Prefer a status bar toggle over the terminal? [`vscode-extension/`](./vscode-extension) packages the daemon as a VS Code / Antigravity IDE extension with Start/Stop, mode switching, connection status, and keyword settings. It includes a first-run walkthrough, an environment check, and a `daemonSource` setting to run the daemon from your global npm install (`npm install -g antigravity-auto-submit`). Build it with `cd vscode-extension && npm run package`, then install the `.vsix` via **Extensions: Install from VSIX...**.
 
 ---
 
@@ -810,7 +810,7 @@ In addition to the CDP auto-submit daemon, this repository includes **`kiro-agen
 - **Concurrent Task Delegation**: Splits complex multi-file refactors or test generation tasks across worker threads in parallel (`kiro parallel -f tasks.json -c 8`).
 - **4-Way Code Review**: Performs parallel audits across Security, Correctness, Performance, and Architecture.
 - **5-Layer Anti-Ban Armor**: Protects your accounts via unique 64-hex hardware machine IDs per account, OIDC token refresh rate-limiting, circuit breaker backoffs, and quota cliff failover.
-- **13 Native MCP Tools**: Fully callable by Google Antigravity IDE via stdio JSON-RPC.
+- **14 Native MCP Tools**: Fully callable by Google Antigravity IDE via stdio JSON-RPC.
 - **Zero Credential Leaks**: Never stores plaintext tokens or logs sensitive session data.
 
 ### CLI Quick Reference

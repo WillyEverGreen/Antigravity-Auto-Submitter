@@ -22,11 +22,20 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.8.4';
+let PKG_VERSION = '1.8.5';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
 } catch (e) {}
+
+// The daemon talks CDP over the runtime's built-in WebSocket (Node 22+).
+function ensureWebSocketSupport() {
+  if (typeof WebSocket !== 'undefined') return;
+  console.error(`\n  ✗ This Node.js (${process.version}) has no built-in WebSocket, which the daemon needs to attach to the IDE.`);
+  console.error('    Upgrade to Node.js 22 or newer (https://nodejs.org), then run this command again.');
+  console.error('    Check your version with: node -v\n');
+  process.exit(1);
+}
 
 // ── Paths ──
 const GLOBAL_DIR = path.join(os.homedir(), '.antigravity-auto-submit');
@@ -214,8 +223,8 @@ async function handleDoctor(cfg, shouldExit = true) {
   // 1. Node.js check
   const nodeVer = process.version;
   const major = parseInt(nodeVer.replace('v', '').split('.')[0], 10);
-  const nodeOk = major >= 18;
-  console.log(`  ${C.bold}Node.js Version:${C.reset}     ${nodeVer} ${nodeOk ? `${C.green}✔ (Supported: >=18.0.0)${C.reset}` : `${C.red}✗ (Requires Node.js 18+)${C.reset}`}`);
+  const nodeOk = major >= 22 || typeof WebSocket !== 'undefined';
+  console.log(`  ${C.bold}Node.js Version:${C.reset}     ${nodeVer} ${nodeOk ? `${C.green}✔ (Supported: >=22.0.0, built-in WebSocket)${C.reset}` : `${C.red}✗ (Daemon requires Node.js 22+ for built-in WebSocket)${C.reset}`}`);
   console.log(`  ${C.bold}Operating System:${C.reset}   ${process.platform} (${os.type()} ${os.release()})`);
 
   // 2. Python Runtime check (for cleanup & audit suite)
@@ -585,6 +594,7 @@ async function handleLaunch(cfg, forceRestart = false, shouldExit = true, explic
 
 // ── Subcommand: start (One-Command Easy Start for Any Device) ──
 async function handleEasyStart(cfg, configSource) {
+  ensureWebSocketSupport();
   const args = process.argv.slice(2).map(a => a.toLowerCase());
   const isApp = args.includes('app') || args.includes('--app');
   const isIde = args.includes('ide') || args.includes('--ide');
@@ -3018,6 +3028,7 @@ if (require.main === module) {
       process.exit(allWindows.length > 0 ? 0 : 1);
     })();
   } else {
+    ensureWebSocketSupport();
     const portKey = config.cdpPort > 0 ? String(config.cdpPort) : 'auto';
     const isForce = process.argv.includes('--force') || process.argv.includes('-f');
     const runningPid = acquireDaemonLock(portKey, isForce);

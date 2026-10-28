@@ -88,7 +88,7 @@ kiro-doctor
 Output:
 ```text
 ⚡ Kiro Auto-Accept — System Doctor
-  Node.js Version:     v24.19.0 ✔ (Supported: >=18.0.0)
+  Node.js Version:     v24.19.0 ✔ (Supported: >=22.0.0)
   Operating System:   win32 (Windows_NT 10.0.26200)
   WebSocket Library: ✔ ws ready
   Kiro IDE Binary:   C:\Users\...\Kiro.exe ✔

@@ -3,7 +3,7 @@
 > **Production-Grade Multi-Model AI Swarm, Architect-Editor Dual Engine, 8-Dimensional Semantic Router, Dual-Gated Quality Verification, and 20-Account Autonomous Compute Subsystem for Google Antigravity IDE and Kiro Proxy.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-green.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blue.svg)](https://modelcontextprotocol.io/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange.svg)](#cross-platform-support)
 [![Tests: Passing](https://img.shields.io/badge/Tests-49%2F49%20Passing%20(100%25)-brightgreen.svg)](https://github.com/WillyEverGreen/Antigravity-Auto-Submitter)
@@ -35,6 +35,18 @@ The **Kiro Agent Subsystem** transforms your local Kiro IDE Proxy into a product
 
 7. **Native Model Context Protocol (MCP) Server (`kiro-mcp.mjs`)**:
    Exposes 14 native MCP tools directly into Google Antigravity IDE, including `kiro_smart_route`.
+
+---
+
+## 📋 Requirements: Which Kiro Piece Needs What
+
+| You want to... | You need |
+| --- | --- |
+| Auto-approve prompts inside the Kiro IDE (`kiro-auto-accept`) | Kiro IDE installed (https://kiro.dev) and Node.js 22+. No accounts or proxy needed. |
+| Run single-model commands (`kiro run`, `kiro route`, `kiro models`) | Kiro Account Manager installed, its API proxy running, and at least 1 account signed in. |
+| Run `kiro swarm`, `kiro parallel`, `kiro review` | Everything above, plus **at least 3 accounts** in the pool. These commands spread requests across accounts to avoid rate limits. Override the minimum with `KIRO_MIN_ACCOUNTS`. |
+
+Run `kiro status` at any time. If something is missing, it tells you what to install or start next. The same guidance appears if an MCP tool is called while the proxy is offline.
 
 ---
 

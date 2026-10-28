@@ -591,7 +591,11 @@ async function main() {
         console.log(`  Total Tokens: ${ps.stats.totalTokens?.toLocaleString() || 0}`);
       }
     } else if (status.error) {
-      console.log(`  Error:        ${status.error}`);
+      console.log(`  Account Mgr:  ${status.accountManagerInstalled ? '✅ Found' : '❌ Not found'}`);
+      console.log(`  Accounts:     ${status.configuredAccounts || 0} configured`);
+      console.log(`
+${status.error}
+`);
     }
     return;
   }
@@ -1165,6 +1169,12 @@ async function main() {
 }
 
 main().catch(err => {
+  if (err && err.name === 'KiroSetupError') {
+    console.error(`
+⚠️  ${err.message}
+`);
+    process.exit(2);
+  }
   console.error('Fatal:', err.message);
   process.exit(1);
 });

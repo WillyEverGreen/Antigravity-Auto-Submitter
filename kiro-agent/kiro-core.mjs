@@ -14,6 +14,56 @@ const DEFAULT_PROXY_HOST = '127.0.0.1';
 const DEFAULT_PROXY_PORT = 5580;
 const STORE_SECRET_KEY = process.env.KIRO_STORE_SECRET_KEY || 'kiro-account-manager-secret-key';
 
+export const MIN_SWARM_ACCOUNTS = Math.max(1, parseInt(process.env.KIRO_MIN_ACCOUNTS || '3', 10) || 3);
+
+/**
+ * Setup problem the user can fix (missing Account Manager, offline proxy, too few accounts).
+ * `message` is already user-facing; `code` lets callers branch.
+ */
+export class KiroSetupError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'KiroSetupError';
+    this.code = code;
+  }
+}
+
+function setupMessage(code, detail = {}) {
+  const manager = 'Kiro Account Manager';
+  switch (code) {
+    case 'ACCOUNT_MANAGER_MISSING':
+      return [
+        `Kiro Account Manager was not found on this machine (no kiro-accounts.json).`,
+        `The kiro-agent commands (run, swarm, parallel, review, MCP tools) route through its local proxy.`,
+        ``,
+        `To use them:`,
+        `  1. Install ${manager} and sign in to your Kiro account(s).`,
+        `  2. Start its API proxy (default ${detail.baseUrl || 'http://127.0.0.1:5580'}).`,
+        `  3. Re-run this command. Check with: kiro status`,
+        ``,
+        `Only want auto-approval inside the Kiro IDE? That needs no proxy: run "kiro-auto-accept".`
+      ].join('\n');
+    case 'PROXY_OFFLINE':
+      return [
+        `The Kiro proxy at ${detail.baseUrl || 'http://127.0.0.1:5580'} is not running.`,
+        ``,
+        `Open Kiro Account Manager and start its API proxy, then retry. Check with: kiro status`,
+        `If the proxy uses another host or port, set KIRO_PROXY_HOST / KIRO_PROXY_PORT.`
+      ].join('\n');
+    case 'ACCOUNTS_TOO_FEW':
+      return [
+        `"${detail.feature || 'This command'}" needs at least ${MIN_SWARM_ACCOUNTS} Kiro accounts in the pool, but only ${detail.count} ${detail.count === 1 ? 'is' : 'are'} available.`,
+        ``,
+        `Swarm, parallel and multi-model review spread requests across accounts to avoid rate limits.`,
+        `Add more accounts in ${manager}, then retry.`,
+        `Single-model commands (kiro run) work with one account.`,
+        `To lower the requirement, set KIRO_MIN_ACCOUNTS.`
+      ].join('\n');
+    default:
+      return detail.message || 'Kiro setup problem.';
+  }
+}
+
 let cachedAuth = null;
 let lastAuthCheck = 0;
 
@@ -45,7 +95,8 @@ export function getProxyAuth(forceRefresh = false) {
   let host = process.env.KIRO_PROXY_HOST || DEFAULT_PROXY_HOST;
   let port = parseInt(process.env.KIRO_PROXY_PORT || DEFAULT_PROXY_PORT, 10);
   let apiKey = process.env.KIRO_API_KEY || '';
-  let accountsCount = 20;
+  let accountsCount = 0;
+  let storeFound = false;
 
   const homeDir = process.env.USERPROFILE || process.env.HOME || '';
   const appData = process.env.APPDATA || (process.platform === 'darwin'
@@ -56,6 +107,7 @@ export function getProxyAuth(forceRefresh = false) {
   const storePath = process.env.KIRO_STORE_PATH || path.join(appData, 'kiro-account-manager', 'kiro-accounts.json');
 
   if (fs.existsSync(storePath)) {
+    storeFound = true;
     try {
       const raw = fs.readFileSync(storePath);
       const storeData = decryptConfData(raw, STORE_SECRET_KEY);
@@ -89,6 +141,7 @@ export function getProxyAuth(forceRefresh = false) {
     port,
     apiKey,
     accountsCount,
+    storeFound,
     discoveredAt: now
   };
   lastAuthCheck = now;
@@ -180,7 +233,15 @@ export async function proxyRequest(urlPath, method = 'GET', data = null, customH
       safeReject(new Error(`Kiro proxy request timed out after 120s on ${urlPath}`));
     });
 
-    req.on('error', (e) => safeReject(new Error(`Cannot connect to Kiro Proxy on ${auth.baseUrl}: ${e.message}`)));
+    req.on('error', (e) => {
+      const refused = ['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT'].includes(e.code);
+      if (refused) {
+        const code = auth.storeFound ? 'PROXY_OFFLINE' : 'ACCOUNT_MANAGER_MISSING';
+        safeReject(new KiroSetupError(code, setupMessage(code, { baseUrl: auth.baseUrl })));
+      } else {
+        safeReject(new Error(`Cannot connect to Kiro Proxy on ${auth.baseUrl}: ${e.message}`));
+      }
+    });
 
     if (postBody) req.write(postBody);
     req.end();
@@ -210,6 +271,7 @@ export async function getStatus() {
       baseUrl: auth.baseUrl,
       hasApiKey: !!auth.apiKey,
       configuredAccounts: auth.accountsCount,
+      accountManagerInstalled: !!auth.storeFound,
       error: err.message
     };
   }
@@ -325,6 +387,23 @@ export async function executeTask({
 }
 
 /**
+ * Gate for multi-account features. Throws KiroSetupError with next steps
+ * when the proxy is unreachable or the pool is too small.
+ */
+export async function assertSwarmReady(feature) {
+  const status = await getStatus();
+  if (!status.online) {
+    const code = status.accountManagerInstalled ? 'PROXY_OFFLINE' : 'ACCOUNT_MANAGER_MISSING';
+    throw new KiroSetupError(code, setupMessage(code, { baseUrl: status.baseUrl }));
+  }
+  const count = Number(status.availableAccounts ?? status.accounts ?? status.configuredAccounts ?? 0);
+  if (count < MIN_SWARM_ACCOUNTS) {
+    throw new KiroSetupError('ACCOUNTS_TOO_FEW', setupMessage('ACCOUNTS_TOO_FEW', { feature, count }));
+  }
+  return status;
+}
+
+/**
  * Backward-Compatible V1 API: Swarm Execution (Mapped to LLM Council)
  */
 export async function executeSwarm({
@@ -332,6 +411,7 @@ export async function executeSwarm({
   models = ['claude-sonnet-4.5', 'deepseek-3.2', 'qwen3-coder-next', 'minimax-m2.5'],
   synthesizeModel = 'claude-sonnet-4.5'
 }) {
+  await assertSwarmReady('kiro swarm');
   const { executeCouncil } = await import('./engine-council.mjs');
   return executeCouncil({
     prompt,
@@ -349,6 +429,7 @@ export async function executeParallel({
   defaultModel = 'claude-sonnet-4.5',
   defaultRole = 'coder'
 }) {
+  await assertSwarmReady('kiro parallel');
   const { executeParallelBatch } = await import('./engine-router.mjs');
   return executeParallelBatch({
     tasks: tasks.map(t => ({
@@ -369,6 +450,7 @@ export async function executeCodeReview({
   context = '',
   focus = ['security', 'correctness', 'performance', 'architecture']
 }) {
+  await assertSwarmReady('kiro review');
   const reviewPrompt = `Perform a comprehensive multi-dimensional code audit focusing on ${focus.join(', ')}.\n\nCode to review:\n\`\`\`\n${code}\n\`\`\`\n\nContext:\n${context}`;
   const { executeCouncil } = await import('./engine-council.mjs');
   const res = await executeCouncil({
