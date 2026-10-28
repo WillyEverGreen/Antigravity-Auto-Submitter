@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submitter CLI",
   "description": "Production-grade autonomous confirmation daemon for Antigravity IDE",
-  "version": "1.8.3",
+  "version": "1.8.4",
   "publisher": "WillyEverGreen",
   "author": {
     "name": "WillyEverGreen / advdi"
@@ -75,9 +75,32 @@
     "kiro": "kiro-agent/kiro-cli.mjs",
     "kiro-agent": "kiro-agent/kiro-cli.mjs",
     "kiro-mcp": "kiro-agent/kiro-mcp.mjs",
+    "kiro-auto-accept": "kiro-auto-accept/kiro-auto-accept.js",
+    "kiro-accept": "kiro-auto-accept/kiro-auto-accept.js",
     "claude-auto-accept": "claude-auto-accept/claude-auto-accept.js",
     "claude-accept": "claude-auto-accept/claude-auto-accept.js"
   },
+  "files": [
+    "auto-accept.js",
+    "auto-accept.config.example.json",
+    "bin/",
+    "scripts/antigravity_brain.py",
+    "scripts/antigravity_cleaner.py",
+    "scripts/sync_wrappers.js",
+    "resources/",
+    "claude-auto-accept/claude-auto-accept.js",
+    "claude-auto-accept/package.json",
+    "claude-auto-accept/README.md",
+    "kiro-agent/",
+    "kiro-auto-accept/kiro-auto-accept.js",
+    "kiro-auto-accept/install-kiro.js",
+    "kiro-auto-accept/kiro-auto-accept.config.example.json",
+    "kiro-auto-accept/bin/",
+    "kiro-auto-accept/README.md",
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "node auto-accept.js start",
     "cli": "node auto-accept.js",

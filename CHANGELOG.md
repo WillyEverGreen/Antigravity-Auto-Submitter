@@ -5,7 +5,7 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.3] - 2026-10-28
+## [1.8.4] - 2026-10-28
 
 ### Added
 - **Antigravity IDE 2.6.0+ (VS Code 1.107+) & App 2.23+ Full Support**:
@@ -13,8 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Antigravity Webview Target Discovery**: Upgraded `selectAllWorkbenchTargets` to monitor both native workbench windows and Antigravity webview targets (`type: iframe` or `type: webview` with `vscode-webview://` or `antigravity` URLs) while preserving strict isolation from external web browsers and Kiro IDE.
   - **Expanded Action Button & Dialog Selectors**: Added support for new AG version button variants including `allow always`, `always allow in this workspace`, `always allow for this session`, `allow and continue`, `allow & continue`, `apply changes`, `apply all`, `accept all`, `run anyway`, and `grant access`.
   - **Context-Aware Event Dispatching**: Dispatches radio button selection (`Option 1: Allow this time` vs `Option 2: Always allow`) and keyboard events (`Enter`, `1`, `2`) directly within the target document frame where the approval card resides.
+- **Kiro IDE Global CLI Aliases**: Exposed `kiro-auto-accept` and `kiro-accept` in package `bin` for instant multi-IDE automation from a single install.
 
 ### Fixed
+- **Cross-Platform Production Readiness**: Normalized all shebangs and scripts to clean Unix LF line endings to eliminate Linux/macOS `env: 'node\r': No such file or directory` runtime errors.
+- **Package Cleanliness**: Added strict `files` whitelist in `package.json` to exclude test fixtures, internal docs, and intermediate artifacts from distribution tarballs.
 - **Shortcut Auto-Patching Performance**: Added depth limit and optimized directory scanning in `handleSetup` to prevent timeouts across cloud-synced desktop and start menu shortcuts.
 - **Process Detection Resilience**: Enhanced regex patterns across `getRunningAntigravity`, `killAntigravity`, and `findAntigravityExecutables` for multi-version process and binary candidate paths.
 

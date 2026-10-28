@@ -1,0 +1,37 @@
+# Bytecode and runtime caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
+
+# Tests & specs
+test/
+tests/
+*.test.js
+*.test.mjs
+*.spec.js
+coverage/
+
+# Development guides & internal notes
+CLAUDE.md
+scratch/
+test-results/
+audit_probe*.mjs
+phase5_parallel_audit*.mjs
+implementation_plan.md
+
+# Package archives & logs
+*.tgz
+*.tar.gz
+*.log
+npm-debug.log*
+
+# Git & IDE configs
+.git/
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
