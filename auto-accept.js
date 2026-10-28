@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.8.2';
+let PKG_VERSION = '1.8.3';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -301,7 +301,7 @@ function getRunningAntigravity() {
   try {
     if (process.platform === 'win32') {
       const out = execSync('tasklist /NH 2>nul', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      const ide = /antigravity ide\.exe/i.test(out);
+      const ide = /antigravity[\s\-_]?ide\.exe/i.test(out);
       const lines = out.split(/[\r\n]+/);
       const app = lines.some(l => /^antigravity\.exe\b/i.test(l.trim()));
       return { ide, app, any: ide || app };
@@ -333,6 +333,7 @@ function killAntigravity(target = 'all') {
     if (process.platform === 'win32') {
       if (target === 'all' || target === 'ide') {
         try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('taskkill /F /IM "antigravity-ide.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
       }
       if (target === 'all' || target === 'app') {
         try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
@@ -367,10 +368,13 @@ function findAntigravityExecutables() {
   const result = { ide: null, app: null };
 
   if (process.platform === 'win32') {
+    const userProfile = process.env.USERPROFILE || '';
     const ideCandidates = [
       process.env.ANTIGRAVITY_IDE_EXE,
       process.env.ANTIGRAVITY_IDE_PATH,
       path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'antigravity-ide', 'Antigravity IDE.exe'),
+      path.join(userProfile, 'AppData', 'Local', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
       path.join(process.env.PROGRAMFILES || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
       path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity IDE', 'Antigravity IDE.exe'),
       path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe')
@@ -380,6 +384,7 @@ function findAntigravityExecutables() {
       process.env.ANTIGRAVITY_APP_EXE,
       process.env.ANTIGRAVITY_APP_PATH,
       path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Antigravity', 'Antigravity.exe'),
+      path.join(userProfile, 'AppData', 'Local', 'Programs', 'Antigravity', 'Antigravity.exe'),
       path.join(process.env.PROGRAMFILES || '', 'Antigravity', 'Antigravity.exe'),
       path.join(process.env['PROGRAMFILES(X86)'] || '', 'Antigravity', 'Antigravity.exe'),
       path.join(process.env.APPDATA || '', 'Local', 'Programs', 'Antigravity', 'Antigravity.exe')
@@ -670,25 +675,17 @@ function handleSetup(cfg) {
 
     const psScript = `
       $shell = New-Object -ComObject WScript.Shell
-      $desktopDirs = @(
+      $scanDirs = @(
         [Environment]::GetFolderPath('Desktop'),
         (Join-Path $env:USERPROFILE 'Desktop'),
         (Join-Path $env:USERPROFILE 'OneDrive\\Desktop'),
-        [Environment]::GetFolderPath('CommonDesktopDirectory')
+        [Environment]::GetFolderPath('Programs')
       ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
-
-      $startDirs = @(
-        [Environment]::GetFolderPath('Programs'),
-        [Environment]::GetFolderPath('CommonPrograms')
-      ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
-
-      $taskbar = Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar'
-      $scanDirs = @($desktopDirs + $startDirs + @($taskbar)) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
       $ideCount = 0
       $appCount = 0
 
       foreach ($dir in $scanDirs) {
-        Get-ChildItem -Path $dir -Filter "*Antigravity*.lnk" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem -Path $dir -Filter "*Antigravity*.lnk" -Recurse -Depth 2 -ErrorAction SilentlyContinue | ForEach-Object {
           try {
             $sc = $shell.CreateShortcut($_.FullName)
             $t = $sc.TargetPath
@@ -708,21 +705,31 @@ function handleSetup(cfg) {
       $ideExe = '${idePathSafe}'
       $appExe = '${appPathSafe}'
 
-      foreach ($d in $desktopDirs) {
-        if ($ideExe -and (Test-Path $ideExe)) {
-          $scIde = $shell.CreateShortcut((Join-Path $d 'Antigravity IDE.lnk'))
-          $scIde.TargetPath = $ideExe
-          $scIde.Arguments = '--remote-debugging-port=${idePort}'
-          $scIde.IconLocation = "$ideExe,0"
-          $scIde.Save()
-        }
-        if ($appExe -and (Test-Path $appExe)) {
-          $scApp = $shell.CreateShortcut((Join-Path $d 'Antigravity.lnk'))
-          $scApp.TargetPath = $appExe
-          $scApp.Arguments = '--remote-debugging-port=${appPort}'
-          $scApp.IconLocation = "$appExe,0"
-          $scApp.Save()
-        }
+      $userWriteDirs = @(
+        [Environment]::GetFolderPath('Desktop'),
+        (Join-Path $env:USERPROFILE 'Desktop'),
+        [Environment]::GetFolderPath('Programs')
+      ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+      foreach ($d in $userWriteDirs) {
+        try {
+          if ($ideExe -and (Test-Path $ideExe)) {
+            $scIde = $shell.CreateShortcut((Join-Path $d 'Antigravity IDE.lnk'))
+            $scIde.TargetPath = $ideExe
+            $scIde.Arguments = '--remote-debugging-port=${idePort}'
+            $scIde.IconLocation = "$ideExe,0"
+            $scIde.Save()
+          }
+        } catch {}
+        try {
+          if ($appExe -and (Test-Path $appExe)) {
+            $scApp = $shell.CreateShortcut((Join-Path $d 'Antigravity.lnk'))
+            $scApp.TargetPath = $appExe
+            $scApp.Arguments = '--remote-debugging-port=${appPort}'
+            $scApp.IconLocation = "$appExe,0"
+            $scApp.Save()
+          }
+        } catch {}
       }
 
       Write-Output "IDE:$ideCount"
@@ -730,7 +737,7 @@ function handleSetup(cfg) {
     `;
     try {
       const b64 = Buffer.from(psScript, 'utf16le').toString('base64');
-      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore' });
+      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore', timeout: 10000 });
       console.log(`  ${C.bold}${C.green}✔ Successfully configured shortcuts for both Antigravity IDE & Antigravity App!${C.reset}`);
       if (exes.ide) {
         console.log(`    • ${C.cyan}Antigravity IDE:${C.reset} ${exes.ide} -> ${C.yellow}--remote-debugging-port=${idePort}${C.reset}`);
@@ -1668,26 +1675,55 @@ function buildScannerScript(cfg) {
         return null;
       };
 
-      // Helper to extract full card context without stopping at button outline-none wrappers
-      const extractContextText = (btn) => {
+      // Collect all searchable documents (main document, active-frame, and any nested iframes)
+      const docs = [document];
+      const scanDoc = (doc) => {
         try {
+          const af = doc.getElementById ? doc.getElementById('active-frame') : null;
+          if (af) {
+            const d = af.contentDocument || (af.contentWindow && af.contentWindow.document);
+            if (d && !docs.includes(d)) {
+              docs.push(d);
+              scanDoc(d);
+            }
+          }
+          if (doc.querySelectorAll) {
+            doc.querySelectorAll('iframe').forEach(f => {
+              try {
+                const d = f.contentDocument || (f.contentWindow && f.contentWindow.document);
+                if (d && !docs.includes(d)) {
+                  docs.push(d);
+                  scanDoc(d);
+                }
+              } catch(e) {}
+            });
+          }
+        } catch(e) {}
+      };
+      scanDoc(document);
+
+      // Helper to extract full card context without stopping at button outline-none wrappers
+      const extractContextText = (btn, doc) => {
+        try {
+          const targetDoc = doc || document;
+          const rootBody = targetDoc && targetDoc.body ? targetDoc.body : document.body;
           let curr = btn.parentElement;
           const btnLen = (btn.innerText || btn.textContent || '').trim().length;
-          while (curr && curr !== document.body) {
+          while (curr && curr !== rootBody) {
             const t = (curr.innerText || curr.textContent || '').trim();
             if (t.length > btnLen + 10) {
-              if (curr.parentElement && curr.parentElement !== document.body && curr.parentElement.innerText && curr.parentElement.innerText.length < t.length + 500) {
+              if (curr.parentElement && curr.parentElement !== rootBody && curr.parentElement.innerText && curr.parentElement.innerText.length < t.length + 500) {
                 return (curr.parentElement.innerText || curr.parentElement.textContent || '').toLowerCase();
               }
               return t.toLowerCase();
             }
             curr = curr.parentElement;
           }
-          const dialog = document.querySelector('[role="dialog"], [role="alertdialog"], [data-testid*="interaction"], [class*="interaction"]');
+          const dialog = targetDoc && targetDoc.querySelector ? targetDoc.querySelector('[role="dialog"], [role="alertdialog"], [data-testid*="interaction"], [class*="interaction"]') : null;
           if (dialog) {
             return (dialog.innerText || dialog.textContent || '').toLowerCase();
           }
-          return document.body ? (document.body.innerText || '').toLowerCase() : '';
+          return rootBody ? (rootBody.innerText || '').toLowerCase() : '';
         } catch (e) {
           return '';
         }
@@ -1706,12 +1742,28 @@ function buildScannerScript(cfg) {
       };
 
       // ── Tier 1: Antigravity interaction continue button ──
-      const continueBtn = document.querySelector('[data-testid="interaction-continue-button"]');
+      let continueBtn = null;
+      let continueDoc = document;
+      for (const d of docs) {
+        try {
+          if (!d || !d.querySelector) continue;
+          const btn = d.querySelector('[data-testid="interaction-continue-button"]') ||
+                      d.querySelector('[data-testid*="interaction-continue"]') ||
+                      d.querySelector('[data-testid="interaction-allow-button"]') ||
+                      d.querySelector('[data-testid="allow-button"]');
+          if (btn && !isClicked(btn)) {
+            continueBtn = btn;
+            continueDoc = d;
+            break;
+          }
+        } catch (e) {}
+      }
+
       if (continueBtn && !isClicked(continueBtn)) {
         const rect = continueBtn.getBoundingClientRect();
-        const style = window.getComputedStyle(continueBtn);
+        const style = (continueDoc.defaultView || window).getComputedStyle(continueBtn);
         if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
-          const content = extractContextText(continueBtn);
+          const content = extractContextText(continueBtn, continueDoc);
           const match = checkKeywords(content);
           if (match) {
             const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
@@ -1726,28 +1778,29 @@ function buildScannerScript(cfg) {
           }
           markClicked(continueBtn);
 
+          const targetBody = continueDoc.body || document.body;
           if (autoSelectAlwaysAllow) {
             try {
-              if (document.body) document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
-              const opt2 = document.querySelector('input[type="radio"][value="2"]');
+              if (targetBody) targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
+              const opt2 = continueDoc.querySelector('input[type="radio"][value="2"]');
               if (opt2 && !opt2.checked) { opt2.checked = true; opt2.click(); opt2.dispatchEvent(new Event('change', { bubbles: true })); }
             } catch (e) {}
           } else {
             try {
-              if (document.body) document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
-              const opt1 = document.querySelector('input[type="radio"][value="1"]');
+              if (targetBody) targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
+              const opt1 = continueDoc.querySelector('input[type="radio"][value="1"]');
               if (opt1 && !opt1.checked) { opt1.checked = true; opt1.click(); opt1.dispatchEvent(new Event('change', { bubbles: true })); }
             } catch (e) {}
           }
-          if (document.body) {
-            try { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
+          if (targetBody) {
+            try { targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
           }
           const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
           if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
             try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
           }
           continueBtn.click();
-          continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: continueDoc.defaultView || window }));
           return { action: (continueBtn.innerText || 'Submit').trim().replace(/\\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
         }
       }
@@ -1761,39 +1814,43 @@ function buildScannerScript(cfg) {
 
       // ── Tier 2: Autopilot mode Proceed button ──
       if (mode === 'autopilot') {
-        const pbs = Array.from(document.querySelectorAll('button, a[role="button"]'));
-        for (const pb of pbs) {
-          if (isClicked(pb)) continue;
-          if (pb.disabled || (pb.getAttribute && pb.getAttribute('aria-disabled') === 'true')) continue;
-          if (pb.getAttribute && pb.getAttribute('aria-expanded') !== null) continue;
+        for (const d of docs) {
+          if (!d || !d.querySelectorAll) continue;
+          const pbs = Array.from(d.querySelectorAll('button, a[role="button"], [role="button"]'));
+          for (const pb of pbs) {
+            if (isClicked(pb)) continue;
+            if (pb.disabled || (pb.getAttribute && pb.getAttribute('aria-disabled') === 'true')) continue;
+            if (pb.getAttribute && pb.getAttribute('aria-expanded') !== null) continue;
 
-          const pt = (pb.innerText || pb.textContent || '').trim().toLowerCase();
-          if (pt.length === 0 || pt.length > 30) continue;
-          if (IGNORE_WORDS.some(w => pt.includes(w))) continue;
+            const pt = (pb.innerText || pb.textContent || '').trim().toLowerCase();
+            if (pt.length === 0 || pt.length > 30) continue;
+            if (IGNORE_WORDS.some(w => pt.includes(w))) continue;
 
-          const ptClean = pt
-            .replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '')
-            .replace(/\\s*(\\((?:enter|\\d|ctrl|cmd|opt|alt|[a-z0-9\\s+-]+)\\)|\\[[a-z0-9\\s+-]+\\])$/i, '')
-            .trim();
+            const ptClean = pt
+              .replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '')
+              .replace(/\\s*(\\((?:enter|\\d|ctrl|cmd|opt|alt|[a-z0-9\\s+-]+)\\)|\\[[a-z0-9\\s+-]+\\])$/i, '')
+              .trim();
 
-          if (ptClean === 'proceed' || ptClean.includes('proceed with') || ptClean.includes('proceed to execution')) {
-            const pr = pb.getBoundingClientRect();
-            if (pr.width > 5 && pr.height > 5 && window.getComputedStyle(pb).display !== 'none' && window.getComputedStyle(pb).visibility !== 'hidden') {
-              const fullContent = extractContextText(pb);
-              const match = checkKeywords(fullContent);
-              if (match) {
-                const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
-                return { action: 'Proceed (Plan)', blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
+            if (ptClean === 'proceed' || ptClean.startsWith('proceed with') || ptClean.startsWith('proceed to') || ptClean === 'proceed (plan)' || ptClean.includes('proceed anyway')) {
+              const pr = pb.getBoundingClientRect();
+              const pStyle = (d.defaultView || window).getComputedStyle(pb);
+              if (pr.width > 5 && pr.height > 5 && pStyle.display !== 'none' && pStyle.visibility !== 'hidden') {
+                const fullContent = extractContextText(pb, d);
+                const match = checkKeywords(fullContent);
+                if (match) {
+                  const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
+                  return { action: 'Proceed (Plan)', blocked: true, blockedType: match.type, matchedKeyword: match.kw, blockedReason: reason, context: fullContent.substring(0, 150) };
+                }
+                markClicked(pb);
+
+                const rk = Object.keys(pb).find(k => k.startsWith('__reactProps$'));
+                if (rk && pb[rk] && typeof pb[rk].onClick === 'function') {
+                  try { pb[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
+                }
+                pb.click();
+                pb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: d.defaultView || window }));
+                return { action: 'Proceed (Plan Auto-Approved)', blocked: false, context: 'Plan Approved in Autopilot Mode' };
               }
-              markClicked(pb);
-
-              const rk = Object.keys(pb).find(k => k.startsWith('__reactProps$'));
-              if (rk && pb[rk] && typeof pb[rk].onClick === 'function') {
-                try { pb[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
-              }
-              pb.click();
-              pb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-              return { action: 'Proceed (Plan Auto-Approved)', blocked: false, context: 'Plan Approved in Autopilot Mode' };
             }
           }
         }
@@ -1805,35 +1862,69 @@ function buildScannerScript(cfg) {
         'always allow',
         'allow once',
         'allow this time',
+        'allow always',
+        'always allow in this workspace',
         'always run',
         'run command',
         'run',
         'run js',
         'run (unsandboxed)',
+        'run unsandboxed',
         'run in terminal',
         'allow',
+        'allow and continue',
+        'allow & continue',
         'accept step',
         'accept',
+        'accept all',
+        'apply',
+        'apply changes',
+        'apply all',
+        'confirm',
+        'yes',
+        'ok',
         'continue response',
         'continue',
-        'proceed anyway'
+        'proceed',
+        'proceed anyway',
+        'run anyway',
+        'grant',
+        'grant access'
       ];
       const PLAN_BTNS = [
         'proceed',
+        'proceed (plan)',
         'proceed with plan',
+        'proceed to execution',
         'always proceed',
         'confirm',
         'yes',
         'ok',
         'accept',
+        'accept all',
         'approve',
+        'approve all',
         'got it',
         'start',
-        'execute'
+        'execute',
+        'yes, proceed',
+        'save and proceed'
       ];
 
-      const candidates = Array.from(document.querySelectorAll('button, a[role="button"], input[type="submit"]'));
-      for (const btn of candidates) {
+      const candidates = [];
+      for (const d of docs) {
+        if (!d || !d.querySelectorAll) continue;
+        try {
+          const els = d.querySelectorAll('button, a[role="button"], input[type="submit"], [role="button"]');
+          for (let i = 0; i < els.length; i++) {
+            candidates.push({ el: els[i], doc: d });
+          }
+        } catch (e) {}
+      }
+
+      for (const item of candidates) {
+        const btn = item.el;
+        const d = item.doc;
         if (isClicked(btn)) continue;
         if (btn.disabled || (btn.getAttribute && btn.getAttribute('aria-disabled') === 'true')) continue;
         if (btn.getAttribute && btn.getAttribute('aria-expanded') !== null) continue;
@@ -1841,8 +1932,8 @@ function buildScannerScript(cfg) {
         const raw = (btn.innerText || btn.textContent || '').trim();
         const text = raw.replace(/\\s+/g, ' ').replace(/[\\u21b5\\u23ce\\u21a9\\u2022\\u00b7]/gu, '').trim().toLowerCase();
 
-        // 1. Length guard: confirmation buttons have short, punchy action labels (<= 30 chars)
-        if (text.length === 0 || text.length > 30) continue;
+        // 1. Length guard: confirmation buttons have short, punchy action labels (<= 35 chars)
+        if (text.length === 0 || text.length > 35) continue;
 
         // 2. Reject completed task indicators, logs, accordions, and output wrappers
         if (IGNORE_WORDS.some(w => text.includes(w))) continue;
@@ -1858,8 +1949,9 @@ function buildScannerScript(cfg) {
 
         if (allowed) {
           const rect = btn.getBoundingClientRect();
-          if (rect.width > 5 && rect.height > 5 && window.getComputedStyle(btn).visibility !== 'hidden' && window.getComputedStyle(btn).display !== 'none') {
-            const fullContent = extractContextText(btn);
+          const bStyle = (d.defaultView || window).getComputedStyle(btn);
+          if (rect.width > 5 && rect.height > 5 && bStyle.visibility !== 'hidden' && bStyle.display !== 'none') {
+            const fullContent = extractContextText(btn, d);
             const match = checkKeywords(fullContent);
             if (match) {
               const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
@@ -1872,9 +1964,9 @@ function buildScannerScript(cfg) {
               try { btn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
             }
             btn.click();
-            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            if (document.body) {
-              try { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: d.defaultView || window }));
+            if (d.body) {
+              try { d.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
             }
             return { action: raw, blocked: false, context: fullContent.substring(0, 100) };
           }
@@ -1966,17 +2058,17 @@ function findSystemListeningPorts() {
 function selectAllWorkbenchTargets(targets) {
   if (!targets || !Array.isArray(targets)) return [];
   
-  // Explicitly exclude non-page targets and internal devtools inspector windows
-  const validPages = targets.filter(t => 
-    t && t.type === 'page' &&
+  // Explicitly include workbench pages, webviews, and Antigravity frames with active debugger url
+  const validTargets = targets.filter(t => 
+    t && (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
     t.webSocketDebuggerUrl &&
     (!t.url || !t.url.startsWith('devtools://'))
   );
 
-  // Match workbench / Antigravity editor page targets only.
+  // Match workbench / Antigravity editor page targets and Antigravity webviews.
   // Never match regular external web browsers (chrome://, edge://, chrome-extension://, public web tabs)
-  // But DO match Antigravity IDE (vscode-file / workbench) AND Antigravity App (local language server http/https/plugin)
-  const workbenchPages = validPages.filter(t => {
+  // But DO match Antigravity IDE (vscode-file / workbench), Antigravity Webviews, AND Antigravity App (local language server http/https/plugin)
+  const workbenchPages = validTargets.filter(t => {
     const url = (t.url || '').toLowerCase();
     const title = (t.title || '').toLowerCase();
 
@@ -1988,6 +2080,13 @@ function selectAllWorkbenchTargets(targets) {
     // Strict Isolation: Reject Kiro IDE instances (by install URL or window title)
     if (url.includes('/kiro/') || url.includes('\\kiro\\') || title.endsWith(' - kiro')) {
       return false;
+    }
+
+    // For non-page targets (iframe/webview), match only if specifically an Antigravity panel or extension webview
+    if (t.type !== 'page') {
+      const isAgyWebview = url.includes('antigravity') || url.includes('jetski') || url.includes('agy') ||
+                           (url.includes('vscode-webview') && (title.includes('antigravity') || title.includes('google')));
+      return Boolean(isAgyWebview);
     }
 
     const isAntigravityTitle = title.includes('antigravity');

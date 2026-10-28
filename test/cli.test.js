@@ -994,6 +994,249 @@ it('antigravity_cleaner.py executes --check --json cleanly and returns valid 3-t
   assert(data.tier1_safe['Electron IDE Runtime Caches'] !== undefined, 'Electron IDE Runtime Caches must be tracked');
 });
 
+// ── 15. New Antigravity Version (2.6.0+ / VS Code 1.107+) Multi-Document & Webview Compatibility ──
+it('buildScannerScript traverses nested iframes and active-frame to auto-approve interaction continue button in new AG version', () => {
+  const script = buildScannerScript({
+    mode: 'autonomous',
+    autoSelectAlwaysAllow: false,
+    askKeywords: ['git push'],
+    skipKeywords: ['rm -rf']
+  });
+
+  let optionSelected = false;
+  let clicked = false;
+
+  const mockCard = {
+    tagName: 'DIV',
+    className: 'interaction-card',
+    innerText: 'Shell Execution Request\nRun npm test\nOption 1: Allow this time',
+    parentElement: null
+  };
+
+  const mockBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Submit',
+    className: 'btn-primary',
+    parentElement: mockCard,
+    hasAttribute: (a) => false,
+    getAttribute: (a) => null,
+    setAttribute: (a, v) => {},
+    getBoundingClientRect: () => ({ width: 90, height: 32 }),
+    click: () => { clicked = true; },
+    dispatchEvent: () => {}
+  };
+
+  const mockRadio1 = {
+    checked: false,
+    click: () => { optionSelected = true; },
+    dispatchEvent: () => {}
+  };
+
+  const innerDoc = {
+    querySelector: (sel) => {
+      if (sel === '[data-testid="interaction-continue-button"]') return mockBtn;
+      if (sel === 'input[type="radio"][value="1"]') return mockRadio1;
+      return null;
+    },
+    querySelectorAll: () => [],
+    body: { innerText: mockCard.innerText, dispatchEvent: () => {} }
+  };
+
+  const activeFrame = {
+    contentDocument: innerDoc,
+    contentWindow: { document: innerDoc }
+  };
+
+  const sandbox = {
+    document: {
+      getElementById: (id) => id === 'active-frame' ? activeFrame : null,
+      querySelector: () => null,
+      querySelectorAll: (sel) => sel === 'iframe' ? [activeFrame] : [],
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must detect continue button inside nested iframe/active-frame');
+  assert.strictEqual(result.blocked, false);
+  assert.strictEqual(clicked, true, 'Continue button in nested iframe must be clicked');
+  assert.strictEqual(optionSelected, true, 'Option 1 radio must be selected in nested iframe');
+});
+
+it('buildScannerScript blocks dangerous keywords in nested iframes', () => {
+  const script = buildScannerScript({
+    mode: 'autonomous',
+    autoSelectAlwaysAllow: false,
+    askKeywords: ['git push'],
+    skipKeywords: ['rm -rf']
+  });
+
+  let clicked = false;
+
+  const mockCard = {
+    tagName: 'DIV',
+    className: 'interaction-card',
+    innerText: 'Terminal Execution\nrm -rf /critical_data\nOption 1: Allow this time',
+    parentElement: null
+  };
+
+  const mockBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Submit',
+    parentElement: mockCard,
+    hasAttribute: () => false,
+    getAttribute: () => null,
+    getBoundingClientRect: () => ({ width: 90, height: 32 }),
+    click: () => { clicked = true; }
+  };
+
+  const innerDoc = {
+    querySelector: (sel) => sel === '[data-testid="interaction-continue-button"]' ? mockBtn : null,
+    querySelectorAll: () => [],
+    body: { innerText: mockCard.innerText }
+  };
+
+  const sandbox = {
+    document: {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: (sel) => sel === 'iframe' ? [{ contentDocument: innerDoc }] : [],
+      body: { innerText: '' }
+    },
+    window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must evaluate card inside nested iframe');
+  assert.strictEqual(result.blocked, true);
+  assert.strictEqual(result.blockedType, 'skip');
+  assert.strictEqual(result.matchedKeyword, 'rm -rf');
+  assert.strictEqual(clicked, false, 'Dangerous action must NOT be clicked');
+});
+
+it('buildScannerScript recognizes expanded action buttons in new AG version', () => {
+  const newButtons = [
+    'allow always',
+    'always allow in this workspace',
+    'allow and continue',
+    'allow & continue',
+    'apply changes',
+    'apply all',
+    'accept all',
+    'run anyway'
+  ];
+
+  for (const btnLabel of newButtons) {
+    const script = buildScannerScript({
+      mode: 'autonomous',
+      autoSelectAlwaysAllow: false,
+      askKeywords: [],
+      skipKeywords: []
+    });
+
+    let clicked = false;
+    const mockBtn = {
+      tagName: 'BUTTON',
+      innerText: btnLabel,
+      parentElement: null,
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      setAttribute: () => {},
+      getBoundingClientRect: () => ({ width: 110, height: 32 }),
+      click: () => { clicked = true; },
+      dispatchEvent: () => {}
+    };
+
+    const sandbox = {
+      document: {
+        getElementById: () => null,
+        querySelector: () => null,
+        querySelectorAll: (sel) => sel.includes('button') ? [mockBtn] : [],
+        body: { innerText: btnLabel, dispatchEvent: () => {} }
+      },
+      window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+      KeyboardEvent: function() {},
+      MouseEvent: function() {}
+    };
+
+    const result = vm.runInNewContext(script, sandbox);
+    assert(result !== null, `Scanner must detect button: "${btnLabel}"`);
+    assert.strictEqual(result.blocked, false, `Button "${btnLabel}" should be approved`);
+    assert.strictEqual(clicked, true, `Button "${btnLabel}" must be clicked`);
+  }
+});
+
+it('buildScannerScript auto-approves autopilot proceed plans inside nested iframes', () => {
+  const script = buildScannerScript({
+    mode: 'autopilot',
+    autoSelectAlwaysAllow: false,
+    askKeywords: [],
+    skipKeywords: []
+  });
+
+  let clicked = false;
+  const mockProceedBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Proceed with plan (Enter)',
+    parentElement: null,
+    hasAttribute: () => false,
+    getAttribute: () => null,
+    setAttribute: () => {},
+    getBoundingClientRect: () => ({ width: 140, height: 36 }),
+    click: () => { clicked = true; },
+    dispatchEvent: () => {}
+  };
+
+  const innerDoc = {
+    querySelector: () => null,
+    querySelectorAll: (sel) => sel.includes('button') ? [mockProceedBtn] : [],
+    body: { innerText: 'Implementation Plan Approved', dispatchEvent: () => {} }
+  };
+
+  const sandbox = {
+    document: {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: (sel) => sel === 'iframe' ? [{ contentDocument: innerDoc }] : [],
+      body: { innerText: '', dispatchEvent: () => {} }
+    },
+    window: { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must detect autopilot proceed plan button in nested iframe');
+  assert.strictEqual(result.blocked, false);
+  assert.strictEqual(clicked, true, 'Proceed button in nested iframe must be clicked');
+});
+
+it('selectAllWorkbenchTargets recognizes Antigravity webview targets while ignoring non-Antigravity webviews and Kiro', () => {
+  const targets = [
+    { id: '1', type: 'page', title: 'Classroom - Antigravity IDE', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/1', url: 'vscode-file://vscode-app/workbench.html' },
+    { id: '2', type: 'webview', title: 'Antigravity Panel', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/2', url: 'vscode-webview://antigravity.panel' },
+    { id: '3', type: 'iframe', title: 'Google Antigravity Extension', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/3', url: 'vscode-webview://agy/bridge.html' },
+    { id: '4', type: 'webview', title: 'Markdown Preview', webSocketDebuggerUrl: 'ws://127.0.0.1:9333/4', url: 'vscode-webview://markdown' },
+    { id: '5', type: 'page', title: 'Kiro IDE', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/5', url: 'vscode-file://kiro/workbench.html' },
+    { id: '6', type: 'page', title: 'External App', webSocketDebuggerUrl: 'ws://127.0.0.1:3000/6', url: 'http://localhost:3000' }
+  ];
+
+  const matched = selectAllWorkbenchTargets(targets);
+  assert.strictEqual(matched.length, 3, 'Must match exactly the 3 Antigravity targets (page + 2 AG webviews)');
+  assert(matched.some(t => t.id === '1'), 'Should include Antigravity IDE workbench page');
+  assert(matched.some(t => t.id === '2'), 'Should include Antigravity Panel webview');
+  assert(matched.some(t => t.id === '3'), 'Should include Google Antigravity Extension iframe');
+  assert(!matched.some(t => t.id === '4'), 'Must reject unrelated markdown preview');
+  assert(!matched.some(t => t.id === '5'), 'Must reject Kiro IDE target');
+  assert(!matched.some(t => t.id === '6'), 'Must reject external web app');
+});
+
+
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
 process.exit(passed === total ? 0 : 1);
