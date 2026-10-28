@@ -31,6 +31,8 @@
 
 </div>
 
+> **🧠 Using Claude Code CLI?** Check out [`claude-auto-accept/`](./claude-auto-accept): a native `PreToolUse` hook (no daemon) that auto-approves safe tools, blocks destructive commands, and pauses on sensitive actions. One-command setup: `claude-auto-accept setup`.
+>
 > **🤖 Using Kiro IDE?** Check out the dedicated companion edition: [`kiro-auto-accept/`](./kiro-auto-accept) (operating autonomously on dedicated Port 9222 with zero port conflicts).
 >
 > **⚡ Multi-Model Swarms & Parallel Delegation?** Check out [`kiro-agent/`](./kiro-agent) - Autonomous 20-account proxy integration, V2.1 8-Dim Semantic Router, Dual-Gated Verification (DeepSeek Blind Critic + Syntax Self-Healing), Context Budget Guard, 14 native MCP tools, and 5-layer Anti-Ban Armor.
@@ -80,13 +82,16 @@ Following these **3 simple steps** guarantees Antigravity Auto-Submit works reli
 
 ### 🎯 Step 1: Install the CLI Globally
 
-Install directly from GitHub (works on any Windows, macOS, or Linux machine with Node.js 18+):
+Install from the npm registry (works on any Windows, macOS, or Linux machine with Node.js 18+):
 
 ```bash
-npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+npm install -g antigravity-auto-submit
 ```
 
-*(Or if you cloned this repository locally, run `npm install -g .` inside the folder).*
+*(Prefer the latest unreleased code? Use `npm install -g WillyEverGreen/Antigravity-Auto-Submitter`. If you cloned this repository locally, run `npm install -g .` inside the folder).*
+
+> [!NOTE]
+> **Compatibility:** Supports Antigravity IDE 2.6.0+ (VS Code 1.107+) and Antigravity App 2.23+. The scanner traverses nested webview/iframe documents, so approval prompts rendered inside modern webviews are detected.
 
 ---
 
@@ -218,7 +223,7 @@ auto-accept
 <a id="updating"></a>
 ## 🔄 Updating to the Latest Version
 
-To update Antigravity Auto-Submitter to the newest release with the latest commands (`clean-ag`, `clean-ides`, `clean-all`, multi-IDE cleaner, and bugfixes):
+To update Antigravity Auto-Submitter to the newest release with the latest commands and bugfixes (see [CHANGELOG.md](./CHANGELOG.md)):
 
 ### Option A: 1-Command CLI Update (Recommended)
 ```bash
@@ -226,11 +231,11 @@ auto-accept update
 # or
 agy-update
 ```
-*(Automatically pulls and installs the latest version globally from GitHub).*
+*(Automatically pulls and installs the latest version globally).*
 
 ### Option B: Via npm Global Command
 ```bash
-npm install -g WillyEverGreen/Antigravity-Auto-Submitter
+npm install -g antigravity-auto-submit@latest
 ```
 
 ### Option C: If You Cloned the Repository Locally (Active Development)
@@ -494,6 +499,10 @@ auto-accept list
 > - `auto-accept check` ⬌ `antigravity-check` ⬌ `agy-check`
 > - `auto-accept clean` ⬌ `antigravity-clean` ⬌ `agy-clean`
 > - `auto-accept brain` ⬌ `antigravity-brain` ⬌ `agy-brain`
+> - `auto-accept start` ⬌ `antigravity-start` ⬌ `agy-start`
+> - `check-ag` ⬌ `agy-check-ag`, `check-ides` ⬌ `ides-check` ⬌ `agy-check-ides`
+> - `kiro-auto-accept` ⬌ `kiro-accept` (Kiro IDE daemon)
+> - `claude-auto-accept` ⬌ `claude-accept` (Claude Code hook)
 
 ### Flags
 ```
@@ -755,7 +764,7 @@ antigravity-brain --interactive
 ## 🔍 Frequently Asked Questions (FAQ & Search Index)
 
 #### Q: How do I automatically approve tool permissions in Google Antigravity IDE?
-> Run `npm install -g WillyEverGreen/Antigravity-Auto-Submitter` and launch your IDE with `auto-accept setup` or `auto-accept launch`. The background daemon automatically approves terminal execution and file modification prompts in real time.
+> Run `npm install -g antigravity-auto-submit` and launch your IDE with `auto-accept setup` or `auto-accept launch`. The background daemon automatically approves terminal execution and file modification prompts in real time.
 
 #### Q: How do I run Antigravity IDE on 100% hands-free autopilot overnight?
 > Run `auto-accept --mode autopilot`. In Autopilot mode, the daemon auto-approves both tool execution prompts AND implementation plan dialogs (*Proceed* / *Proceed with plan*).
@@ -765,6 +774,25 @@ antigravity-brain --interactive
 
 #### Q: How do I prevent risky commands (like `git push` or `rm -rf`) from auto-executing?
 > `auto-accept` includes built-in keyword guardrails. Use `auto-accept add-ask "git push"` to enforce manual confirmation for sensitive commands, or `auto-accept add-skip "rm -rf"` to skip destructive operations completely.
+
+---
+
+## 🧠 Claude Code Auto-Accept (`claude-auto-accept`)
+
+This package also ships a native **`PreToolUse` hook** for Claude Code CLI. Unlike the CDP daemon it needs no background process: Claude Code runs the hook on demand for each tool call.
+
+- **Auto-approves** safe commands (`npm test`, `git status`, `ls`, `grep`), builds, and edits.
+- **Blocks** destructive commands (`rm -rf`, `drop table`, `format c:`).
+- **Pauses** for review on `git push`, `git reset --hard`, and edits to `.env` or credentials.
+
+```bash
+claude-auto-accept setup            # register in this project (.claude/settings.json)
+claude-auto-accept setup --global   # register for all projects (~/.claude/settings.json)
+claude-auto-accept status           # check registration
+claude-auto-accept doctor           # diagnose
+```
+
+Short alias: `claude-accept`. From a clone, use `npm run claude:setup`, `claude:status`, or `claude:doctor`. Full docs: [`claude-auto-accept/README.md`](./claude-auto-accept/README.md).
 
 ---
 
@@ -811,7 +839,7 @@ For complete documentation, tool input schemas, and configuration variables, rea
 npm test
 ```
 
-Runs the automated test suite verifying scanner script compilation, configuration parsing, target filtering, and stats persistence.
+Runs all test suites: the Antigravity CLI (scanner script compilation, configuration parsing, target filtering, stats persistence), Kiro agent, Kiro auto-accept, and Claude auto-accept hook tests.
 
 ---
 
