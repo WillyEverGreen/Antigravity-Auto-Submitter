@@ -777,6 +777,12 @@ antigravity-brain --interactive
 
 ---
 
+## 🧩 VS Code Extension (`vscode-extension`)
+
+Prefer a status bar toggle over the terminal? [`vscode-extension/`](./vscode-extension) packages the daemon as a VS Code / Antigravity IDE extension with Start/Stop, mode switching, connection status, and keyword settings. Build it with `cd vscode-extension && npm run package`, then install the `.vsix` via **Extensions: Install from VSIX...**.
+
+---
+
 ## 🧠 Claude Code Auto-Accept (`claude-auto-accept`)
 
 This package also ships a native **`PreToolUse` hook** for Claude Code CLI. Unlike the CDP daemon it needs no background process: Claude Code runs the hook on demand for each tool call.

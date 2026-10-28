@@ -45,3 +45,7 @@ phase5_parallel_audit*.mjs
 __pycache__/
 *.pyc
 
+
+# VS Code extension build output
+vscode-extension/*.vsix
+vscode-extension/daemon/

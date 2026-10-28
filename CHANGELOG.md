@@ -5,6 +5,14 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-10-29
+
+### Added
+- **VS Code Extension (`vscode-extension/`)**: Status bar toggle, mode switcher, connection status, setup/doctor commands, and keyword settings. Bundles the daemon so the `.vsix` is self-contained.
+
+### Changed
+- **README**: npm-first install and update instructions, Antigravity IDE 2.6.0+ / App 2.23+ compatibility note, Claude Code auto-accept hook section, and expanded command alias list.
+
 ## [1.8.4] - 2026-10-28
 
 ### Added

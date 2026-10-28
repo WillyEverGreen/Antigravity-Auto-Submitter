@@ -1,0 +1,82 @@
+{
+  "name": "antigravity-auto-submit",
+  "displayName": "Antigravity Auto-Submit",
+  "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
+  "version": "1.8.5",
+  "publisher": "WillyEverGreen",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WillyEverGreen/Antigravity-Auto-Submitter.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/WillyEverGreen/Antigravity-Auto-Submitter/issues"
+  },
+  "homepage": "https://github.com/WillyEverGreen/Antigravity-Auto-Submitter#readme",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["antigravity", "auto-accept", "auto-approve", "autopilot", "cdp", "automation"],
+  "extensionKind": ["ui"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "antigravityAutoSubmit.start", "title": "Start Auto-Submit", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.stop", "title": "Stop Auto-Submit", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.toggle", "title": "Toggle Auto-Submit", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.setMode", "title": "Switch Mode (Autonomous / Autopilot)", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.showStatus", "title": "Show Connection Status", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.setup", "title": "Add Debug Port to IDE Shortcuts (setup)", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.doctor", "title": "Run Diagnostics (doctor)", "category": "Antigravity Auto-Submit" },
+      { "command": "antigravityAutoSubmit.showLog", "title": "Show Daemon Log", "category": "Antigravity Auto-Submit" }
+    ],
+    "configuration": {
+      "title": "Antigravity Auto-Submit",
+      "properties": {
+        "antigravityAutoSubmit.mode": {
+          "type": "string",
+          "enum": ["autonomous", "autopilot"],
+          "default": "autonomous",
+          "description": "autonomous approves tool prompts only. autopilot also confirms implementation plan dialogs."
+        },
+        "antigravityAutoSubmit.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start the daemon automatically when the IDE starts."
+        },
+        "antigravityAutoSubmit.cdpPort": {
+          "type": "number",
+          "default": 0,
+          "description": "CDP debug port to attach to. 0 auto-detects (9333, then 9000-9400)."
+        },
+        "antigravityAutoSubmit.askKeywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["git push", "git reset --hard"],
+          "description": "Prompts containing these keywords are left for you to confirm manually."
+        },
+        "antigravityAutoSubmit.skipKeywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["rm -rf", "drop table", "git push --force", "format c:", "del /f /s /q c:"],
+          "description": "Prompts containing these keywords are never approved."
+        },
+        "antigravityAutoSubmit.nodePath": {
+          "type": "string",
+          "default": "node",
+          "description": "Node.js executable used to run the daemon (Node 18+)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "prepackage": "node scripts/bundle.js",
+    "package": "npx --yes @vscode/vsce package",
+    "publish:vsce": "npx --yes @vscode/vsce publish",
+    "publish:ovsx": "npx --yes ovsx publish"
+  }
+}
