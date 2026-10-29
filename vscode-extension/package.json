@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submit",
   "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
-  "version": "1.8.5",
+  "version": "1.9.0",
   "publisher": "WillyEverGreen",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -41,12 +41,14 @@
       {
         "command": "antigravityAutoSubmit.start",
         "title": "Start Auto-Submit",
-        "category": "Antigravity Auto-Submit"
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(play)"
       },
       {
         "command": "antigravityAutoSubmit.stop",
         "title": "Stop Auto-Submit",
-        "category": "Antigravity Auto-Submit"
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "antigravityAutoSubmit.toggle",
@@ -97,8 +99,73 @@
         "command": "antigravityAutoSubmit.openWalkthrough",
         "title": "Open Getting Started Walkthrough",
         "category": "Antigravity Auto-Submit"
+      },
+      {
+        "command": "antigravityAutoSubmit.refreshDashboard",
+        "title": "Refresh Dashboard",
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "antigravityAutoSubmit.clearLog",
+        "title": "Clear Log",
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(clear-all)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "antigravityDashboard",
+          "title": "Antigravity",
+          "icon": "resources/activity-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "antigravityDashboard": [
+        {
+          "id": "antigravityAutoSubmit.statusView",
+          "name": "Status"
+        },
+        {
+          "id": "antigravityAutoSubmit.statsView",
+          "name": "Stats"
+        },
+        {
+          "id": "antigravityAutoSubmit.actionsView",
+          "name": "Actions"
+        },
+        {
+          "id": "antigravityAutoSubmit.logView",
+          "name": "Live Log"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "antigravityAutoSubmit.refreshDashboard",
+          "when": "view =~ /^antigravityAutoSubmit\\./",
+          "group": "navigation"
+        },
+        {
+          "command": "antigravityAutoSubmit.start",
+          "when": "view == antigravityAutoSubmit.statusView && !antigravityAutoSubmit.running",
+          "group": "navigation"
+        },
+        {
+          "command": "antigravityAutoSubmit.stop",
+          "when": "view == antigravityAutoSubmit.statusView && antigravityAutoSubmit.running",
+          "group": "navigation"
+        },
+        {
+          "command": "antigravityAutoSubmit.clearLog",
+          "when": "view == antigravityAutoSubmit.logView",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Antigravity Auto-Submit",
       "properties": {
@@ -213,6 +280,7 @@
     ]
   },
   "scripts": {
+    "test": "node ../test/vscode-extension.test.js",
     "prepackage": "node scripts/bundle.js",
     "package": "npx --yes @vscode/vsce package",
     "publish:vsce": "npx --yes @vscode/vsce publish",

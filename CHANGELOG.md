@@ -5,6 +5,14 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-10-29
+
+### Added
+- **Dashboard sidebar panel**: Native VS Code activity bar panel with the Antigravity icon. Four flat TreeView sections — Status, Stats, Actions, and Live Log — provide at-a-glance daemon state, CDP connection details, approval counts, and a real-time event feed without leaving the editor.
+- **Refresh Dashboard** and **Clear Log** commands with title-bar icon buttons on the sidebar views.
+- Context-aware Start/Stop buttons that toggle based on daemon state.
+- Status polling (5 s interval) and live stdout parsing for APPROVE, SKIPPED, PAUSED, READY, DISCON, MODE, and TOGGLE events.
+
 ## [1.8.5] - 2026-10-29
 
 ### Added

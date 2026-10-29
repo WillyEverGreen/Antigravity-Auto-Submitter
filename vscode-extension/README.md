@@ -30,6 +30,17 @@ auto-accept start
 
 Switch **Daemon Source** to `global` (setting `antigravityAutoSubmit.daemonSource`) to make the extension use that install. You can then update the daemon with `npm install -g antigravity-auto-submit@latest` without waiting for an extension update.
 
+## Dashboard
+
+The extension adds an **Antigravity** panel to the activity bar (sidebar). It has four sections:
+
+- **Status** — daemon state (running/stopped), operating mode, CDP connection with per-window details, Node.js version, and keyword rule counts.
+- **Stats** — lifetime approval count, last approval timestamp, and last approved action.
+- **Actions** — one-click access to start/stop, switch mode, diagnostics, setup, environment check, output log, docs, and the getting-started walkthrough.
+- **Live Log** — real-time feed of daemon events: approvals, skips, pauses, connections, disconnections, and errors, each with a timestamp.
+
+The status and stats sections poll the daemon every 5 seconds while it is running. Use the refresh button in the view title bar to force an immediate update, or the clear button to reset the log.
+
 ## Commands
 
 | Command | What it does |
@@ -41,6 +52,8 @@ Switch **Daemon Source** to `global` (setting `antigravityAutoSubmit.daemonSourc
 | Add Debug Port to IDE Shortcuts (setup) | Patches IDE shortcuts with the debug port |
 | Run Diagnostics (doctor) | Full diagnostics in a terminal |
 | Show Daemon Log | Opens the output channel |
+| Refresh Dashboard | Force-refresh all sidebar views |
+| Clear Log | Clear the live log view |
 | Copy npm Install Command | Copies `npm install -g antigravity-auto-submit` |
 | Open Documentation | Opens the GitHub repository |
 
@@ -73,6 +86,12 @@ Built for Antigravity IDE 2.6.0+ (VS Code 1.107+) and Antigravity App 2.23+. It 
 ## Safety
 
 Auto-approving prompts removes a manual safety check. Keep destructive commands in `skipKeywords`, and review `askKeywords` before enabling `autopilot` or `autoStart`.
+
+## Uninstalling
+
+- **From the IDE**: Open Extensions (`Ctrl + Shift + X`), search `Antigravity Auto-Submit`, click the gear icon, and select **Uninstall**.
+- **From CLI**: Run `code --uninstall-extension WillyEverGreen.antigravity-auto-submit`.
+- **Revert Shortcuts**: If you previously ran setup to add the debug port to IDE shortcuts and wish to revert them back to default, run `auto-accept uninstall` (or manually remove `--remote-debugging-port=9333` from your shortcut properties).
 
 ## License
 

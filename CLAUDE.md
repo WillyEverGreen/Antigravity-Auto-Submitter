@@ -5,8 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commonly Used Commands
 
 ### Test & Verification
-- **Run all tests**: `npm test` (runs Antigravity CLI, Kiro Agent, and Claude Auto-Accept test suites)
+- **Run all tests**: `npm test` (runs Antigravity CLI, Kiro Agent, Kiro Auto-Accept, Claude Auto-Accept, Kiro Setup, and VS Code Extension suites)
 - **Run Antigravity CLI tests only**: `node test/cli.test.js`
+- **Run VS Code Extension tests**: `npm run test:extension` (or `node test/vscode-extension.test.js`)
+- **Package VS Code Extension (.vsix)**: `npm run extension:package`
+- **Publish VS Code Extension**: `npm run extension:publish:vsce` (or `npm run extension:publish:ovsx`)
 - **Run Kiro agent tests only**: `npm run test:kiro` or `node test/kiro-agent.test.mjs`
 - **Run Kiro Auto-Accept tests**: `node kiro-auto-accept/test/kiro.test.js`
 - **Run Claude Auto-Accept tests**: `npm run test:claude` or `node claude-auto-accept/test/claude-hook.test.js`

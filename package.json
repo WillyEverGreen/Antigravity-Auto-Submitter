@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submitter CLI",
   "description": "Production-grade autonomous confirmation daemon for Antigravity IDE",
-  "version": "1.8.5",
+  "version": "1.9.0",
   "publisher": "WillyEverGreen",
   "author": {
     "name": "WillyEverGreen / advdi"
@@ -122,9 +122,13 @@
     "clean:all": "node bin/clean-all.js",
     "brain": "node bin/antigravity-brain.js",
     "sync": "node scripts/sync_wrappers.js",
-    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js && node test/kiro-setup.test.mjs",
+    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js && node test/kiro-setup.test.mjs && node test/vscode-extension.test.js",
     "test:kiro": "node test/kiro-agent.test.mjs && node test/kiro-setup.test.mjs",
     "test:claude": "node claude-auto-accept/test/claude-hook.test.js",
+    "test:extension": "node test/vscode-extension.test.js",
+    "extension:package": "npm --prefix vscode-extension run package",
+    "extension:publish:vsce": "npm --prefix vscode-extension run publish:vsce",
+    "extension:publish:ovsx": "npm --prefix vscode-extension run publish:ovsx",
     "claude:setup": "node claude-auto-accept/claude-auto-accept.js setup",
     "claude:doctor": "node claude-auto-accept/claude-auto-accept.js doctor",
     "claude:status": "node claude-auto-accept/claude-auto-accept.js status",

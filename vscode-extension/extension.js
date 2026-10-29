@@ -3,14 +3,23 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { spawn, spawnSync } = require('child_process');
 
 const SECTION = 'antigravityAutoSubmit';
+const STATS_FILE = path.join(os.homedir(), '.antigravity-auto-submit', 'stats.json');
+const LOG_CAP = 150;
 
 let statusItem;
 let output;
 let child = null;
 let extensionPath = '';
+let statusView;
+let statsView;
+let actionsView;
+let logView;
+let pollTimer = null;
+let daemonStatus = null;
 
 function cfg() {
   return vscode.workspace.getConfiguration(SECTION);
@@ -31,7 +40,6 @@ function useGlobal() {
   return cfg().get('daemonSource') === 'global';
 }
 
-// Command and leading args that launch the daemon, bundled or from a global npm install.
 function daemonCommand(extra = []) {
   if (useGlobal()) return { cmd: 'auto-accept', args: extra, shell: true };
   return { cmd: nodeExe(), args: [daemonPath(), ...extra], shell: false };
@@ -53,6 +61,26 @@ function nodeMajor() {
   const res = spawnSync(nodeExe(), ['-v'], { encoding: 'utf8', timeout: 10000, windowsHide: true });
   if (res.error || res.status !== 0) return null;
   return parseInt(String(res.stdout).trim().replace(/^v/, '').split('.')[0], 10);
+}
+
+function readStats() {
+  try {
+    if (fs.existsSync(STATS_FILE)) return JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+  } catch (e) {}
+  return null;
+}
+
+function queryDaemonStatus() {
+  const d = daemonCommand(['--status']);
+  try {
+    const res = spawnSync(d.cmd, d.args, {
+      encoding: 'utf8', timeout: 15000, windowsHide: true, shell: d.shell,
+      env: { ...process.env, NO_COLOR: '1' }
+    });
+    return JSON.parse(res.stdout);
+  } catch (e) {
+    return null;
+  }
 }
 
 function reportEnvironment() {
@@ -78,19 +106,63 @@ function reportEnvironment() {
   output.appendLine(`[env] ${lines.join(' | ')}`);
 }
 
+function setCtx(running) {
+  vscode.commands.executeCommand('setContext', 'antigravityAutoSubmit.running', running);
+}
+
 function render() {
   const mode = cfg().get('mode');
   if (child) {
     statusItem.text = `$(rocket) AGY: ${mode}`;
     statusItem.tooltip = 'Antigravity Auto-Submit is running. Click to stop.';
     statusItem.backgroundColor = undefined;
+    setCtx(true);
   } else {
     statusItem.text = '$(circle-slash) AGY: off';
     statusItem.tooltip = 'Antigravity Auto-Submit is stopped. Click to start.';
     statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    setCtx(false);
   }
   statusItem.show();
 }
+
+function refreshViews() {
+  if (statusView) statusView.refresh();
+  if (statsView) statsView.refresh();
+  if (actionsView) actionsView.refresh();
+}
+
+// ── strip ANSI ──
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+function strip(s) { return s.replace(ANSI_RE, ''); }
+
+function parseDaemonLine(raw) {
+  const clean = strip(raw).trim();
+  if (!clean) return;
+  if (/APPROVE/i.test(clean)) {
+    logView.add('check', clean.replace(/.*APPROVE\s*/, '').trim() || clean);
+    statsView.refresh();
+  } else if (/SKIPPED/i.test(clean)) {
+    logView.add('close', clean.replace(/.*SKIPPED\s*/, '').trim() || clean);
+    statsView.refresh();
+  } else if (/PAUSED/i.test(clean)) {
+    logView.add('bell', clean.replace(/.*PAUSED\s*/, '').trim() || clean);
+  } else if (/READY|ONLINE/i.test(clean)) {
+    logView.add('plug', clean.replace(/.*(?:READY|ONLINE)\s*/, '').trim() || clean);
+    statusView.refresh();
+  } else if (/DISCON|OFFLINE/i.test(clean)) {
+    logView.add('debug-disconnect', clean.replace(/.*(?:DISCON|OFFLINE)\s*/, '').trim() || clean);
+    statusView.refresh();
+  } else if (/MODE|TOGGLE/i.test(clean)) {
+    logView.add('settings-gear', clean.replace(/.*(?:MODE|TOGGLE)\s*/, '').trim() || clean);
+    statusView.refresh();
+  } else if (/error/i.test(clean)) {
+    logView.add('warning', clean);
+  }
+}
+
+// ── Daemon lifecycle ──
 
 function start() {
   if (child) {
@@ -118,29 +190,49 @@ function start() {
   });
   child = proc;
   output.appendLine(`[start] pid ${proc.pid} mode=${cfg().get('mode')}`);
-  proc.stdout.on('data', d => output.append(d.toString()));
-  proc.stderr.on('data', d => output.append(d.toString()));
+  if (logView) logView.add('debug-start', `Daemon started (PID ${proc.pid})`);
+  proc.stdout.on('data', buf => {
+    const text = buf.toString();
+    output.append(text);
+    if (logView) {
+      const parts = text.split('\n');
+      for (let i = 0; i < parts.length; i++) parseDaemonLine(parts[i]);
+    }
+  });
+  proc.stderr.on('data', buf => {
+    const text = buf.toString();
+    output.append(text);
+    if (logView) logView.add('warning', strip(text).trim());
+  });
   proc.on('error', err => {
     output.appendLine(`[error] ${err.message}`);
+    if (logView) logView.add('warning', err.message);
     vscode.window.showErrorMessage(useGlobal()
       ? `Could not run "auto-accept": ${err.message}. Install it with: ${NPM_INSTALL}`
       : `Could not run Node ("${nodeExe()}"): ${err.message}. Set antigravityAutoSubmit.nodePath.`);
   });
   proc.on('exit', code => {
     output.appendLine(`[exit] code ${code}`);
+    if (logView) logView.add('debug-stop', `Daemon exited (code ${code})`);
     if (child === proc) child = null;
+    daemonStatus = null;
     render();
+    refreshViews();
   });
   render();
+  refreshViews();
 }
 
 function stop() {
   if (!child) return;
   const proc = child;
   child = null;
-  try { proc.kill(); } catch (e) { /* already gone */ }
+  try { proc.kill(); } catch (e) {}
   output.appendLine('[stop] requested');
+  if (logView) logView.add('debug-stop', 'Daemon stopped');
+  daemonStatus = null;
   render();
+  refreshViews();
 }
 
 function restartIfRunning() {
@@ -164,10 +256,7 @@ async function setMode() {
 function showStatus() {
   const d = daemonCommand(['--status']);
   const res = spawnSync(d.cmd, d.args, {
-    encoding: 'utf8',
-    timeout: 15000,
-    windowsHide: true,
-    shell: d.shell,
+    encoding: 'utf8', timeout: 15000, windowsHide: true, shell: d.shell,
     env: { ...process.env, NO_COLOR: '1' }
   });
   if (res.error) {
@@ -197,11 +286,191 @@ function runInTerminal(name, subcommand) {
   term.sendText(useGlobal() ? `auto-accept ${subcommand}` : `${nodeExe()} "${daemonPath()}" ${subcommand}`);
 }
 
+// ── Tree items ──
+
+function item(label, opts) {
+  const ti = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+  if (opts.desc !== undefined) ti.description = String(opts.desc);
+  if (opts.icon) ti.iconPath = new vscode.ThemeIcon(opts.icon);
+  if (opts.tip) ti.tooltip = opts.tip;
+  if (opts.cmd) ti.command = { command: opts.cmd, title: label };
+  if (opts.ctx) ti.contextValue = opts.ctx;
+  return ti;
+}
+
+// ── Status view ──
+
+class StatusProvider {
+  constructor() {
+    this._fire = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._fire.event;
+  }
+  refresh() { this._fire.fire(); }
+  getTreeItem(e) { return e; }
+  getChildren() {
+    const running = !!child;
+    const mode = cfg().get('mode') || 'autonomous';
+    const items = [];
+
+    items.push(item('Daemon', {
+      desc: running ? 'running' : 'stopped',
+      icon: running ? 'circle-filled' : 'circle-outline'
+    }));
+
+    items.push(item('Mode', {
+      desc: mode,
+      icon: 'dash',
+      cmd: 'antigravityAutoSubmit.setMode'
+    }));
+
+    if (running && daemonStatus) {
+      items.push(item('Connection', {
+        desc: daemonStatus.connected
+          ? `${daemonStatus.windowCount} window(s) on port ${daemonStatus.port}`
+          : 'no windows',
+        icon: daemonStatus.connected ? 'circle-filled' : 'circle-outline'
+      }));
+      if (daemonStatus.windows) {
+        for (const w of daemonStatus.windows) {
+          items.push(item(`  ${w.title}`, { desc: String(w.port), icon: 'dash' }));
+        }
+      }
+    } else if (running) {
+      items.push(item('Connection', { desc: 'polling...', icon: 'circle-outline' }));
+    } else {
+      items.push(item('Connection', { desc: 'offline', icon: 'circle-outline' }));
+    }
+
+    const nodeVer = nodeMajor();
+    items.push(item('Node.js', {
+      desc: nodeVer !== null ? `v${nodeVer}` : 'not found',
+      icon: nodeVer !== null && nodeVer >= 22 ? 'circle-filled' : 'circle-outline'
+    }));
+
+    const c = cfg();
+    items.push(item('Ask rules', { desc: String((c.get('askKeywords') || []).length), icon: 'dash' }));
+    items.push(item('Skip rules', { desc: String((c.get('skipKeywords') || []).length), icon: 'dash' }));
+
+    return items;
+  }
+}
+
+// ── Stats view ──
+
+class StatsProvider {
+  constructor() {
+    this._fire = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._fire.event;
+  }
+  refresh() { this._fire.fire(); }
+  getTreeItem(e) { return e; }
+  getChildren() {
+    const s = daemonStatus || {};
+    const disk = readStats();
+    const total = s.lifetimeApprovals != null ? s.lifetimeApprovals : (disk && disk.total_clicks) || 0;
+    const lastTime = s.lastClicked || (disk && disk.last_clicked) || '';
+    const lastAction = (disk && disk.last_action) || '';
+
+    const items = [];
+    items.push(item('Approvals', { desc: String(total), icon: 'dash' }));
+    if (lastTime) items.push(item('Last approval', { desc: lastTime, icon: 'dash' }));
+    if (lastAction) {
+      const short = lastAction.length > 60 ? lastAction.substring(0, 57) + '...' : lastAction;
+      items.push(item('Last action', { desc: short, icon: 'dash', tip: lastAction }));
+    }
+    if (!total && !lastTime) items.push(item('No data yet', { desc: '', icon: 'dash' }));
+    return items;
+  }
+}
+
+// ── Actions view ──
+
+class ActionsProvider {
+  constructor() {
+    this._fire = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._fire.event;
+  }
+  refresh() { this._fire.fire(); }
+  getTreeItem(e) { return e; }
+  getChildren() {
+    const running = !!child;
+    const items = [];
+    items.push(item(running ? 'Stop' : 'Start', {
+      icon: running ? 'debug-stop' : 'debug-start',
+      cmd: running ? 'antigravityAutoSubmit.stop' : 'antigravityAutoSubmit.start'
+    }));
+    items.push(item('Switch mode', { icon: 'dash', cmd: 'antigravityAutoSubmit.setMode' }));
+    items.push(item('Diagnostics', { icon: 'dash', cmd: 'antigravityAutoSubmit.doctor' }));
+    items.push(item('Setup debug port', { icon: 'dash', cmd: 'antigravityAutoSubmit.setup' }));
+    items.push(item('Check environment', { icon: 'dash', cmd: 'antigravityAutoSubmit.checkEnvironment' }));
+    items.push(item('Output log', { icon: 'dash', cmd: 'antigravityAutoSubmit.showLog' }));
+    items.push(item('Docs', { icon: 'dash', cmd: 'antigravityAutoSubmit.openDocs' }));
+    items.push(item('Walkthrough', { icon: 'dash', cmd: 'antigravityAutoSubmit.openWalkthrough' }));
+    return items;
+  }
+}
+
+// ── Log view ──
+
+class LogProvider {
+  constructor() {
+    this._fire = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._fire.event;
+    this._entries = [];
+  }
+  refresh() { this._fire.fire(); }
+  getTreeItem(e) { return e; }
+  add(icon, msg) {
+    if (!msg) return;
+    const t = new Date().toLocaleTimeString('en-US', { hour12: false });
+    this._entries.unshift({ icon, msg, t });
+    if (this._entries.length > LOG_CAP) this._entries.length = LOG_CAP;
+    this.refresh();
+  }
+  clear() { this._entries = []; this.refresh(); }
+  getChildren() {
+    if (!this._entries.length) return [item('waiting for activity', { icon: 'dash' })];
+    return this._entries.map(e => item(e.msg, { desc: e.t, icon: e.icon }));
+  }
+}
+
+// ── Polling ──
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (!child) {
+      if (daemonStatus) { daemonStatus = null; refreshViews(); }
+      return;
+    }
+    const s = queryDaemonStatus();
+    if (s) { daemonStatus = s; statusView.refresh(); statsView.refresh(); }
+  }, 5000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ── Activation ──
+
 function activate(context) {
   extensionPath = context.extensionPath;
   output = vscode.window.createOutputChannel('Antigravity Auto-Submit');
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = 'antigravityAutoSubmit.toggle';
+
+  statusView = new StatusProvider();
+  statsView = new StatsProvider();
+  actionsView = new ActionsProvider();
+  logView = new LogProvider();
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statusView', statusView),
+    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statsView', statsView),
+    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.actionsView', actionsView),
+    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.logView', logView)
+  );
 
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(`${SECTION}.${id}`, fn));
   reg('start', start);
@@ -220,23 +489,31 @@ function activate(context) {
   reg('checkEnvironment', reportEnvironment);
   reg('openWalkthrough', () => vscode.commands.executeCommand(
     'workbench.action.openWalkthrough',
-    `${context.extension.id}#antigravityAutoSubmit.gettingStarted`,
+    `${(context.extension && context.extension.id) || 'WillyEverGreen.antigravity-auto-submit'}#antigravityAutoSubmit.gettingStarted`,
     false
   ));
+  reg('refreshDashboard', () => {
+    if (child) { const s = queryDaemonStatus(); if (s) daemonStatus = s; }
+    refreshViews();
+    logView.refresh();
+  });
+  reg('clearLog', () => logView.clear());
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration(SECTION)) {
         render();
+        refreshViews();
         restartIfRunning();
       }
     }),
     statusItem,
     output,
-    { dispose: stop }
+    { dispose: () => { stop(); stopPolling(); } }
   );
 
   render();
+  startPolling();
   if (!context.globalState.get('welcomed')) {
     context.globalState.update('welcomed', true);
     vscode.commands.executeCommand('antigravityAutoSubmit.openWalkthrough');
@@ -246,6 +523,7 @@ function activate(context) {
 
 function deactivate() {
   stop();
+  stopPolling();
 }
 
 module.exports = { activate, deactivate };

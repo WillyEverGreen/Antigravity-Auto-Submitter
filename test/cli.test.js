@@ -755,6 +755,19 @@ it('resolves start and restart from binName when rawFirstArg is empty', () => {
   }
 });
 
+it('exports handleUninstall and supports uninstall subcommand routing', () => {
+  const { handleUninstall, resolveConfig } = require('../auto-accept.js');
+  assert.strictEqual(typeof handleUninstall, 'function', 'handleUninstall must be exported');
+  const originalArgv = [...process.argv];
+  try {
+    process.argv = ['node', 'auto-accept.js', 'uninstall'];
+    const res = resolveConfig();
+    assert(res && res.config, 'Must resolve config for uninstall');
+  } finally {
+    process.argv = originalArgv;
+  }
+});
+
 // ── 28. StatsManager Atomic Write Integrity ──
 it('StatsManager.save writes atomically and handles records safely', () => {
   const stats = new StatsManager();
