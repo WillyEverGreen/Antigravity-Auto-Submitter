@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   getStatus,
   listModels,
@@ -76,6 +78,8 @@ function printHelp() {
   kiro protect                         Alias for kiro armor
 
 Core Execution Commands:
+  kiro auto-accept [start|setup|doc]   Autonomous confirmation daemon for Kiro IDE (port 9222)
+  kiro accept                          Alias for kiro auto-accept
   kiro route <prompt> [options]        Autonomous 8-Dim Semantic Router + Dual-Gated Verification
   kiro status                          Check Kiro proxy health & active account pool
   kiro models                          List all available Kiro models, limits & credits
@@ -162,6 +166,23 @@ async function main() {
   if (command === 'help' || command === '--help' || command === '-h') {
     printHelp();
     return;
+  }
+
+  // --- AUTO-ACCEPT DAEMON DELEGATION ---
+  if (command === 'auto-accept' || command === 'accept') {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const targetScript = path.resolve(__dirname, '../kiro-auto-accept/kiro-auto-accept.js');
+    if (!fs.existsSync(targetScript)) {
+      console.error(`❌ Error: Kiro Auto-Accept daemon script not found at ${targetScript}`);
+      process.exit(1);
+    }
+    const subArgs = process.argv.slice(3);
+    const res = spawnSync(process.execPath, [targetScript, ...subArgs], { stdio: 'inherit' });
+    if (res.error) {
+      console.error(`❌ Error executing Kiro Auto-Accept: ${res.error.message}`);
+      process.exit(1);
+    }
+    process.exit(res.status !== null ? res.status : 0);
   }
 
   // --- ANTI-BAN ARMOR ---

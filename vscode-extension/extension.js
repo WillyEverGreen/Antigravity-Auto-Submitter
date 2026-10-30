@@ -20,6 +20,8 @@ let actionsView;
 let logView;
 let pollTimer = null;
 let daemonStatus = null;
+let sessionApprovals = 0;
+let sessionBlocks = 0;
 
 function cfg() {
   return vscode.workspace.getConfiguration(SECTION);
@@ -70,11 +72,42 @@ function readStats() {
   return null;
 }
 
+function queryDaemonStatusAsync() {
+  return new Promise((resolve) => {
+    try {
+      const d = daemonCommand(['--status']);
+      const proc = spawn(d.cmd, d.args, {
+        windowsHide: true, shell: d.shell,
+        env: { ...process.env, NO_COLOR: '1' }
+      });
+      let out = '';
+      const timer = setTimeout(() => {
+        try { proc.kill(); } catch (e) {}
+        resolve(null);
+      }, 4000);
+      proc.stdout.on('data', chunk => { out += chunk; });
+      proc.on('close', code => {
+        clearTimeout(timer);
+        if (code === 0) {
+          try { resolve(JSON.parse(out)); return; } catch (e) {}
+        }
+        resolve(null);
+      });
+      proc.on('error', () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+    } catch (err) {
+      resolve(null);
+    }
+  });
+}
+
 function queryDaemonStatus() {
   const d = daemonCommand(['--status']);
   try {
     const res = spawnSync(d.cmd, d.args, {
-      encoding: 'utf8', timeout: 15000, windowsHide: true, shell: d.shell,
+      encoding: 'utf8', timeout: 5000, windowsHide: true, shell: d.shell,
       env: { ...process.env, NO_COLOR: '1' }
     });
     return JSON.parse(res.stdout);
@@ -141,9 +174,11 @@ function parseDaemonLine(raw) {
   const clean = strip(raw).trim();
   if (!clean) return;
   if (/APPROVE/i.test(clean)) {
+    sessionApprovals++;
     logView.add('check', clean.replace(/.*APPROVE\s*/, '').trim() || clean);
     statsView.refresh();
   } else if (/SKIPPED/i.test(clean)) {
+    sessionBlocks++;
     logView.add('close', clean.replace(/.*SKIPPED\s*/, '').trim() || clean);
     statsView.refresh();
   } else if (/PAUSED/i.test(clean)) {
@@ -169,6 +204,8 @@ function start() {
     vscode.window.showInformationMessage('Antigravity Auto-Submit is already running.');
     return;
   }
+  sessionApprovals = 0;
+  sessionBlocks = 0;
   if (!useGlobal() && !fs.existsSync(daemonPath())) {
     vscode.window.showErrorMessage('Bundled daemon not found. Reinstall the extension.');
     return;
@@ -373,6 +410,12 @@ class StatsProvider {
 
     const items = [];
     items.push(item('Approvals', { desc: String(total), icon: 'dash' }));
+    if (child) {
+      items.push(item('Session approvals', { desc: String(sessionApprovals), icon: 'dash' }));
+    }
+    if (sessionBlocks > 0) {
+      items.push(item('Guardrail blocks', { desc: String(sessionBlocks), icon: 'dash' }));
+    }
     if (lastTime) items.push(item('Last approval', { desc: lastTime, icon: 'dash' }));
     if (lastAction) {
       const short = lastAction.length > 60 ? lastAction.substring(0, 57) + '...' : lastAction;
@@ -438,13 +481,13 @@ class LogProvider {
 
 function startPolling() {
   stopPolling();
-  pollTimer = setInterval(() => {
+  pollTimer = setInterval(async () => {
     if (!child) {
       if (daemonStatus) { daemonStatus = null; refreshViews(); }
       return;
     }
-    const s = queryDaemonStatus();
-    if (s) { daemonStatus = s; statusView.refresh(); statsView.refresh(); }
+    const s = await queryDaemonStatusAsync();
+    if (s && child) { daemonStatus = s; statusView.refresh(); statsView.refresh(); }
   }, 5000);
 }
 
@@ -492,8 +535,8 @@ function activate(context) {
     `${(context.extension && context.extension.id) || 'WillyEverGreen.antigravity-auto-submit'}#antigravityAutoSubmit.gettingStarted`,
     false
   ));
-  reg('refreshDashboard', () => {
-    if (child) { const s = queryDaemonStatus(); if (s) daemonStatus = s; }
+  reg('refreshDashboard', async () => {
+    if (child) { const s = await queryDaemonStatusAsync(); if (s) daemonStatus = s; }
     refreshViews();
     logView.refresh();
   });
