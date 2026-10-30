@@ -146,9 +146,15 @@ function setCtx(running) {
 function render() {
   const mode = cfg().get('mode');
   if (child) {
-    statusItem.text = `$(rocket) AGY: ${mode}`;
-    statusItem.tooltip = 'Antigravity Auto-Submit is running. Click to stop.';
-    statusItem.backgroundColor = undefined;
+    if (daemonStatus && !daemonStatus.connected) {
+      statusItem.text = `$(warning) AGY: no window`;
+      statusItem.tooltip = `Antigravity Auto-Submit daemon is running (${mode}), but NO IDE window is connected. Restart Antigravity from the patched shortcut (with --remote-debugging-port=9333).`;
+      statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    } else {
+      statusItem.text = `$(rocket) AGY: ${mode}`;
+      statusItem.tooltip = `Antigravity Auto-Submit is running (${mode}). Click to stop.`;
+      statusItem.backgroundColor = undefined;
+    }
     setCtx(true);
   } else {
     statusItem.text = '$(circle-slash) AGY: off';
@@ -483,11 +489,16 @@ function startPolling() {
   stopPolling();
   pollTimer = setInterval(async () => {
     if (!child) {
-      if (daemonStatus) { daemonStatus = null; refreshViews(); }
+      if (daemonStatus) { daemonStatus = null; refreshViews(); render(); }
       return;
     }
     const s = await queryDaemonStatusAsync();
-    if (s && child) { daemonStatus = s; statusView.refresh(); statsView.refresh(); }
+    if (s && child) {
+      daemonStatus = s;
+      statusView.refresh();
+      statsView.refresh();
+      render();
+    }
   }, 5000);
 }
 

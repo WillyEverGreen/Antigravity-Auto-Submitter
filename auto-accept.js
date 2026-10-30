@@ -747,7 +747,7 @@ function handleSetup(cfg) {
     `;
     try {
       const b64 = Buffer.from(psScript, 'utf16le').toString('base64');
-      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore', timeout: 10000 });
+      execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore', timeout: 30000 });
       console.log(`  ${C.bold}${C.green}✔ Successfully configured shortcuts for both Antigravity IDE & Antigravity App!${C.reset}`);
       if (exes.ide) {
         console.log(`    • ${C.cyan}Antigravity IDE:${C.reset} ${exes.ide} -> ${C.yellow}--remote-debugging-port=${idePort}${C.reset}`);
