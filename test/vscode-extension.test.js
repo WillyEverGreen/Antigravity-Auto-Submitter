@@ -39,7 +39,9 @@ it('package.json has all mandatory VS Code marketplace metadata', () => {
 
   assert.strictEqual(pkg.name, 'antigravity-auto-submit');
   assert.strictEqual(pkg.publisher, 'WillyEverGreen');
-  assert.strictEqual(pkg.version, '1.9.0');
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+  assert.strictEqual(pkg.version, rootPkg.version, 'vscode-extension version must match root package.json');
+  assert(/^\d+\.\d+\.\d+/.test(pkg.version), 'version must be semver');
   assert.strictEqual(pkg.license, 'MIT');
   assert.strictEqual(pkg.main, './extension.js');
   assert(pkg.engines && pkg.engines.vscode, 'engines.vscode required');
