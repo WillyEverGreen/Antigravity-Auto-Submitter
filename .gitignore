@@ -48,4 +48,5 @@ __pycache__/
 
 # VS Code extension build output
 vscode-extension/*.vsix
+*.vsix
 vscode-extension/daemon/
