@@ -2483,7 +2483,7 @@ class AutoSubmitDaemon {
     this.pollTimer = null;
     this.portKey = config.cdpPort > 0 ? String(config.cdpPort) : 'auto';
     this.isPrompting = false;
-    this.isInteractive = process.stdout.isTTY && !this.config.daemon;
+    this.isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY && !this.config.daemon);
     this.lastConfigFileMtime = 0;
     this.initConfigFileMtime();
   }
