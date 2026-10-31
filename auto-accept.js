@@ -269,7 +269,7 @@ async function handleDoctor(cfg, shouldExit = true) {
         const isWorkbench = url.includes('workbench.html') || url.includes('vscode-file://vscode-app');
         if (isWorkbench) ideWindowCount++;
         const role = isWorkbench ? 'IDE Shell' :
-                     url.includes('62060') || url.includes('/c/') ? 'Agent Chat' : 'Dashboard Panel';
+                     url.includes('62060') || url.includes('/c/') || url.includes('extensionview=true') || url.includes('extensionvariant=vs-code') ? 'Agent Chat' : 'Dashboard Panel';
         console.log(`  ${C.bold}Target [${targetCount}] (${role}):${C.reset} ${C.cyan}"${cleanStr(t.title || 'Antigravity', 55)}"${C.reset} (Port ${ep.port}) ✔`);
       });
     });
@@ -1760,16 +1760,26 @@ function buildScannerScript(cfg) {
         } catch (e) {}
       };
 
-      // ── Tier 1: Antigravity interaction continue button ──
+      // ── Tier 1: Antigravity interaction continue / submit button ──
       let continueBtn = null;
       let continueDoc = document;
       for (const d of docs) {
         try {
           if (!d || !d.querySelector) continue;
-          const btn = d.querySelector('[data-testid="interaction-continue-button"]') ||
-                      d.querySelector('[data-testid*="interaction-continue"]') ||
-                      d.querySelector('[data-testid="interaction-allow-button"]') ||
-                      d.querySelector('[data-testid="allow-button"]');
+          let btn = d.querySelector('[data-testid="interaction-continue-button"]') ||
+                    d.querySelector('[data-testid*="interaction-continue"]') ||
+                    d.querySelector('[data-testid*="interaction-submit"]') ||
+                    d.querySelector('[data-testid="interaction-allow-button"]') ||
+                    d.querySelector('[data-testid="allow-button"]') ||
+                    d.querySelector('[data-testid="submit-button"]');
+          if (!btn && d.querySelectorAll) {
+            const btns = Array.from(d.querySelectorAll('button, [role="button"], input[type="submit"]'));
+            btn = btns.find(b => {
+              if (isClicked(b) || b.disabled || (b.getAttribute && b.getAttribute('aria-disabled') === 'true')) return false;
+              const t = (b.innerText || b.textContent || '').trim().replace(/[\u21b5\u23ce\u21a9\u2022\u00b7]/gu, '').trim().toLowerCase();
+              return t === 'submit' || t === 'allow' || t === 'yes, allow this time' || t === 'allow this time' || t === 'continue';
+            });
+          }
           if (btn && !isClicked(btn)) {
             continueBtn = btn;
             continueDoc = d;
@@ -1787,7 +1797,7 @@ function buildScannerScript(cfg) {
           if (match) {
             const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
             return {
-              action: (continueBtn.innerText || 'Submit').trim().replace(/\\s+/g, ' '),
+              action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '),
               blocked: true,
               blockedType: match.type,
               matchedKeyword: match.kw,
@@ -1800,27 +1810,52 @@ function buildScannerScript(cfg) {
           const targetBody = continueDoc.body || document.body;
           if (autoSelectAlwaysAllow) {
             try {
-              if (targetBody) targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
+              if (targetBody) {
+                targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
+                targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
+              }
               const opt2 = continueDoc.querySelector('input[type="radio"][value="2"]');
               if (opt2 && !opt2.checked) { opt2.checked = true; opt2.click(); opt2.dispatchEvent(new Event('change', { bubbles: true })); }
             } catch (e) {}
           } else {
             try {
-              if (targetBody) targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
+              if (targetBody) {
+                targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
+                targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
+              }
               const opt1 = continueDoc.querySelector('input[type="radio"][value="1"]');
               if (opt1 && !opt1.checked) { opt1.checked = true; opt1.click(); opt1.dispatchEvent(new Event('change', { bubbles: true })); }
             } catch (e) {}
           }
+
+          // Also click matching option row element if present
+          try {
+            const optionEls = Array.from(continueDoc.querySelectorAll('button, div, label, [role="button"], [role="radio"]'));
+            const matchingOption = optionEls.find(el => {
+              const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+              return autoSelectAlwaysAllow
+                ? (t.startsWith('2 ') || t.startsWith('2.') || t.includes('always allow in this conversation'))
+                : (t.startsWith('1 ') || t.startsWith('1.') || t.startsWith('yes, allow this time') || t === 'yes, allow this time');
+            });
+            if (matchingOption && matchingOption !== continueBtn && !isClicked(matchingOption)) {
+              matchingOption.click();
+              matchingOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            }
+          } catch (e) {}
+
+          // 4. Dispatch Enter key
           if (targetBody) {
             try { targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
           }
+
+          // 5. Trigger React onClick handler and click button
           const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
           if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
             try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
           }
           continueBtn.click();
           continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: continueDoc.defaultView || window }));
-          return { action: (continueBtn.innerText || 'Submit').trim().replace(/\\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
+          return { action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
         }
       }
 
@@ -2101,27 +2136,42 @@ function selectAllWorkbenchTargets(targets) {
       return false;
     }
 
-    // For non-page targets (iframe/webview), match only if specifically an Antigravity panel or extension webview
-    if (t.type !== 'page') {
-      const isAgyWebview = url.includes('antigravity') || url.includes('jetski') || url.includes('agy') ||
-                           (url.includes('vscode-webview') && (title.includes('antigravity') || title.includes('google')));
-      return Boolean(isAgyWebview);
+    // Reject settings standalone panel
+    if (url.includes('settings-standalone')) {
+      return false;
     }
 
+    const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(url);
+
+    // 1. Loopback AI Chat Panels & Antigravity App (across ALL workspaces)
+    if (/^https?:\/\//i.test(url)) {
+      if (!isLoopback) return false; // External browser tabs must never be matched
+      return (
+        url.includes('extensionview=true') ||
+        url.includes('extensionvariant=vs-code') ||
+        url.includes('/c/') ||
+        url.includes('ideversion=') ||
+        url.includes('antigravity') ||
+        title.includes('antigravity')
+      );
+    }
+
+    // 2. Antigravity extension webviews (Dashboard, etc.)
+    if (url.startsWith('vscode-webview:')) {
+      return Boolean(
+        url.includes('antigravity') ||
+        url.includes('jetski') ||
+        url.includes('agy') ||
+        url.includes('google.google-antigravity') ||
+        url.includes('willyevergreen.antigravity-auto-submit') ||
+        title.includes('antigravity') ||
+        title.includes('dashboard')
+      );
+    }
+
+    // 3. Main workbench editor pages (vscode-file://, etc.)
     const isAntigravityTitle = title.includes('antigravity');
     const isAntigravityUrl = url.includes('workbench') || url.includes('vscode-file') || url.includes('vscode-app') || url.includes('antigravity') || url.startsWith('plugin://');
-    const isLocalhost = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(url);
-
-    // If it's a web URL (http/https):
-    if (/^https?:\/\//i.test(url)) {
-      // Standalone Antigravity App strictly serves its interface over loopback (127.0.0.1 / localhost).
-      // External web domains (even if browsing Antigravity documentation) must never be matched.
-      if (!isLocalhost) {
-        return false;
-      }
-      // For localhost / 127.0.0.1, accept if title or url contains antigravity/workbench
-      return isAntigravityTitle || isAntigravityUrl;
-    }
 
     return isAntigravityUrl || isAntigravityTitle;
   });
@@ -2195,13 +2245,18 @@ function getFriendlyTargetName(target) {
     }
     return 'Code Editor';
   }
-  if (url.includes('62060') || url.includes('/c/') || title.includes('chat') || title.includes('conversation')) {
+  const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(url);
+  if (isLoopback || url.includes('/c/') || title.toLowerCase().includes('chat') || title.toLowerCase().includes('antigravity')) {
+    if (title && !title.startsWith('http') && !title.startsWith('vscode-')) {
+      const parts = title.split(' - ');
+      return 'AI Chat Panel (' + (parts[0] || 'Main') + ')';
+    }
     return 'AI Chat Panel';
   }
-  if (url.includes('vscode-webview') || title.includes('dashboard') || title.includes('auto-submit')) {
+  if (url.includes('vscode-webview') || title.toLowerCase().includes('dashboard') || title.toLowerCase().includes('auto-submit')) {
     return 'Sidebar Dashboard';
   }
-  if (title) return cleanStr(title, 35);
+  if (title && !title.startsWith('http') && !title.startsWith('vscode-')) return cleanStr(title, 35);
   return 'IDE Window';
 }
 

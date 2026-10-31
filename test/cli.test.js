@@ -1253,6 +1253,104 @@ it('selectAllWorkbenchTargets recognizes Antigravity webview targets while ignor
   assert(!matched.some(t => t.id === '6'), 'Must reject external web app');
 });
 
+// ── 48. Arbitrary Workspace Chat Panel Discovery ──
+it('selectAllWorkbenchTargets recognizes loopback chat panel iframes across arbitrary workspace paths', () => {
+  const targets = [
+    {
+      id: 'chat-clip',
+      type: 'iframe',
+      title: 'Clean Up Git Changes - Clip - Antigravity',
+      webSocketDebuggerUrl: 'ws://127.0.0.1:9333/clip',
+      url: 'http://127.0.0.1:56066/?extensionView=true&extensionVariant=vs-code&hostVersion=0.0.1&workspaceUri=file%3A%2F%2F%2Fd%253A%2FFullStack%2520Projects%2FClip'
+    },
+    {
+      id: 'settings-clip',
+      type: 'iframe',
+      title: 'Antigravity Settings',
+      webSocketDebuggerUrl: 'ws://127.0.0.1:9333/settings',
+      url: 'http://127.0.0.1:56066/settings-standalone?extensionView=true&workspaceUri=file%3A%2F%2F%2Fd%253A%2FFullStack%2520Projects%2FClip'
+    }
+  ];
+
+  const matched = selectAllWorkbenchTargets(targets);
+  assert.strictEqual(matched.length, 1, 'Must match chat panel and exclude settings standalone');
+  assert.strictEqual(matched[0].id, 'chat-clip');
+});
+
+// ── 49. Option 1 Selection and Submit Button Execution in buildScannerScript ──
+it('buildScannerScript selects Option 1 and clicks Submit button on subagent prompts', () => {
+  const cfg = { mode: 'autonomous', askKeywords: [], skipKeywords: [] };
+  const script = buildScannerScript(cfg);
+
+  let optionSelected = false;
+  let submitClicked = false;
+  let enterDispatched = false;
+
+  const mockSubmitBtn = {
+    tagName: 'BUTTON',
+    innerText: 'Submit ↵',
+    textContent: 'Submit ↵',
+    disabled: false,
+    getAttribute: (attr) => (attr === 'data-testid' ? 'submit-button' : null),
+    hasAttribute: () => false,
+    setAttribute: () => {},
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { submitClicked = true; },
+    dispatchEvent: () => {},
+    parentElement: null
+  };
+
+  const mockOption1 = {
+    tagName: 'DIV',
+    innerText: '1 Yes, allow this time',
+    textContent: '1 Yes, allow this time',
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    click: () => { optionSelected = true; },
+    dispatchEvent: () => {}
+  };
+
+  const mockBody = {
+    innerText: 'Allow run test-ot.mjs?\nnode scripts/test-ot.mjs\n1 Yes, allow this time\n2 Yes, and always allow\nSubmit',
+    dispatchEvent: (evt) => {
+      if (evt && evt.key === 'Enter') enterDispatched = true;
+      if (evt && evt.key === '1') optionSelected = true;
+    }
+  };
+
+  const sandbox = {
+    document: {
+      body: mockBody,
+      querySelector: (sel) => {
+        if (sel && (sel.includes('submit') || sel.includes('interaction'))) return mockSubmitBtn;
+        return null;
+      },
+      querySelectorAll: (sel) => {
+        if (sel && sel.includes('button')) return [mockSubmitBtn, mockOption1];
+        return [];
+      },
+      getElementById: () => null,
+      defaultView: {
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+        MouseEvent: function() {},
+        KeyboardEvent: function(type, init) { this.type = type; this.key = init.key; }
+      }
+    },
+    KeyboardEvent: function(type, init) { this.type = type; this.key = init.key; },
+    MouseEvent: function() {},
+    Event: function() {}
+  };
+
+  const vm = require('vm');
+  const res = vm.runInNewContext(script, sandbox);
+
+  assert.ok(res, 'Scanner should return approval result');
+  assert.strictEqual(res.blocked, false);
+  assert.ok(submitClicked, 'Submit button should be clicked');
+  assert.ok(optionSelected, 'Option 1 should be selected via keyboard or click');
+  assert.ok(enterDispatched, 'Enter key should be dispatched to submit');
+});
+
 
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
