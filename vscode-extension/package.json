@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submit",
   "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "publisher": "WillyEverGreen",
   "license": "MIT",
   "icon": "media/icon.png",
