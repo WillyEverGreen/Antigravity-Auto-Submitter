@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submit",
   "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "publisher": "WillyEverGreen",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -34,7 +34,8 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:antigravityAutoSubmit.dashboardView"
   ],
   "contributes": {
     "commands": [
@@ -140,26 +141,6 @@
           "type": "webview",
           "id": "antigravityAutoSubmit.dashboardView",
           "name": "Dashboard"
-        },
-        {
-          "id": "antigravityAutoSubmit.statusView",
-          "name": "Status",
-          "when": "false"
-        },
-        {
-          "id": "antigravityAutoSubmit.statsView",
-          "name": "Stats",
-          "when": "false"
-        },
-        {
-          "id": "antigravityAutoSubmit.actionsView",
-          "name": "Actions",
-          "when": "false"
-        },
-        {
-          "id": "antigravityAutoSubmit.logView",
-          "name": "Live Log",
-          "when": "false"
         }
       ]
     },

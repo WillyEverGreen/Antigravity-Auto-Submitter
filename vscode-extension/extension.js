@@ -214,8 +214,10 @@ function reportEnvironment() {
   });
   try {
     const s = JSON.parse(res.stdout);
+    const wins = s.ideWindowCount || s.windowCount;
+    const targets = s.targetCount || s.windowCount;
     lines.push(s.connected
-      ? `Debug port OK: ${s.windowCount} window(s) on port ${s.port}.`
+      ? `Debug port OK: ${wins} window(s) (${targets} targets) on port ${s.port}.`
       : 'No IDE debug port found. Run "Add Debug Port to IDE Shortcuts (setup)" and restart the IDE from the patched shortcut.');
   } catch (e) {
     lines.push('Could not read daemon status. See "Show Daemon Log".');
@@ -463,8 +465,10 @@ function showStatus() {
   try {
     const s = JSON.parse(res.stdout);
     if (s.connected) {
+      const wins = s.ideWindowCount || s.windowCount;
+      const targets = s.targetCount || s.windowCount;
       vscode.window.showInformationMessage(
-        `Connected: ${s.windowCount} window(s) on port ${s.port}. Mode: ${s.mode}. Lifetime approvals: ${s.lifetimeApprovals}.`
+        `Connected: ${wins} window(s) (${targets} targets) on port ${s.port}. Mode: ${s.mode}. Lifetime approvals: ${s.lifetimeApprovals}.`
       );
     } else {
       vscode.window.showWarningMessage(
@@ -1563,12 +1567,17 @@ function activate(context) {
   dashboardProvider = new DashboardViewProvider(context.extensionUri);
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(DashboardViewProvider.viewType, dashboardProvider),
-    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statusView', statusView),
-    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statsView', statsView),
-    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.actionsView', actionsView),
-    vscode.window.registerTreeDataProvider('antigravityAutoSubmit.logView', logView)
+    vscode.window.registerWebviewViewProvider(DashboardViewProvider.viewType, dashboardProvider)
   );
+
+  try {
+    context.subscriptions.push(
+      vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statusView', statusView),
+      vscode.window.registerTreeDataProvider('antigravityAutoSubmit.statsView', statsView),
+      vscode.window.registerTreeDataProvider('antigravityAutoSubmit.actionsView', actionsView),
+      vscode.window.registerTreeDataProvider('antigravityAutoSubmit.logView', logView)
+    );
+  } catch (e) {}
 
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(`${SECTION}.${id}`, fn));
   reg('start', start);

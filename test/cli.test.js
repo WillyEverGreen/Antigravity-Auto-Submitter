@@ -1351,6 +1351,74 @@ it('buildScannerScript selects Option 1 and clicks Submit button on subagent pro
   assert.ok(enterDispatched, 'Enter key should be dispatched to submit');
 });
 
+it('countIdeWindows accurately calculates IDE window count from Electron CDP targets', () => {
+  const { countIdeWindows } = require('../auto-accept.js');
+  
+  // 6 targets belonging to 2 IDE windows (antigravity-auto-submit and Clip)
+  const targets = [
+    { url: 'vscode-file://vscode-app/workbench/workbench.html', title: 'antigravity-auto-submit - Antigravity IDE' },
+    { url: 'vscode-webview://host/index.html', title: 'Dashboard' },
+    { url: 'http://127.0.0.1:51537/?extensionView=true&workspaceUri=file%3A%2F%2F%2Fc%253A%2FUsers%2Fadvdi%2Ftools%2Fantigravity-auto-submit', title: 'AI Chat' },
+    { url: 'vscode-file://vscode-app/workbench/workbench.html', title: 'Clip - Antigravity IDE' },
+    { url: 'vscode-webview://host/index.html', title: 'Dashboard' },
+    { url: 'http://127.0.0.1:56066/?extensionView=true&workspaceUri=file%3A%2F%2F%2Fd%253A%2FFullStack%2520Projects%2FClip', title: 'AI Chat' }
+  ];
+
+  const windowCount = countIdeWindows(targets);
+  assert.strictEqual(windowCount, 2, 'Should accurately return 2 IDE windows, not 6 internal targets');
+
+  // When only chat panels are provided without workbench targets
+  const chatOnlyTargets = [
+    { url: 'http://127.0.0.1:51537/?workspaceUri=file%3A%2F%2F%2Fc%253A%2Fproject1' },
+    { url: 'http://127.0.0.1:56066/?workspaceUri=file%3A%2F%2F%2Fd%253A%2Fproject2' }
+  ];
+  assert.strictEqual(countIdeWindows(chatOnlyTargets), 2, 'Should group by distinct workspaces');
+});
+
+it('buildScannerScript ignores keyword matches within self-inspection arguments', () => {
+  const script = buildScannerScript({
+    mode: 'autonomous',
+    askKeywords: ['git push'],
+    skipKeywords: ['rm -rf']
+  });
+
+  const vm = require('vm');
+  let clicked = false;
+  const mockBtn = {
+    innerText: 'Submit',
+    disabled: false,
+    getBoundingClientRect: () => ({ width: 100, height: 30 }),
+    parentElement: {
+      innerText: "Allow run test? node -e 'const script = buildScannerScript({ skipKeywords: [\"rm -rf\"] });'"
+    },
+    click: () => { clicked = true; },
+    dispatchEvent: () => {},
+    setAttribute: () => {}
+  };
+
+  const sandbox = {
+    document: {
+      body: { dispatchEvent: () => {} },
+      querySelector: () => mockBtn,
+      querySelectorAll: () => [mockBtn],
+      getElementById: () => null,
+      defaultView: {
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+        MouseEvent: function() {},
+        KeyboardEvent: function() {}
+      }
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {},
+    Event: function() {}
+  };
+
+  const res = vm.runInNewContext(script, sandbox);
+  assert.ok(res, 'Scanner should evaluate');
+  assert.strictEqual(res.blocked, false, 'Should not block commands that mention skipKeywords in configuration code');
+  assert.strictEqual(clicked, true, 'Submit button should be clicked');
+});
+
 
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}

@@ -26,7 +26,7 @@ let PKG_VERSION = '1.8.5';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
-} catch (e) {}
+} catch (e) { }
 
 // The daemon talks CDP over the runtime's built-in WebSocket (Node 22+).
 function ensureWebSocketSupport() {
@@ -54,7 +54,7 @@ function acquireDaemonLock(portKey = 'auto', force = false) {
     portKey = 'auto';
   }
   if (!fs.existsSync(GLOBAL_DIR)) {
-    try { fs.mkdirSync(GLOBAL_DIR, { recursive: true }); } catch (e) {}
+    try { fs.mkdirSync(GLOBAL_DIR, { recursive: true }); } catch (e) { }
   }
   const pidFile = getPidFilePath(portKey);
   if (!force && fs.existsSync(pidFile)) {
@@ -68,7 +68,7 @@ function acquireDaemonLock(portKey = 'auto', force = false) {
           // Process not active, stale lock
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // Clean up legacy daemon.pid if present and stale
@@ -78,9 +78,9 @@ function acquireDaemonLock(portKey = 'auto', force = false) {
       const legPid = parseInt(fs.readFileSync(legacy, 'utf8').trim(), 10);
       try { process.kill(legPid, 0); } catch (e) { fs.unlinkSync(legacy); }
     }
-  } catch (e) {}
+  } catch (e) { }
 
-  try { fs.writeFileSync(pidFile, String(process.pid), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(pidFile, String(process.pid), 'utf8'); } catch (e) { }
   return null;
 }
 
@@ -94,7 +94,7 @@ function releaseDaemonLock(portKey = 'auto') {
         fs.unlinkSync(pidFile);
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 // ── Default Safety Profile ──
@@ -124,30 +124,30 @@ const DEFAULTS = {
 // ── Colors & Badges ──
 const isTty = process.stdout.isTTY && !process.env.NO_COLOR;
 const C = {
-  reset:     isTty ? '\x1b[0m' : '',
-  bold:      isTty ? '\x1b[1m' : '',
-  dim:       isTty ? '\x1b[2m' : '',
+  reset: isTty ? '\x1b[0m' : '',
+  bold: isTty ? '\x1b[1m' : '',
+  dim: isTty ? '\x1b[2m' : '',
   underline: isTty ? '\x1b[4m' : '',
-  
+
   // Foreground
-  cyan:      isTty ? '\x1b[36m' : '',
-  brightCyan:isTty ? '\x1b[96m' : '',
-  green:     isTty ? '\x1b[32m' : '',
-  brightGreen:isTty ? '\x1b[92m' : '',
-  yellow:    isTty ? '\x1b[33m' : '',
-  brightYellow:isTty ? '\x1b[93m' : '',
-  red:       isTty ? '\x1b[31m' : '',
-  magenta:   isTty ? '\x1b[35m' : '',
-  brightMagenta:isTty ? '\x1b[95m' : '',
-  white:     isTty ? '\x1b[37m' : '',
-  gray:      isTty ? '\x1b[90m' : '',
+  cyan: isTty ? '\x1b[36m' : '',
+  brightCyan: isTty ? '\x1b[96m' : '',
+  green: isTty ? '\x1b[32m' : '',
+  brightGreen: isTty ? '\x1b[92m' : '',
+  yellow: isTty ? '\x1b[33m' : '',
+  brightYellow: isTty ? '\x1b[93m' : '',
+  red: isTty ? '\x1b[31m' : '',
+  magenta: isTty ? '\x1b[35m' : '',
+  brightMagenta: isTty ? '\x1b[95m' : '',
+  white: isTty ? '\x1b[37m' : '',
+  gray: isTty ? '\x1b[90m' : '',
 
   // Pills / Badges
-  pillGreen:   isTty ? '\x1b[1m\x1b[42m\x1b[30m' : '',
-  pillYellow:  isTty ? '\x1b[1m\x1b[43m\x1b[30m' : '',
-  pillCyan:    isTty ? '\x1b[1m\x1b[46m\x1b[30m' : '',
+  pillGreen: isTty ? '\x1b[1m\x1b[42m\x1b[30m' : '',
+  pillYellow: isTty ? '\x1b[1m\x1b[43m\x1b[30m' : '',
+  pillCyan: isTty ? '\x1b[1m\x1b[46m\x1b[30m' : '',
   pillMagenta: isTty ? '\x1b[1m\x1b[45m\x1b[30m' : '',
-  pillGray:    isTty ? '\x1b[1m\x1b[100m\x1b[37m' : '',
+  pillGray: isTty ? '\x1b[1m\x1b[100m\x1b[37m' : '',
 };
 
 function cleanStr(s, maxLen = 70) {
@@ -237,7 +237,7 @@ async function handleDoctor(cfg, shouldExit = true) {
         pyVersion = `${cmd} (${pyOut})`;
         break;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   console.log(`  ${C.bold}Python Runtime:${C.reset}     ${pyVersion ? `${pyVersion} ${C.green}✔${C.reset}` : `${C.yellow}Not found ⚠️ (Needed for audit & clean suite)${C.reset}`}`);
 
@@ -269,7 +269,7 @@ async function handleDoctor(cfg, shouldExit = true) {
         const isWorkbench = url.includes('workbench.html') || url.includes('vscode-file://vscode-app');
         if (isWorkbench) ideWindowCount++;
         const role = isWorkbench ? 'IDE Shell' :
-                     url.includes('62060') || url.includes('/c/') || url.includes('extensionview=true') || url.includes('extensionvariant=vs-code') ? 'Agent Chat' : 'Dashboard Panel';
+          url.includes('62060') || url.includes('/c/') || url.includes('extensionview=true') || url.includes('extensionvariant=vs-code') ? 'Agent Chat' : 'Dashboard Panel';
         console.log(`  ${C.bold}Target [${targetCount}] (${role}):${C.reset} ${C.cyan}"${cleanStr(t.title || 'Antigravity', 55)}"${C.reset} (Port ${ep.port}) ✔`);
       });
     });
@@ -348,30 +348,30 @@ function killAntigravity(target = 'all') {
   try {
     if (process.platform === 'win32') {
       if (target === 'all' || target === 'ide') {
-        try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
-        try { execSync('taskkill /F /IM "antigravity-ide.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('taskkill /F /IM "Antigravity IDE.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) { }
+        try { execSync('taskkill /F /IM "antigravity-ide.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) { }
       }
       if (target === 'all' || target === 'app') {
-        try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('taskkill /F /IM "Antigravity.exe" /T 2>nul', { stdio: 'ignore' }); } catch (e) { }
       }
       try {
         const psKillChrome = 'Get-CimInstance Win32_Process -Filter "name = \'chrome.exe\'" | Where-Object { $_.CommandLine -like "*antigravity-browser-profile*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }';
         const b64Kill = Buffer.from(psKillChrome, 'utf16le').toString('base64');
         execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64Kill}`, { stdio: 'ignore', timeout: 3000 });
-      } catch (e) {}
+      } catch (e) { }
     } else if (process.platform === 'darwin') {
       if (target === 'all' || target === 'ide') {
-        try { execSync('pkill -9 -f "Antigravity IDE" 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('pkill -9 -f "Antigravity IDE" 2>/dev/null', { stdio: 'ignore' }); } catch (e) { }
       }
       if (target === 'all' || target === 'app') {
-        try { execSync('pkill -9 -f "Antigravity" 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('pkill -9 -f "Antigravity" 2>/dev/null', { stdio: 'ignore' }); } catch (e) { }
       }
     } else {
       if (target === 'all' || target === 'ide') {
-        try { execSync('pkill -9 -f antigravity-ide 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('pkill -9 -f antigravity-ide 2>/dev/null', { stdio: 'ignore' }); } catch (e) { }
       }
       if (target === 'all' || target === 'app') {
-        try { execSync('pkill -9 -f antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) {}
+        try { execSync('pkill -9 -f antigravity 2>/dev/null', { stdio: 'ignore' }); } catch (e) { }
       }
     }
     return true;
@@ -442,7 +442,7 @@ function findAntigravityExecutables() {
           if (l.startsWith('IDE:') && !result.ide) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.ide = p; }
           if (l.startsWith('APP:') && !result.app) { const p = l.slice(4).trim(); if (p && fs.existsSync(p)) result.app = p; }
         });
-      } catch (e) {}
+      } catch (e) { }
     }
   } else if (process.platform === 'darwin') {
     const ideCandidates = [
@@ -513,7 +513,7 @@ function launchAntigravityProcess(port = 9333, target = 'auto') {
       stdio: 'ignore'
     });
   }
-  child.on('error', () => {});
+  child.on('error', () => { });
   child.unref();
   return true;
 }
@@ -813,7 +813,7 @@ function handleSetup(cfg) {
                 console.log(`  ${C.bold}${C.green}✔ Linux desktop entry already configured:${C.reset} ${fPath}`);
                 patched = true;
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       }
@@ -829,7 +829,7 @@ function handleSetup(cfg) {
       fs.writeFileSync(wrapperApp, `#!/bin/sh\nexec "${realExe}" --remote-debugging-port=${appPort} "$@"\n`, { mode: 0o755 });
       console.log(`  ${C.bold}${C.green}✔ Created Linux CLI launchers:${C.reset} ${wrapperIde} & ${wrapperApp}`);
       patched = true;
-    } catch (e) {}
+    } catch (e) { }
 
     console.log(`  ${C.bold}${C.green}✔ Linux configuration ready! Launch with: ${C.cyan}auto-accept start${C.reset}\n`);
   } else if (process.platform === 'darwin') {
@@ -840,7 +840,7 @@ function handleSetup(cfg) {
       fs.writeFileSync(desktopIde, `#!/bin/bash\nopen -a "Antigravity IDE" --args --remote-debugging-port=${idePort}\n`, { mode: 0o755 });
       fs.writeFileSync(desktopApp, `#!/bin/bash\nopen -a "Antigravity" --args --remote-debugging-port=${appPort}\n`, { mode: 0o755 });
       console.log(`  ${C.bold}${C.green}✔ Created macOS Desktop Launchers for IDE & App${C.reset}`);
-    } catch (e) {}
+    } catch (e) { }
 
     // 2. Create ~/.local/bin wrappers
     const localBin = path.join(os.homedir(), '.local', 'bin');
@@ -849,7 +849,7 @@ function handleSetup(cfg) {
       fs.writeFileSync(path.join(localBin, 'antigravity-ide'), `#!/bin/sh\nexec open -a "Antigravity IDE" --args --remote-debugging-port=${idePort} "$@"\n`, { mode: 0o755 });
       fs.writeFileSync(path.join(localBin, 'antigravity'), `#!/bin/sh\nexec open -a "Antigravity" --args --remote-debugging-port=${appPort} "$@"\n`, { mode: 0o755 });
       console.log(`  ${C.bold}${C.green}✔ Created macOS CLI launchers in ~/.local/bin${C.reset}`);
-    } catch (e) {}
+    } catch (e) { }
 
     // 3. Configure ~/.zshrc shell aliases
     const zshrc = path.join(os.homedir(), '.zshrc');
@@ -868,7 +868,7 @@ function handleSetup(cfg) {
         fs.writeFileSync(zshrc, zContent, 'utf8');
         console.log(`  ${C.bold}${C.green}✔ Configured ~/.zshrc shell aliases for Antigravity App & IDE${C.reset}`);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     console.log(`\n  ${C.bold}${C.cyan}👉 macOS Setup Complete!${C.reset}\n`);
   }
@@ -898,7 +898,7 @@ function handleUninstall() {
     try {
       fs.unlinkSync(localConfig);
       console.log(`  ${C.green}✔ Removed local project config:${C.reset} ${localConfig}`);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 2. Remove global config directory ~/.antigravity-auto-submit
@@ -907,7 +907,7 @@ function handleUninstall() {
     try {
       fs.rmSync(globalDir, { recursive: true, force: true });
       console.log(`  ${C.green}✔ Removed global config directory:${C.reset} ${globalDir}`);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 3. Revert shortcut debugging flags & remove launchers
@@ -942,15 +942,15 @@ function handleUninstall() {
       const b64 = Buffer.from(psRevert, 'utf16le').toString('base64');
       execSync(`powershell -NoProfile -NonInteractive -EncodedCommand ${b64}`, { stdio: 'ignore' });
       console.log(`  ${C.green}✔ Reverted Antigravity shortcut arguments to default.${C.reset}`);
-    } catch (e) {}
+    } catch (e) { }
   } else if (process.platform === 'darwin') {
     const macDesktop = path.join(os.homedir(), 'Desktop', 'Antigravity IDE (Debug).command');
     if (fs.existsSync(macDesktop)) {
-      try { fs.unlinkSync(macDesktop); console.log(`  ${C.green}✔ Removed macOS desktop launcher:${C.reset} ${macDesktop}`); } catch (e) {}
+      try { fs.unlinkSync(macDesktop); console.log(`  ${C.green}✔ Removed macOS desktop launcher:${C.reset} ${macDesktop}`); } catch (e) { }
     }
     const macBin = path.join(os.homedir(), '.local', 'bin', 'antigravity');
     if (fs.existsSync(macBin)) {
-      try { fs.unlinkSync(macBin); console.log(`  ${C.green}✔ Removed macOS CLI wrapper:${C.reset} ${macBin}`); } catch (e) {}
+      try { fs.unlinkSync(macBin); console.log(`  ${C.green}✔ Removed macOS CLI wrapper:${C.reset} ${macBin}`); } catch (e) { }
     }
     const zshrc = path.join(os.homedir(), '.zshrc');
     if (fs.existsSync(zshrc)) {
@@ -961,12 +961,12 @@ function handleUninstall() {
           fs.writeFileSync(zshrc, zContent, 'utf8');
           console.log(`  ${C.green}✔ Removed ~/.zshrc alias.${C.reset}`);
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   } else if (process.platform === 'linux') {
     const linuxBin = path.join(os.homedir(), '.local', 'bin', 'antigravity');
     if (fs.existsSync(linuxBin)) {
-      try { fs.unlinkSync(linuxBin); console.log(`  ${C.green}✔ Removed Linux CLI launcher:${C.reset} ${linuxBin}`); } catch (e) {}
+      try { fs.unlinkSync(linuxBin); console.log(`  ${C.green}✔ Removed Linux CLI launcher:${C.reset} ${linuxBin}`); } catch (e) { }
     }
     const desktopDirs = [
       path.join(os.homedir(), '.local', 'share', 'applications'),
@@ -987,7 +987,7 @@ function handleUninstall() {
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   }
@@ -1144,7 +1144,7 @@ function handleAddRuleCli(listType, rawArgs, cfg, configSource) {
 
   let fileConfig = { ...DEFAULTS };
   if (fs.existsSync(saveTarget)) {
-    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) {}
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) { }
   } else {
     fileConfig = { ...cfg };
   }
@@ -1186,7 +1186,7 @@ function handleRemoveRuleCli(listType, rawArgs, cfg, configSource) {
 
   let fileConfig = { ...DEFAULTS };
   if (fs.existsSync(saveTarget)) {
-    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) {}
+    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) { }
   } else {
     fileConfig = { ...cfg };
   }
@@ -1279,12 +1279,12 @@ function resolveConfig() {
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
   let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
-    binName.includes('start') ? 'start' :
-    binName.includes('setup') ? 'setup' :
-    binName.includes('restart') ? 'restart' :
-    binName.includes('update') ? 'update' :
-    binName.includes('uninstall') ? 'uninstall' :
-    binName.includes('launch') ? 'launch' : ''
+      binName.includes('start') ? 'start' :
+        binName.includes('setup') ? 'setup' :
+          binName.includes('restart') ? 'restart' :
+            binName.includes('update') ? 'update' :
+              binName.includes('uninstall') ? 'uninstall' :
+                binName.includes('launch') ? 'launch' : ''
   );
   if (['d', 'doc'].includes(firstArg)) firstArg = 'doctor';
   else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
@@ -1362,7 +1362,7 @@ function resolveConfig() {
     try {
       cfg = { ...cfg, ...JSON.parse(fs.readFileSync(explicitConfig, 'utf8')) };
       configSource = explicitConfig;
-    } catch (e) {}
+    } catch (e) { }
   } else {
     // 2. Local config in current directory
     for (const f of LOCAL_CONFIG_FILES) {
@@ -1372,7 +1372,7 @@ function resolveConfig() {
           cfg = { ...cfg, ...JSON.parse(fs.readFileSync(localP, 'utf8')) };
           configSource = localP;
           break;
-        } catch (e) {}
+        } catch (e) { }
       }
     }
     // 3. Global config
@@ -1380,7 +1380,7 @@ function resolveConfig() {
       try {
         cfg = { ...cfg, ...JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8')) };
         configSource = GLOBAL_CONFIG_FILE;
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -1619,7 +1619,7 @@ class StatsManager {
         this.lastClicked = data.last_clicked || '';
         this.lastAction = cleanStr(data.last_action || '');
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   recordApproval(action) {
@@ -1647,7 +1647,7 @@ class StatsManager {
       const tmpFile = `${STATS_FILE}.${process.pid}.${Date.now()}.tmp`;
       fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(tmpFile, STATS_FILE);
-    } catch (e) {}
+    } catch (e) { }
   }
 }
 
@@ -1673,6 +1673,11 @@ function buildScannerScript(cfg) {
       const checkKeywords = (text) => {
         const raw = String(text || '').toLowerCase();
         const t = raw.replace(/\\s+/g, ' ');
+
+        // Guard against false positives when keywords appear inside script strings or options:
+        const isSelfInspection = raw.includes('skipkeywords:') || raw.includes('askkeywords:') || raw.includes('checkkeywords');
+        if (isSelfInspection) return null;
+
         if (/\\bgit\\s+push\\b.*(?:\\s|^)(--force|-f|--force-with-lease)(?:\\s|$)/i.test(t)) {
           return { blocked: true, type: 'skip', kw: 'git push --force' };
         }
@@ -1808,27 +1813,30 @@ function buildScannerScript(cfg) {
           markClicked(continueBtn);
 
           const targetBody = continueDoc.body || document.body;
-          if (autoSelectAlwaysAllow) {
-            try {
-              if (targetBody) {
-                targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
-                targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: '2', code: 'Digit2', keyCode: 50, which: 50, bubbles: true, cancelable: true }));
-              }
-              const opt2 = continueDoc.querySelector('input[type="radio"][value="2"]');
-              if (opt2 && !opt2.checked) { opt2.checked = true; opt2.click(); opt2.dispatchEvent(new Event('change', { bubbles: true })); }
-            } catch (e) {}
-          } else {
-            try {
-              if (targetBody) {
-                targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
-                targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: '1', code: 'Digit1', keyCode: 49, which: 49, bubbles: true, cancelable: true }));
-              }
-              const opt1 = continueDoc.querySelector('input[type="radio"][value="1"]');
-              if (opt1 && !opt1.checked) { opt1.checked = true; opt1.click(); opt1.dispatchEvent(new Event('change', { bubbles: true })); }
-            } catch (e) {}
-          }
+          const keyNum = autoSelectAlwaysAllow ? '2' : '1';
+          const digitCode = autoSelectAlwaysAllow ? 'Digit2' : 'Digit1';
+          const whichCode = autoSelectAlwaysAllow ? 50 : 49;
 
-          // Also click matching option row element if present
+          // 1. Dispatch keyboard key '1' (or '2') to activate Option 1 / 2
+          try {
+            if (targetBody) {
+              targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true }));
+              targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true }));
+            }
+          } catch (e) {}
+
+          // 2. Select matching radio option if present
+          try {
+            const radioSelector = autoSelectAlwaysAllow ? 'input[type="radio"][value="2"]' : 'input[type="radio"][value="1"]';
+            const optRadio = continueDoc.querySelector(radioSelector) || continueDoc.querySelector('input[type="radio"][value="' + keyNum + '"]');
+            if (optRadio && !optRadio.checked) {
+              optRadio.checked = true;
+              optRadio.click();
+              optRadio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          } catch (e) {}
+
+          // 3. Click option row element if present
           try {
             const optionEls = Array.from(continueDoc.querySelectorAll('button, div, label, [role="button"], [role="radio"]'));
             const matchingOption = optionEls.find(el => {
@@ -2104,16 +2112,16 @@ function findSystemListeningPorts() {
         }
       });
     }
-  } catch (e) {}
+  } catch (e) { }
   return Array.from(ports);
 }
 
 // ── Discovery & Multi-Window Target Selection ──
 function selectAllWorkbenchTargets(targets) {
   if (!targets || !Array.isArray(targets)) return [];
-  
+
   // Explicitly include workbench pages, webviews, and Antigravity frames with active debugger url
-  const validTargets = targets.filter(t => 
+  const validTargets = targets.filter(t =>
     t && (t.type === 'page' || t.type === 'iframe' || t.type === 'webview') &&
     t.webSocketDebuggerUrl &&
     (!t.url || !t.url.startsWith('devtools://'))
@@ -2234,9 +2242,34 @@ async function findCdpEndpoint(preferredPort) {
   return endpoints.length > 0 ? endpoints[0] : null;
 }
 
+function countIdeWindows(items) {
+  if (!items) return 0;
+  const list = Array.isArray(items) ? items : Array.from(items);
+  if (list.length === 0) return 0;
+
+  const workbenchCount = list.filter(item => {
+    const url = ((item && (item.target ? item.target.url : item.url)) || '').toLowerCase();
+    return url.includes('workbench.html') || url.includes('vscode-file://vscode-app');
+  }).length;
+  if (workbenchCount > 0) return workbenchCount;
+
+  const workspaces = new Set();
+  list.forEach(item => {
+    const url = ((item && (item.target ? item.target.url : item.url)) || '');
+    const wsMatch = url.match(/workspaceUri=([^&]+)/i);
+    if (wsMatch) {
+      workspaces.add(wsMatch[1]);
+    }
+  });
+  if (workspaces.size > 0) return workspaces.size;
+
+  return 1;
+}
+
 function getFriendlyTargetName(target) {
   if (!target) return 'Antigravity IDE';
   const url = (target.url || '').toLowerCase();
+  const rawUrl = target.url || '';
   const title = (target.title || '').trim();
   if (url.includes('workbench.html') || url.includes('vscode-file://vscode-app')) {
     if (title && !title.startsWith('vscode-') && !title.startsWith('http')) {
@@ -2247,11 +2280,22 @@ function getFriendlyTargetName(target) {
   }
   const isLoopback = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(url);
   if (isLoopback || url.includes('/c/') || title.toLowerCase().includes('chat') || title.toLowerCase().includes('antigravity')) {
-    if (title && !title.startsWith('http') && !title.startsWith('vscode-')) {
-      const parts = title.split(' - ');
-      return 'AI Chat Panel (' + (parts[0] || 'Main') + ')';
+    let wsName = '';
+    const wsMatch = rawUrl.match(/workspaceUri=([^&]+)/i);
+    if (wsMatch) {
+      try {
+        const decoded = decodeURIComponent(decodeURIComponent(wsMatch[1]));
+        const parts = decoded.replace(/[\\/]+$/, '').split(/[\\/]/);
+        if (parts.length > 0 && parts[parts.length - 1]) {
+          wsName = parts[parts.length - 1];
+        }
+      } catch (e) {}
     }
-    return 'AI Chat Panel';
+    if (!wsName && title && !title.startsWith('http') && !title.startsWith('vscode-')) {
+      const parts = title.split(' - ');
+      wsName = parts[0] || '';
+    }
+    return wsName ? `AI Chat Panel (${wsName})` : 'AI Chat Panel';
   }
   if (url.includes('vscode-webview') || title.toLowerCase().includes('dashboard') || title.toLowerCase().includes('auto-submit')) {
     return 'Sidebar Dashboard';
@@ -2286,7 +2330,7 @@ class WindowSession {
 
   connect() {
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      try { this.ws.close(); } catch (e) { }
       this.ws = null;
     }
     try {
@@ -2394,7 +2438,7 @@ class WindowSession {
         this.sessionBlocks++;
         this.stats.recordBlock();
         if (outcome.blockedType === 'ask') {
-          try { process.stdout.write('\x07'); } catch(e) {}
+          try { process.stdout.write('\x07'); } catch (e) { }
           this.onEvent('warn', ` PAUSED `, `Paused for review: "${outcome.matchedKeyword}"`, `Command in ${this.title} requires manual approval`, C.pillYellow);
         } else {
           this.onEvent('warn', ` SKIPPED `, `Blocked dangerous command: "${outcome.matchedKeyword}"`, `Blocked by Skip rule in ${this.title}`, C.pillMagenta);
@@ -2423,7 +2467,7 @@ class WindowSession {
     }
     this.isConnected = false;
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      try { this.ws.close(); } catch (e) { }
       this.ws = null;
     }
   }
@@ -2450,7 +2494,7 @@ class AutoSubmitDaemon {
       if (fs.existsSync(target)) {
         this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   checkConfigReload() {
@@ -2501,7 +2545,7 @@ class AutoSubmitDaemon {
           }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   get isConnected() {
@@ -2564,8 +2608,9 @@ class AutoSubmitDaemon {
 
     const connectedSessions = Array.from(this.sessions.values()).filter(s => s.isConnected);
     const ports = Array.from(new Set(connectedSessions.map(s => s.port)));
+    const ideWins = countIdeWindows(connectedSessions);
     const portStr = connectedSessions.length > 0
-      ? `${C.brightGreen}${connectedSessions.length} window(s) connected (${ports.map(p => 'Port ' + p).join(', ')})${C.reset}`
+      ? `${C.brightGreen}${ideWins} window(s) (${connectedSessions.length} targets) connected (${ports.map(p => 'Port ' + p).join(', ')})${C.reset}`
       : `${C.yellow}Searching ports 9000..9400...${C.reset}`;
 
     console.log(`
@@ -2606,7 +2651,8 @@ class AutoSubmitDaemon {
           const port = this.config.cdpPort > 0 ? this.config.cdpPort : 9333;
           this.logEvent('warn', ' OFFLINE ', 'All Antigravity IDE windows closed', `Searching for Antigravity IDE on Port ${port}...`, C.pillRed);
         } else if (prevConnectedCount === 0 && connectedCount > 0) {
-          this.logEvent('info', ' ONLINE ', `Antigravity IDE reconnected (${connectedCount} window(s) active)`, '', C.pillGreen);
+          const ideWins = countIdeWindows(this.sessions.values());
+          this.logEvent('info', ' ONLINE ', `Antigravity IDE reconnected (${ideWins} window(s), ${connectedCount} targets active)`, '', C.pillGreen);
         }
         prevConnectedCount = connectedCount;
 
@@ -2631,7 +2677,7 @@ class AutoSubmitDaemon {
           emptyCycles = 0;
           warnedUnpatchedRunning = false;
         }
-      } catch (e) {}
+      } catch (e) { }
       await new Promise(r => setTimeout(r, 2000));
     }
   }
@@ -2697,9 +2743,10 @@ class AutoSubmitDaemon {
 
   showStats() {
     const activeSessions = Array.from(this.sessions.values());
+    const ideWins = countIdeWindows(activeSessions);
     console.log(`
   ${C.bold}--- Live Multi-Window Statistics ---${C.reset}
-  Windows Attached:   ${activeSessions.length > 0 ? `${C.green}${activeSessions.length} connected${C.reset}` : `${C.yellow}0 (Searching...)${C.reset}`}
+  Windows Attached:   ${activeSessions.length > 0 ? `${C.green}${ideWins} window(s) (${activeSessions.length} targets monitored)${C.reset}` : `${C.yellow}0 (Searching...)${C.reset}`}
   Session Approvals:  ${C.bold}${this.stats.sessionApprovals}${C.reset} total
   Lifetime Approvals: ${C.bold}${this.stats.lifetimeClicks}${C.reset}
   Intercepted Blocks: ${C.bold}${this.stats.sessionBlocks}${C.reset}
@@ -2761,7 +2808,7 @@ class AutoSubmitDaemon {
     if (process.stdin.isTTY) {
       try {
         process.stdin.setRawMode(true);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     process.stdin.on('keypress', (str, key) => {
@@ -2864,13 +2911,13 @@ class AutoSubmitDaemon {
       if (fs.existsSync(target)) {
         this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   promptAddRule() {
     if (!process.stdin.isTTY || this.isPrompting) return;
     this.isPrompting = true;
-    try { process.stdin.setRawMode(false); } catch(e) {}
+    try { process.stdin.setRawMode(false); } catch (e) { }
     this.stopScanner();
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -2878,12 +2925,12 @@ class AutoSubmitDaemon {
     const finish = () => {
       if (finished) return;
       finished = true;
-      try { rl.close(); } catch(e) {}
+      try { rl.close(); } catch (e) { }
       this.isPrompting = false;
       if (process.stdin.isTTY) {
-        try { process.stdin.setRawMode(true); } catch(e) {}
+        try { process.stdin.setRawMode(true); } catch (e) { }
       }
-      try { process.stdin.resume(); } catch(e) {}
+      try { process.stdin.resume(); } catch (e) { }
       this.startScanner();
     };
 
@@ -2918,7 +2965,7 @@ class AutoSubmitDaemon {
   promptRemoveRule() {
     if (!process.stdin.isTTY || this.isPrompting) return;
     this.isPrompting = true;
-    try { process.stdin.setRawMode(false); } catch(e) {}
+    try { process.stdin.setRawMode(false); } catch (e) { }
     this.stopScanner();
 
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -2926,12 +2973,12 @@ class AutoSubmitDaemon {
     const finish = () => {
       if (finished) return;
       finished = true;
-      try { rl.close(); } catch(e) {}
+      try { rl.close(); } catch (e) { }
       this.isPrompting = false;
       if (process.stdin.isTTY) {
-        try { process.stdin.setRawMode(true); } catch(e) {}
+        try { process.stdin.setRawMode(true); } catch (e) { }
       }
-      try { process.stdin.resume(); } catch(e) {}
+      try { process.stdin.resume(); } catch (e) { }
       this.startScanner();
     };
 
@@ -3001,9 +3048,9 @@ class AutoSubmitDaemon {
     }
     this.sessions.clear();
     if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(false); } catch (e) {}
+      try { process.stdin.setRawMode(false); } catch (e) { }
     }
-    try { process.stdin.pause(); } catch (e) {}
+    try { process.stdin.pause(); } catch (e) { }
     process.exit(0);
   }
 }
@@ -3017,12 +3064,12 @@ if (require.main === module) {
   const rawFirstArg = (process.argv.slice(2).find(a => !a.startsWith('-')) || '').toLowerCase().trim();
   let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
-    binName.includes('start') ? 'start' :
-    binName.includes('setup') ? 'setup' :
-    binName.includes('restart') ? 'restart' :
-    binName.includes('update') ? 'update' :
-    binName.includes('uninstall') ? 'uninstall' :
-    binName.includes('launch') ? 'launch' : ''
+      binName.includes('start') ? 'start' :
+        binName.includes('setup') ? 'setup' :
+          binName.includes('restart') ? 'restart' :
+            binName.includes('update') ? 'update' :
+              binName.includes('uninstall') ? 'uninstall' :
+                binName.includes('launch') ? 'launch' : ''
   );
   if (['d', 'doc'].includes(firstArg)) firstArg = 'doctor';
   else if (['l', 'ls', 'rules'].includes(firstArg)) firstArg = 'list';
@@ -3087,13 +3134,13 @@ if (require.main === module) {
           try {
             const pid = parseInt(fs.readFileSync(p, 'utf8').trim(), 10);
             if (pid) {
-              try { process.kill(pid); stoppedCount++; } catch (e) {}
+              try { process.kill(pid); stoppedCount++; } catch (e) { }
             }
-            try { fs.unlinkSync(p); } catch (e) {}
-          } catch (e) {}
+            try { fs.unlinkSync(p); } catch (e) { }
+          } catch (e) { }
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     if (stoppedCount > 0) {
       console.log(`\n  ${C.green}✔ Stopped active auto-accept daemon (${stoppedCount} process(es)).${C.reset}\n`);
     } else {
@@ -3121,15 +3168,16 @@ if (require.main === module) {
       });
       const primaryEndpoint = endpoints[0] || null;
       const primaryTarget = allWindows[0] || null;
+      const ideWindowCount = countIdeWindows(allWindows);
       const output = {
         connected: allWindows.length > 0,
         port: primaryEndpoint ? primaryEndpoint.port : null,
         ports: endpoints.map(e => e.port),
         targetTitle: primaryTarget ? primaryTarget.title : null,
         windows: allWindows,
-        windowCount: allWindows.length,
+        windowCount: ideWindowCount,
         targetCount: allWindows.length,
-        ideWindowCount: allWindows.filter(w => (w.url || '').toLowerCase().includes('workbench.html') || (w.url || '').toLowerCase().includes('vscode-file://vscode-app')).length || (allWindows.length > 0 ? 1 : 0),
+        ideWindowCount: ideWindowCount,
         mode: config.mode,
         enabled: config.enabled,
         sessionApprovals: 0,
@@ -3172,6 +3220,8 @@ module.exports = {
   buildScannerScript,
   findCdpEndpoint,
   findCdpEndpoints,
+  countIdeWindows,
+  getFriendlyTargetName,
   selectWorkbenchTarget,
   selectAllWorkbenchTargets,
   acquireDaemonLock,
