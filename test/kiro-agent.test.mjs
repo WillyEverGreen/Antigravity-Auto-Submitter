@@ -1,7 +1,8 @@
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { getProxyAuth, ROLE_PROMPTS } from '../kiro-agent/kiro-core.mjs';
+import { getProxyAuth, ROLE_PROMPTS, executeParallel } from '../kiro-agent/kiro-core.mjs';
+import { executeParallelBatch } from '../kiro-agent/engine-router.mjs';
 import {
   generateRandomMachineId,
   applyAntiBanArmor,
@@ -283,4 +284,129 @@ await asyncTest('MCP Server responds to JSON-RPC initialize and lists 14 tools',
   assert.ok(toolNames.includes('kiro_universal_setting'));
 });
 
-console.log(`\nResults: ${passed}/14 Kiro Agent tests passed cleanly.\n`);
+// 4. Parallel Agent & Worker Queue Tests
+await asyncTest('executeParallelBatch handles empty tasks cleanly', async () => {
+  const emptyRes = await executeParallelBatch({ tasks: [] });
+  assert.strictEqual(emptyRes.total, 0);
+  assert.strictEqual(emptyRes.totalTasks, 0);
+  assert.strictEqual(emptyRes.successful, 0);
+  assert.strictEqual(emptyRes.completed, 0);
+  assert.strictEqual(emptyRes.failed, 0);
+  assert.deepStrictEqual(emptyRes.results, []);
+});
+
+await asyncTest('executeParallelBatch executes tasks concurrently with worker pool, progress tracking, and error isolation', async () => {
+  const progressCalls = [];
+  const mockRoute = async ({ prompt, model }) => {
+    await new Promise(r => setTimeout(r, 15));
+    if (prompt.includes('trigger-error')) throw new Error('Worker simulated failure');
+    return {
+      success: true,
+      finalCode: `Output for ${prompt}`,
+      model: model || 'test-model',
+      pattern: 'Direct'
+    };
+  };
+
+  const tasks = [
+    { id: 'task-1', prompt: 'Compute task 1' },
+    { id: 'task-2', prompt: 'Compute trigger-error in task 2' },
+    { id: 'task-3', prompt: 'Compute task 3' },
+    { id: 'task-4', prompt: 'Compute task 4' }
+  ];
+
+  const batchRes = await executeParallelBatch({
+    tasks,
+    concurrency: 2,
+    routeFn: mockRoute,
+    onProgress: (p) => progressCalls.push(p)
+  });
+
+  assert.strictEqual(batchRes.total, 4);
+  assert.strictEqual(batchRes.totalTasks, 4);
+  assert.strictEqual(batchRes.successful, 3);
+  assert.strictEqual(batchRes.completed, 3);
+  assert.strictEqual(batchRes.failed, 1);
+  assert.strictEqual(batchRes.results.length, 4);
+  assert.strictEqual(progressCalls.length, 4);
+
+  const failedTask = batchRes.results.find(r => r.id === 'task-2');
+  assert.ok(failedTask, 'Failed task must be recorded');
+  assert.strictEqual(failedTask.success, false);
+  assert.strictEqual(failedTask.error, 'Worker simulated failure');
+
+  const successfulTasks = batchRes.results.filter(r => r.success);
+  assert.strictEqual(successfulTasks.length, 3);
+  for (const t of successfulTasks) {
+    assert.ok(t.output.startsWith('Output for'));
+    assert.ok(typeof t.durationMs === 'number');
+  }
+});
+
+await asyncTest('executeParallel enforces swarm readiness and throws KiroSetupError when proxy is offline', async () => {
+  let errorCaught = null;
+  try {
+    await executeParallel({
+      tasks: [{ id: 'p1', prompt: 'Parallel prompt test' }]
+    });
+  } catch (err) {
+    errorCaught = err;
+  }
+
+  assert.ok(errorCaught, 'Expected KiroSetupError to be thrown');
+  assert.ok(
+    errorCaught.name === 'KiroSetupError' || errorCaught.message.includes('proxy') || errorCaught.message.includes('running'),
+    `Unexpected error message: ${errorCaught.message}`
+  );
+});
+
+await asyncTest('MCP server handles kiro_parallel_tasks tool invocation and returns structured response', async () => {
+  const mcpScript = path.resolve('kiro-agent/kiro-mcp.mjs');
+  const child = spawn('node', [mcpScript], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  const responses = [];
+  let buffer = '';
+
+  child.stdout.on('data', chunk => {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (line.trim()) {
+        try { responses.push(JSON.parse(line.trim())); } catch {}
+      }
+    }
+  });
+
+  // Call kiro_parallel_tasks tool
+  const callReq = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 10,
+    method: 'tools/call',
+    params: {
+      name: 'kiro_parallel_tasks',
+      arguments: {
+        tasks: [{ id: 'test-1', prompt: 'Say hello in Python' }],
+        concurrency: 2
+      }
+    }
+  }) + '\n';
+
+  child.stdin.write(callReq);
+
+  await new Promise(resolve => setTimeout(resolve, 800));
+  child.kill('SIGTERM');
+
+  const callRes = responses.find(r => r.id === 10);
+  assert.ok(callRes, 'Expected response for kiro_parallel_tasks tool call');
+  // When proxy is offline, it returns JSON-RPC error with proxy details
+  assert.ok(
+    (callRes.error && callRes.error.message.includes('proxy')) ||
+    (callRes.result && callRes.result.content),
+    'Expected tool response with proxy status or result'
+  );
+});
+
+console.log(`\nResults: ${passed}/18 Kiro Agent tests passed cleanly.\n`);

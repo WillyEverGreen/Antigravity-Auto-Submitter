@@ -427,7 +427,8 @@ export async function executeParallel({
   tasks,
   concurrency = 8,
   defaultModel = 'claude-sonnet-4.5',
-  defaultRole = 'coder'
+  defaultRole = 'coder',
+  onProgress = null
 }) {
   await assertSwarmReady('kiro parallel');
   const { executeParallelBatch } = await import('./engine-router.mjs');
@@ -438,7 +439,8 @@ export async function executeParallel({
       model: t.model || defaultModel,
       mode: 'auto'
     })),
-    concurrency
+    concurrency,
+    onProgress
   });
 }
 

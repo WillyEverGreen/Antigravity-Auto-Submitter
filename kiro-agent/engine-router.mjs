@@ -190,13 +190,16 @@ export async function routeTask({
  * High-Throughput Parallel Worker Batching across 20-Account Pool
  */
 export async function executeParallelBatch({
-  tasks,
+  tasks = [],
   concurrency = 10,
-  defaultMode = 'auto'
+  defaultMode = 'auto',
+  onProgress = null,
+  routeFn = null
 }) {
   const tStart = Date.now();
   const results = [];
   const queue = [...tasks];
+  const activeRoute = routeFn || routeTask;
 
   async function worker(workerId) {
     while (true) {
@@ -205,35 +208,60 @@ export async function executeParallelBatch({
 
       const t0 = Date.now();
       try {
-        const res = await routeTask({
+        const res = await activeRoute({
           prompt: task.prompt,
           mode: task.mode || defaultMode,
           model: task.model || null,
           context: task.context || ''
         });
 
-        results.push({
+        const entry = {
           id: task.id || `task-${results.length + 1}`,
-          title: task.title || task.prompt.slice(0, 40),
-          success: res.success,
-          pattern: res.pattern,
+          title: task.title || (task.prompt ? task.prompt.slice(0, 40) : 'Untitled'),
+          success: Boolean(res && res.success),
+          pattern: res ? res.pattern : 'Direct',
+          model: (res && res.model) || task.model || 'auto',
           durationMs: Date.now() - t0,
-          output: res.finalCode || res.finalSolution || res.error,
+          output: (res && (res.finalCode || res.finalSolution || res.content || res.error)) || '',
           workerId
-        });
+        };
+        results.push(entry);
+        if (typeof onProgress === 'function') {
+          try {
+            onProgress({
+              completed: results.length,
+              total: tasks.length,
+              latest: entry
+            });
+          } catch {}
+        }
       } catch (err) {
-        results.push({
+        const entry = {
           id: task.id || `task-${results.length + 1}`,
+          title: task.title || (task.prompt ? task.prompt.slice(0, 40) : 'Untitled'),
           success: false,
+          model: task.model || 'auto',
+          durationMs: Date.now() - t0,
+          output: err.message,
           error: err.message,
           workerId
-        });
+        };
+        results.push(entry);
+        if (typeof onProgress === 'function') {
+          try {
+            onProgress({
+              completed: results.length,
+              total: tasks.length,
+              latest: entry
+            });
+          } catch {}
+        }
       }
     }
   }
 
   const workerPool = [];
-  const activeWorkers = Math.min(concurrency, tasks.length);
+  const activeWorkers = Math.min(Math.max(1, concurrency), tasks.length || 0);
   for (let i = 0; i < activeWorkers; i++) {
     workerPool.push(
       worker(i + 1).catch(err => {
@@ -247,12 +275,19 @@ export async function executeParallelBatch({
     );
   }
 
-  await Promise.all(workerPool);
+  if (workerPool.length > 0) {
+    await Promise.all(workerPool);
+  }
+
+  const successful = results.filter(r => r.success).length;
+  const failed = results.filter(r => !r.success).length;
 
   return {
+    total: tasks.length,
     totalTasks: tasks.length,
-    completed: results.filter(r => r.success).length,
-    failed: results.filter(r => !r.success).length,
+    successful,
+    completed: successful,
+    failed,
     totalDurationMs: Date.now() - tStart,
     results
   };
