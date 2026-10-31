@@ -100,18 +100,15 @@ it('activity bar icon SVG exists', () => {
   assert(content.includes('<svg'), 'activity-icon.svg must contain an SVG element');
 });
 
-it('package.json declares viewsContainers and 4 views', () => {
+it('package.json declares viewsContainers and webview dashboard view', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8'));
   const vc = pkg.contributes.viewsContainers;
   assert(vc && vc.activitybar && vc.activitybar.length === 1, 'must declare one activitybar container');
   assert.strictEqual(vc.activitybar[0].id, 'antigravityDashboard');
   const views = pkg.contributes.views.antigravityDashboard;
-  assert(Array.isArray(views) && views.length === 4, 'must declare 4 views');
-  const ids = views.map(v => v.id);
-  assert(ids.includes('antigravityAutoSubmit.statusView'));
-  assert(ids.includes('antigravityAutoSubmit.statsView'));
-  assert(ids.includes('antigravityAutoSubmit.actionsView'));
-  assert(ids.includes('antigravityAutoSubmit.logView'));
+  assert(Array.isArray(views) && views.length === 1, 'must declare 1 webview dashboard view');
+  assert.strictEqual(views[0].id, 'antigravityAutoSubmit.dashboardView');
+  assert.strictEqual(views[0].type, 'webview');
 });
 
 // ── 2. Bundle Script Execution ──
@@ -128,10 +125,10 @@ it('bundle script copies auto-accept.js to daemon/auto-accept.js cleanly', () =>
 
 // ── 3. Extension Module Activation & Registration ──
 
-it('extension module activates and registers all 14 declared commands', () => {
+it('extension module activates and registers all 16 declared commands and webview dashboard', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8'));
   const declaredCmds = pkg.contributes.commands.map(c => c.command);
-  assert.strictEqual(declaredCmds.length, 14, 'should declare 14 commands in package.json');
+  assert.strictEqual(declaredCmds.length, 16, 'should declare 16 commands in package.json');
 
   const registeredCmds = new Map();
   const subscriptions = [];
@@ -202,6 +199,10 @@ it('extension module activates and registers all 14 declared commands', () => {
         registeredViews.set(viewId, provider);
         return { dispose: () => registeredViews.delete(viewId) };
       },
+      registerWebviewViewProvider: (viewId, provider) => {
+        registeredViews.set(viewId, provider);
+        return { dispose: () => registeredViews.delete(viewId) };
+      },
       showInformationMessage: () => {},
       showWarningMessage: () => {},
       showErrorMessage: () => {}
@@ -248,21 +249,27 @@ it('extension module activates and registers all 14 declared commands', () => {
     for (const cmd of declaredCmds) {
       assert(registeredCmds.has(cmd), `Command ${cmd} declared in package.json must be registered in extension.js`);
     }
-    assert.strictEqual(registeredCmds.size, 14, 'All 14 commands should be registered');
+    assert.strictEqual(registeredCmds.size, 16, 'All 16 commands should be registered');
 
-    // Verify all 4 tree views are registered
-    const expectedViews = [
-      'antigravityAutoSubmit.statusView',
-      'antigravityAutoSubmit.statsView',
-      'antigravityAutoSubmit.actionsView',
-      'antigravityAutoSubmit.logView'
-    ];
-    for (const v of expectedViews) {
-      assert(registeredViews.has(v), `View ${v} must be registered`);
-      const provider = registeredViews.get(v);
-      assert(typeof provider.getChildren === 'function', `View ${v} provider must have getChildren`);
-      assert(typeof provider.getTreeItem === 'function', `View ${v} provider must have getTreeItem`);
-    }
+    // Verify webview dashboard provider is registered
+    assert(registeredViews.has('antigravityAutoSubmit.dashboardView'), 'Webview dashboard provider must be registered');
+    const dbProvider = registeredViews.get('antigravityAutoSubmit.dashboardView');
+    assert(typeof dbProvider.resolveWebviewView === 'function', 'dashboardView provider must have resolveWebviewView');
+    assert(typeof dbProvider.postState === 'function', 'dashboardView provider must have postState');
+
+    // Test resolveWebviewView HTML generation
+    const postedMessages = [];
+    const mockWebview = {
+      options: {},
+      html: '',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: (m) => { postedMessages.push(m); return Promise.resolve(true); }
+    };
+    dbProvider.resolveWebviewView({ webview: mockWebview });
+    assert(mockWebview.html.includes('Antigravity Auto-Submit'), 'Webview HTML must contain title');
+    assert(mockWebview.html.includes('Skip Rules'), 'Webview HTML must contain Skip Rules');
+    assert(mockWebview.html.includes('Ask Rules'), 'Webview HTML must contain Ask Rules');
+    assert(postedMessages.length > 0, 'Must post initial state to webview');
 
     assert.strictEqual(globalStateStore.get('welcomed'), true, 'Welcomed state must be set on first activate');
 

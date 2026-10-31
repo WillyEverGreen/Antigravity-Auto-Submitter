@@ -111,6 +111,18 @@
         "title": "Clear Log",
         "category": "Antigravity Auto-Submit",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "antigravityAutoSubmit.addRule",
+        "title": "Add Keyword Rule (Ask / Skip)",
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(plus)"
+      },
+      {
+        "command": "antigravityAutoSubmit.removeRule",
+        "title": "Remove Keyword Rule",
+        "category": "Antigravity Auto-Submit",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -125,20 +137,9 @@
     "views": {
       "antigravityDashboard": [
         {
-          "id": "antigravityAutoSubmit.statusView",
-          "name": "Status"
-        },
-        {
-          "id": "antigravityAutoSubmit.statsView",
-          "name": "Stats"
-        },
-        {
-          "id": "antigravityAutoSubmit.actionsView",
-          "name": "Actions"
-        },
-        {
-          "id": "antigravityAutoSubmit.logView",
-          "name": "Live Log"
+          "type": "webview",
+          "id": "antigravityAutoSubmit.dashboardView",
+          "name": "Dashboard"
         }
       ]
     },
@@ -146,22 +147,27 @@
       "view/title": [
         {
           "command": "antigravityAutoSubmit.refreshDashboard",
-          "when": "view =~ /^antigravityAutoSubmit\\./",
+          "when": "view == antigravityAutoSubmit.dashboardView",
+          "group": "navigation"
+        },
+        {
+          "command": "antigravityAutoSubmit.addRule",
+          "when": "view == antigravityAutoSubmit.dashboardView",
           "group": "navigation"
         },
         {
           "command": "antigravityAutoSubmit.start",
-          "when": "view == antigravityAutoSubmit.statusView && !antigravityAutoSubmit.running",
+          "when": "view == antigravityAutoSubmit.dashboardView && !antigravityAutoSubmit.running",
           "group": "navigation"
         },
         {
           "command": "antigravityAutoSubmit.stop",
-          "when": "view == antigravityAutoSubmit.statusView && antigravityAutoSubmit.running",
+          "when": "view == antigravityAutoSubmit.dashboardView && antigravityAutoSubmit.running",
           "group": "navigation"
         },
         {
           "command": "antigravityAutoSubmit.clearLog",
-          "when": "view == antigravityAutoSubmit.logView",
+          "when": "view == antigravityAutoSubmit.dashboardView",
           "group": "navigation"
         }
       ]
