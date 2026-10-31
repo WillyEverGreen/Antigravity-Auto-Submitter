@@ -140,6 +140,26 @@
           "type": "webview",
           "id": "antigravityAutoSubmit.dashboardView",
           "name": "Dashboard"
+        },
+        {
+          "id": "antigravityAutoSubmit.statusView",
+          "name": "Status",
+          "when": "false"
+        },
+        {
+          "id": "antigravityAutoSubmit.statsView",
+          "name": "Stats",
+          "when": "false"
+        },
+        {
+          "id": "antigravityAutoSubmit.actionsView",
+          "name": "Actions",
+          "when": "false"
+        },
+        {
+          "id": "antigravityAutoSubmit.logView",
+          "name": "Live Log",
+          "when": "false"
         }
       ]
     },

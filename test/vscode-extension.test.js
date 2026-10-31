@@ -106,9 +106,8 @@ it('package.json declares viewsContainers and webview dashboard view', () => {
   assert(vc && vc.activitybar && vc.activitybar.length === 1, 'must declare one activitybar container');
   assert.strictEqual(vc.activitybar[0].id, 'antigravityDashboard');
   const views = pkg.contributes.views.antigravityDashboard;
-  assert(Array.isArray(views) && views.length === 1, 'must declare 1 webview dashboard view');
-  assert.strictEqual(views[0].id, 'antigravityAutoSubmit.dashboardView');
-  assert.strictEqual(views[0].type, 'webview');
+  assert(Array.isArray(views) && views.length >= 1, 'must declare views');
+  assert(views.some(v => v.id === 'antigravityAutoSubmit.dashboardView' && v.type === 'webview'), 'dashboardView must exist and be webview');
 });
 
 // ── 2. Bundle Script Execution ──
