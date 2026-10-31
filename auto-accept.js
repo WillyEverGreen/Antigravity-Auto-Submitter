@@ -639,9 +639,11 @@ async function handleEasyStart(cfg, configSource) {
   const isForce = process.argv.includes('--force') || process.argv.includes('-f');
   const runningPid = acquireDaemonLock(portKey, isForce);
   if (runningPid) {
-    console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.${C.reset}`);
-    console.log(`  ${C.dim}Only one daemon should manage approvals to prevent duplicate submissions.${C.reset}`);
-    console.log(`  ${C.dim}To override or replace it, stop PID ${runningPid} or run with: ${C.bold}auto-accept start --force${C.reset}\n`);
+    console.log(`\n  ${C.green}● Auto-accept daemon is ACTIVE (PID ${runningPid})${C.reset} on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.`);
+    console.log(`  ${C.dim}It is actively monitoring your Antigravity IDE windows in the background.${C.reset}`);
+    console.log(`  ${C.dim}• Check connection status: ${C.cyan}auto-accept status${C.reset}`);
+    console.log(`  ${C.dim}• Stop background daemon:  ${C.cyan}auto-accept stop${C.reset}`);
+    console.log(`  ${C.dim}• Take over interactive:   ${C.cyan}auto-accept start --force${C.reset}\n`);
     process.exit(0);
   }
   process.on('exit', () => releaseDaemonLock(portKey));
@@ -2992,8 +2994,33 @@ if (require.main === module) {
     return;
   }
 
+  if (firstArg === 'stop' || firstArg === 'stop-daemon') {
+    let stoppedCount = 0;
+    try {
+      if (fs.existsSync(GLOBAL_DIR)) {
+        const files = fs.readdirSync(GLOBAL_DIR).filter(f => f.startsWith('daemon_') && f.endsWith('.pid'));
+        for (const f of files) {
+          const p = path.join(GLOBAL_DIR, f);
+          try {
+            const pid = parseInt(fs.readFileSync(p, 'utf8').trim(), 10);
+            if (pid) {
+              try { process.kill(pid); stoppedCount++; } catch (e) {}
+            }
+            try { fs.unlinkSync(p); } catch (e) {}
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    if (stoppedCount > 0) {
+      console.log(`\n  ${C.green}✔ Stopped active auto-accept daemon (${stoppedCount} process(es)).${C.reset}\n`);
+    } else {
+      console.log(`\n  ${C.dim}No running auto-accept daemon found.${C.reset}\n`);
+    }
+    process.exit(0);
+  }
+
   // JSON Status Check
-  if (process.argv.includes('status') || process.argv.includes('--status')) {
+  if (firstArg === 'status' || process.argv.includes('status') || process.argv.includes('--status')) {
     (async () => {
       const endpoints = await findCdpEndpoints(config.cdpPort, config.cdpPorts);
       const stats = new StatsManager();
@@ -3033,9 +3060,11 @@ if (require.main === module) {
     const isForce = process.argv.includes('--force') || process.argv.includes('-f');
     const runningPid = acquireDaemonLock(portKey, isForce);
     if (runningPid) {
-      console.log(`\n  ${C.yellow}⚠️ Another auto-accept daemon (PID ${runningPid}) is already running on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.${C.reset}`);
-      console.log(`  ${C.dim}Only one daemon should manage ${portKey === 'auto' ? 'auto-detection mode' : 'port ' + portKey} to prevent duplicate submissions.${C.reset}`);
-      console.log(`  ${C.dim}To override or replace it, stop PID ${runningPid} or run with: ${C.bold}auto-accept --force${C.reset}\n`);
+      console.log(`\n  ${C.green}● Auto-accept daemon is ACTIVE (PID ${runningPid})${C.reset} on ${portKey === 'auto' ? 'auto-detection' : 'CDP port ' + portKey}.`);
+      console.log(`  ${C.dim}It is already running and monitoring Antigravity IDE in the background.${C.reset}`);
+      console.log(`  ${C.dim}• Check connection status: ${C.cyan}auto-accept status${C.reset}`);
+      console.log(`  ${C.dim}• Stop background daemon:  ${C.cyan}auto-accept stop${C.reset}`);
+      console.log(`  ${C.dim}• Take over interactive:   ${C.cyan}auto-accept --force${C.reset}\n`);
       process.exit(0);
     }
     process.on('exit', () => releaseDaemonLock(portKey));

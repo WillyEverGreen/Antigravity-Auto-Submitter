@@ -41,12 +41,51 @@ const GLOBAL_CONFIG_FILE = path.join(os.homedir(), '.antigravity-auto-submit', '
 
 function syncGlobalConfigRules(key, list) {
   try {
+    const dir = path.dirname(GLOBAL_CONFIG_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    let data = {};
     if (fs.existsSync(GLOBAL_CONFIG_FILE)) {
-      const data = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8'));
-      data[key] = list;
-      fs.writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+      try { data = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8')); } catch (e) {}
+    }
+    data[key] = list;
+    fs.writeFileSync(GLOBAL_CONFIG_FILE, JSON.stringify(data, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+function getRunningDaemonPid() {
+  if (child && child.pid) {
+    try {
+      process.kill(child.pid, 0);
+      return child.pid;
+    } catch (e) {
+      child = null;
+    }
+  }
+  try {
+    const globalDir = path.join(os.homedir(), '.antigravity-auto-submit');
+    if (fs.existsSync(globalDir)) {
+      const files = fs.readdirSync(globalDir).filter(f => f.startsWith('daemon_') && f.endsWith('.pid'));
+      for (const f of files) {
+        const p = path.join(globalDir, f);
+        try {
+          const pid = parseInt(fs.readFileSync(p, 'utf8').trim(), 10);
+          if (pid) {
+            try {
+              process.kill(pid, 0);
+              return pid;
+            } catch (e) {
+              try { fs.unlinkSync(p); } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
     }
   } catch (e) {}
+  return null;
+}
+
+function isDaemonRunning() {
+  return getRunningDaemonPid() !== null;
 }
 
 async function addRule(listKey, keyword) {
@@ -191,8 +230,9 @@ function setCtx(running) {
 }
 
 function render() {
-  const mode = cfg().get('mode');
-  if (child) {
+  const running = isDaemonRunning();
+  const mode = (daemonStatus && daemonStatus.mode) || cfg().get('mode') || 'autonomous';
+  if (running) {
     if (daemonStatus && !daemonStatus.connected) {
       statusItem.text = `$(warning) AGY: no window`;
       statusItem.tooltip = `Antigravity Auto-Submit daemon is running (${mode}), but NO IDE window is connected. Restart Antigravity from the patched shortcut (with --remote-debugging-port=9333).`;
@@ -271,6 +311,16 @@ function parseDaemonLine(raw) {
 // ── Daemon lifecycle ──
 
 function start() {
+  const existingPid = getRunningDaemonPid();
+  if (existingPid && !child) {
+    output.appendLine(`[start] attached to existing daemon PID ${existingPid}`);
+    appendLog('online', `Attached to active daemon (PID ${existingPid})`);
+    vscode.window.showInformationMessage(`Antigravity Auto-Submit daemon is already running (PID ${existingPid}). Connected.`);
+    render();
+    refreshViews();
+    if (dashboardProvider) dashboardProvider.postState();
+    return;
+  }
   if (child) {
     vscode.window.showInformationMessage('Antigravity Auto-Submit is already running.');
     return;
@@ -337,10 +387,24 @@ function start() {
 }
 
 function stop() {
-  if (!child) return;
-  const proc = child;
-  child = null;
-  try { proc.kill(); } catch (e) {}
+  const activePid = getRunningDaemonPid();
+  if (child) {
+    const proc = child;
+    child = null;
+    try { proc.kill(); } catch (e) {}
+  }
+  if (activePid) {
+    try { process.kill(activePid); } catch (e) {}
+    try {
+      const globalDir = path.join(os.homedir(), '.antigravity-auto-submit');
+      if (fs.existsSync(globalDir)) {
+        const files = fs.readdirSync(globalDir).filter(f => f.startsWith('daemon_') && f.endsWith('.pid'));
+        for (const f of files) {
+          try { fs.unlinkSync(path.join(globalDir, f)); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
   output.appendLine('[stop] requested');
   appendLog('stop', 'Daemon stopped');
   if (logView) logView.add('debug-stop', 'Daemon stopped');
@@ -351,7 +415,7 @@ function stop() {
 }
 
 function restartIfRunning() {
-  if (!child) return;
+  if (!isDaemonRunning()) return;
   stop();
   setTimeout(start, 500);
 }
@@ -423,7 +487,7 @@ class StatusProvider {
   refresh() { this._fire.fire(); }
   getTreeItem(e) { return e; }
   getChildren() {
-    const running = !!child;
+    const running = isDaemonRunning();
     const mode = cfg().get('mode') || 'autonomous';
     const items = [];
 
@@ -514,7 +578,7 @@ class ActionsProvider {
   refresh() { this._fire.fire(); }
   getTreeItem(e) { return e; }
   getChildren() {
-    const running = !!child;
+    const running = isDaemonRunning();
     const items = [];
     items.push(item(running ? 'Stop' : 'Start', {
       icon: running ? 'debug-stop' : 'debug-start',
@@ -579,7 +643,7 @@ class DashboardViewProvider {
           stop();
           break;
         case 'toggle':
-          if (child) stop(); else start();
+          if (isDaemonRunning()) stop(); else start();
           break;
         case 'setMode':
           if (msg.mode) {
@@ -617,7 +681,7 @@ class DashboardViewProvider {
           vscode.env.openExternal(vscode.Uri.parse(REPO_URL));
           break;
         case 'refresh':
-          if (child) {
+          if (isDaemonRunning()) {
             const s = await queryDaemonStatusAsync();
             if (s) daemonStatus = s;
           }
@@ -643,9 +707,16 @@ class DashboardViewProvider {
   postState() {
     if (!this._view) return;
     const disk = readStats();
+    let diskCfg = {};
+    try {
+      if (fs.existsSync(GLOBAL_CONFIG_FILE)) {
+        diskCfg = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8'));
+      }
+    } catch (e) {}
+    const running = isDaemonRunning();
     const state = {
-      running: !!child,
-      mode: cfg().get('mode') || 'autonomous',
+      running: running,
+      mode: (daemonStatus && daemonStatus.mode) || (diskCfg && diskCfg.mode) || cfg().get('mode') || 'autonomous',
       daemonStatus: daemonStatus,
       stats: {
         total: (daemonStatus && daemonStatus.lifetimeApprovals != null) ? daemonStatus.lifetimeApprovals : (disk && disk.total_clicks) || 0,
@@ -655,8 +726,8 @@ class DashboardViewProvider {
         lastAction: (disk && disk.last_action) || ''
       },
       rules: {
-        askKeywords: cfg().get('askKeywords') || [],
-        skipKeywords: cfg().get('skipKeywords') || []
+        askKeywords: (diskCfg && Array.isArray(diskCfg.askKeywords)) ? diskCfg.askKeywords : (cfg().get('askKeywords') || []),
+        skipKeywords: (diskCfg && Array.isArray(diskCfg.skipKeywords)) ? diskCfg.skipKeywords : (cfg().get('skipKeywords') || [])
       },
       logs: inMemoryLogs.slice(-60)
     };
@@ -1429,18 +1500,25 @@ class DashboardViewProvider {
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(async () => {
-    if (!child) {
-      if (daemonStatus) { daemonStatus = null; refreshViews(); render(); }
+    const running = isDaemonRunning();
+    if (!running) {
+      if (daemonStatus) {
+        daemonStatus = null;
+        refreshViews();
+        render();
+        if (dashboardProvider) dashboardProvider.postState();
+      }
       return;
     }
     const s = await queryDaemonStatusAsync();
-    if (s && child) {
+    if (s && isDaemonRunning()) {
       daemonStatus = s;
       statusView.refresh();
       statsView.refresh();
       render();
+      if (dashboardProvider) dashboardProvider.postState();
     }
-  }, 5000);
+  }, 2500);
 }
 
 function stopPolling() {
@@ -1473,7 +1551,7 @@ function activate(context) {
   const reg = (id, fn) => context.subscriptions.push(vscode.commands.registerCommand(`${SECTION}.${id}`, fn));
   reg('start', start);
   reg('stop', stop);
-  reg('toggle', () => (child ? stop() : start()));
+  reg('toggle', () => (isDaemonRunning() ? stop() : start()));
   reg('setMode', setMode);
   reg('showStatus', showStatus);
   reg('setup', () => runInTerminal('setup', 'setup'));
@@ -1491,7 +1569,7 @@ function activate(context) {
     false
   ));
   reg('refreshDashboard', async () => {
-    if (child) { const s = await queryDaemonStatusAsync(); if (s) daemonStatus = s; }
+    if (isDaemonRunning()) { const s = await queryDaemonStatusAsync(); if (s) daemonStatus = s; }
     refreshViews();
     logView.refresh();
     render();
