@@ -2184,6 +2184,27 @@ async function findCdpEndpoint(preferredPort) {
   return endpoints.length > 0 ? endpoints[0] : null;
 }
 
+function getFriendlyTargetName(target) {
+  if (!target) return 'Antigravity IDE';
+  const url = (target.url || '').toLowerCase();
+  const title = (target.title || '').trim();
+  if (url.includes('workbench.html') || url.includes('vscode-file://vscode-app')) {
+    if (title && !title.startsWith('vscode-') && !title.startsWith('http')) {
+      const parts = title.split(' - ');
+      return 'Code Editor (' + (parts[0] || 'Main') + ')';
+    }
+    return 'Code Editor';
+  }
+  if (url.includes('62060') || url.includes('/c/') || title.includes('chat') || title.includes('conversation')) {
+    return 'AI Chat Panel';
+  }
+  if (url.includes('vscode-webview') || title.includes('dashboard') || title.includes('auto-submit')) {
+    return 'Sidebar Dashboard';
+  }
+  if (title) return cleanStr(title, 35);
+  return 'IDE Window';
+}
+
 // ── Multi-Window Connection Session ──
 class WindowSession {
   constructor(target, port, config, stats, onEvent) {
@@ -2191,7 +2212,7 @@ class WindowSession {
     this.id = target.id || target.webSocketDebuggerUrl;
     this.port = port;
     this.url = target.webSocketDebuggerUrl;
-    this.title = cleanStr(target.title || 'Antigravity IDE', 45);
+    this.title = getFriendlyTargetName(target);
     this.config = config;
     this.stats = stats;
     this.onEvent = onEvent;
@@ -2221,7 +2242,7 @@ class WindowSession {
 
     this.ws.onopen = () => {
       this.isConnected = true;
-      this.onEvent('info', ` READY `, `Connected to window: "${this.title}" (Port ${this.port})`, `Target ID: ${this.id}`, C.pillGreen);
+      this.onEvent('info', ` READY `, `Connected: ${this.title} (Port ${this.port})`, `Target: ${this.title}`, C.pillGreen);
       this.startScanner();
     };
 
@@ -2319,9 +2340,9 @@ class WindowSession {
         this.stats.recordBlock();
         if (outcome.blockedType === 'ask') {
           try { process.stdout.write('\x07'); } catch(e) {}
-          this.onEvent('warn', ` PAUSED `, `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Awaiting your manual click in chat)`, C.pillYellow);
+          this.onEvent('warn', ` PAUSED `, `Paused for review: "${outcome.matchedKeyword}"`, `Command in ${this.title} requires manual approval`, C.pillYellow);
         } else {
-          this.onEvent('warn', ` SKIPPED `, `[${this.title}] ${actionClean}`, `Command contains: "${outcome.matchedKeyword}" (Direct Skip Guard)`, C.pillMagenta);
+          this.onEvent('warn', ` SKIPPED `, `Blocked dangerous command: "${outcome.matchedKeyword}"`, `Blocked by Skip rule in ${this.title}`, C.pillMagenta);
         }
       }
     } else {
@@ -2336,14 +2357,14 @@ class WindowSession {
       this.lastReportedBlock = '';
       this.sessionApprovals++;
       this.stats.recordApproval(outcome.action);
-      this.onEvent('info', ` APPROVE `, `[${this.title}] ${actionClean}`, `Lifetime: ${this.stats.lifetimeClicks} (+${this.sessionApprovals} window / +${this.stats.sessionApprovals} total) | ${contextClean}`, C.pillGreen);
+      this.onEvent('info', ` APPROVE `, `Approved: ${actionClean}`, `Approved in ${this.title} | Approvals: ${this.stats.lifetimeClicks}`, C.pillGreen);
     }
   }
 
   destroy() {
     this.stopScanner();
     if (this.isConnected) {
-      this.onEvent('warn', ` DISCON `, `Window disconnected: "${this.title}" (Port ${this.port})`, '', C.pillYellow);
+      this.onEvent('warn', ` DISCON `, `Disconnected: ${this.title}`, '', C.pillYellow);
     }
     this.isConnected = false;
     if (this.ws) {
@@ -2578,7 +2599,7 @@ class AutoSubmitDaemon {
           session.connect();
         } else {
           const session = this.sessions.get(key);
-          session.title = cleanStr(t.title || 'Antigravity IDE', 45);
+          session.title = getFriendlyTargetName(t);
           session.url = t.webSocketDebuggerUrl;
           if (!session.isConnected && !session.ws) {
             session.connect();

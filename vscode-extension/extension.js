@@ -263,41 +263,58 @@ function refreshViews() {
 const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 function strip(s) { return s.replace(ANSI_RE, ''); }
 
+function cleanLogDetail(detail) {
+  let s = (detail || '').trim();
+  s = s.replace(/Connected to window:\s*"vscode-webview:[^"]*"\s*\([^)]*\)/gi, 'Connected to Sidebar Dashboard');
+  s = s.replace(/Connected to window:\s*"https?:\/\/127\.0\.0\.1:[^"]*"\s*\([^)]*\)/gi, 'Connected to AI Chat Panel');
+  s = s.replace(/Connected to window:\s*"([^"]+)"\s*\([^)]*\)/gi, (m, title) => {
+    if (title.includes('workbench') || title.includes('Welcome') || title.includes('Antigravity IDE')) {
+      const parts = title.split(' - ');
+      return 'Connected to Code Editor (' + (parts[0] || 'Main') + ')';
+    }
+    return 'Connected to ' + title;
+  });
+  s = s.replace(/Window disconnected:\s*"vscode-webview:[^"]*"/gi, 'Disconnected: Sidebar Dashboard');
+  s = s.replace(/Window disconnected:\s*"https?:\/\/127\.0\.0\.1:[^"]*"/gi, 'Disconnected: AI Chat Panel');
+  s = s.replace(/Antigravity IDE reconnected \(\d+ window\(s\) active\)/gi, 'Antigravity IDE ready (all panels connected)');
+  return s;
+}
+
 function parseDaemonLine(raw) {
   const clean = strip(raw).trim();
   if (!clean) return;
   if (/APPROVE/i.test(clean)) {
     sessionApprovals++;
-    const detail = clean.replace(/.*APPROVE\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*APPROVE\s*/, '').trim() || clean);
     if (logView) logView.add('check', detail);
     appendLog('approve', detail);
     if (statsView) statsView.refresh();
     if (dashboardProvider) dashboardProvider.postState();
   } else if (/SKIPPED/i.test(clean)) {
     sessionBlocks++;
-    const detail = clean.replace(/.*SKIPPED\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*SKIPPED\s*/, '').trim() || clean);
     if (logView) logView.add('close', detail);
     appendLog('skip', detail);
     if (statsView) statsView.refresh();
     if (dashboardProvider) dashboardProvider.postState();
   } else if (/PAUSED/i.test(clean)) {
-    const detail = clean.replace(/.*PAUSED\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*PAUSED\s*/, '').trim() || clean);
     if (logView) logView.add('bell', detail);
     appendLog('pause', detail);
   } else if (/READY|ONLINE/i.test(clean)) {
-    const detail = clean.replace(/.*(?:READY|ONLINE)\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*(?:READY|ONLINE)\s*/, '').trim() || clean);
     if (logView) logView.add('plug', detail);
     appendLog('online', detail);
     if (statusView) statusView.refresh();
     if (dashboardProvider) dashboardProvider.postState();
   } else if (/DISCON|OFFLINE/i.test(clean)) {
-    const detail = clean.replace(/.*(?:DISCON|OFFLINE)\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*(?:DISCON|OFFLINE)\s*/, '').trim() || clean);
     if (logView) logView.add('debug-disconnect', detail);
     appendLog('offline', detail);
     if (statusView) statusView.refresh();
     if (dashboardProvider) dashboardProvider.postState();
   } else if (/MODE|TOGGLE/i.test(clean)) {
-    const detail = clean.replace(/.*(?:MODE|TOGGLE)\s*/, '').trim() || clean;
+    const detail = cleanLogDetail(clean.replace(/.*(?:MODE|TOGGLE)\s*/, '').trim() || clean);
     if (logView) logView.add('settings-gear', detail);
     appendLog('info', detail);
     if (statusView) statusView.refresh();
@@ -373,8 +390,9 @@ function start() {
   });
   proc.on('exit', code => {
     output.appendLine(`[exit] code ${code}`);
-    appendLog('stop', `Daemon exited (code ${code})`);
-    if (logView) logView.add('debug-stop', `Daemon exited (code ${code})`);
+    const stopMsg = code === 0 || code === null ? 'Daemon stopped' : `Daemon stopped (code ${code})`;
+    appendLog('stop', stopMsg);
+    if (logView) logView.add('debug-stop', stopMsg);
     if (child === proc) child = null;
     daemonStatus = null;
     render();
@@ -1214,7 +1232,7 @@ class DashboardViewProvider {
       <button id="btnModeAuto" class="mode-btn active" onclick="setMode('autonomous')">Autonomous</button>
       <button id="btnModePilot" class="mode-btn" onclick="setMode('autopilot')">Autopilot</button>
     </div>
-    <div id="modeHint" class="mode-hint">Approves safe tool execution automatically</div>
+    <div id="modeHint" class="mode-hint">Approves safe commands automatically • Pauses on sensitive actions</div>
   </div>
 
   <!-- KPI Metrics Grid -->
@@ -1251,7 +1269,7 @@ class DashboardViewProvider {
     </div>
 
     <div id="tabDesc" class="tab-desc">
-      Prompts matching these keywords are immediately blocked.
+      Dangerous commands: blocked immediately (never approved).
     </div>
 
     <div id="chipsContainer" class="chips-container">
@@ -1259,7 +1277,7 @@ class DashboardViewProvider {
     </div>
 
     <form class="add-rule-form" onsubmit="handleAddRule(event)">
-      <input id="ruleInput" class="rule-input" type="text" placeholder="Add keyword (e.g. rm -rf)..." autocomplete="off" />
+      <input id="ruleInput" class="rule-input" type="text" placeholder="Add command to block (e.g. rm -rf)..." autocomplete="off" />
       <button type="submit" class="btn-add">+ Add</button>
     </form>
 
@@ -1318,11 +1336,11 @@ class DashboardViewProvider {
       
       const desc = document.getElementById('tabDesc');
       if (tab === 'skip') {
-        desc.textContent = 'Prompts matching these keywords are immediately blocked.';
-        document.getElementById('ruleInput').placeholder = 'Add skip keyword (e.g. rm -rf)...';
+        desc.textContent = 'Dangerous commands: blocked immediately (never approved).';
+        document.getElementById('ruleInput').placeholder = 'Add command to block (e.g. rm -rf)...';
       } else {
-        desc.textContent = 'Prompts matching these keywords will pause for your manual review.';
-        document.getElementById('ruleInput').placeholder = 'Add ask keyword (e.g. git push)...';
+        desc.textContent = 'Sensitive commands: pauses so you can review and confirm first.';
+        document.getElementById('ruleInput').placeholder = 'Add command to review (e.g. git push)...';
       }
       
       renderRules();
@@ -1406,14 +1424,14 @@ class DashboardViewProvider {
         } else {
           badge.classList.add('nowindow');
           text.textContent = 'NO WINDOW';
-          pill.textContent = 'port 9333 inactive (reopen from shortcut)';
+          pill.textContent = 'waiting for IDE (reopen from shortcut)';
         }
       } else {
         badge.classList.add('stopped');
         text.textContent = 'STOPPED';
         toggle.textContent = 'Start';
         toggle.className = 'btn-toggle btn-start';
-        pill.textContent = 'offline';
+        pill.textContent = 'stopped';
       }
 
       // Mode Switcher
@@ -1421,8 +1439,8 @@ class DashboardViewProvider {
       document.getElementById('btnModeAuto').classList.toggle('active', !isPilot);
       document.getElementById('btnModePilot').classList.toggle('active', isPilot);
       document.getElementById('modeHint').textContent = isPilot
-        ? 'Approves tools + confirms implementation plan dialogs'
-        : 'Approves safe tool execution automatically';
+        ? '100% Hands-Free: auto-approves safe commands and plans'
+        : 'Approves safe commands automatically • Pauses on sensitive actions';
 
       // KPI stats
       document.getElementById('statTotal').textContent = state.stats.total || 0;
@@ -1459,13 +1477,13 @@ class DashboardViewProvider {
     function formatFeedItem(e) {
       let tagClass = 'tag-info';
       let tagText = (e.type || 'info').toUpperCase();
-      if (e.type === 'approve') { tagClass = 'tag-approve'; tagText = 'APPROVE'; }
+      if (e.type === 'approve') { tagClass = 'tag-approve'; tagText = 'ALLOW'; }
       else if (e.type === 'skip') { tagClass = 'tag-skip'; tagText = 'BLOCKED'; }
-      else if (e.type === 'pause') { tagClass = 'tag-pause'; tagText = 'PAUSED'; }
-      else if (e.type === 'online') { tagClass = 'tag-online'; tagText = 'ONLINE'; }
-      else if (e.type === 'offline') { tagClass = 'tag-offline'; tagText = 'OFFLINE'; }
-      else if (e.type === 'start') { tagClass = 'tag-start'; tagText = 'START'; }
-      else if (e.type === 'stop') { tagClass = 'tag-stop'; tagText = 'STOP'; }
+      else if (e.type === 'pause') { tagClass = 'tag-pause'; tagText = 'REVIEW'; }
+      else if (e.type === 'online') { tagClass = 'tag-online'; tagText = 'READY'; }
+      else if (e.type === 'offline') { tagClass = 'tag-offline'; tagText = 'CLOSED'; }
+      else if (e.type === 'start') { tagClass = 'tag-start'; tagText = 'STARTED'; }
+      else if (e.type === 'stop') { tagClass = 'tag-stop'; tagText = 'STOPPED'; }
 
       return '<div class="feed-item">' +
                '<span class="feed-time">' + escapeHtml(e.time || '') + '</span>' +
