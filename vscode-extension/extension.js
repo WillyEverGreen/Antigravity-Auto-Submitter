@@ -503,9 +503,11 @@ class StatusProvider {
     }));
 
     if (running && daemonStatus) {
+      const ideWins = daemonStatus.ideWindowCount || 1;
+      const targets = daemonStatus.targetCount || daemonStatus.windowCount || 1;
       items.push(item('Connection', {
         desc: daemonStatus.connected
-          ? `${daemonStatus.windowCount} window(s) on port ${daemonStatus.port}`
+          ? `${ideWins} win (${targets} targets on port ${daemonStatus.port})`
           : 'no windows',
         icon: daemonStatus.connected ? 'circle-filled' : 'circle-outline'
       }));
@@ -1398,7 +1400,9 @@ class DashboardViewProvider {
         if (state.daemonStatus && state.daemonStatus.connected) {
           badge.classList.add('active');
           text.textContent = 'ACTIVE';
-          pill.textContent = (state.daemonStatus.windowCount || 1) + ' win on port ' + (state.daemonStatus.port || 9333);
+          const ideWins = state.daemonStatus.ideWindowCount || 1;
+          const targets = state.daemonStatus.targetCount || state.daemonStatus.windowCount || 1;
+          pill.textContent = ideWins + (ideWins === 1 ? ' win (' : ' wins (') + targets + ' targets on port ' + (state.daemonStatus.port || 9333) + ')';
         } else {
           badge.classList.add('nowindow');
           text.textContent = 'NO WINDOW';

@@ -259,15 +259,22 @@ async function handleDoctor(cfg, shouldExit = true) {
   if (endpoints.length > 0) {
     const portsStr = endpoints.map(e => e.port).join(', ');
     console.log(`  ${C.bold}CDP Port Status:${C.reset}    ${C.green}Connected on port(s): ${portsStr} ✔${C.reset}                                 `);
-    let winCount = 0;
+    let targetCount = 0;
+    let ideWindowCount = 0;
     endpoints.forEach(ep => {
       const targets = selectAllWorkbenchTargets(ep.targets);
       targets.forEach(t => {
-        winCount++;
-        console.log(`  ${C.bold}Window [${winCount}]:${C.reset}         ${C.cyan}"${cleanStr(t.title || 'Antigravity', 60)}"${C.reset} (Port ${ep.port}) ✔`);
+        targetCount++;
+        const url = (t.url || '').toLowerCase();
+        const isWorkbench = url.includes('workbench.html') || url.includes('vscode-file://vscode-app');
+        if (isWorkbench) ideWindowCount++;
+        const role = isWorkbench ? 'IDE Shell' :
+                     url.includes('62060') || url.includes('/c/') ? 'Agent Chat' : 'Dashboard Panel';
+        console.log(`  ${C.bold}Target [${targetCount}] (${role}):${C.reset} ${C.cyan}"${cleanStr(t.title || 'Antigravity', 55)}"${C.reset} (Port ${ep.port}) ✔`);
       });
     });
-    console.log(`  ${C.bold}Confirmation Engine:${C.reset}${C.green} Ready for multi-window auto-approvals! (${winCount} window(s)) ✔${C.reset}\n`);
+    if (ideWindowCount === 0 && targetCount > 0) ideWindowCount = 1;
+    console.log(`  ${C.bold}Confirmation Engine:${C.reset}${C.green} Ready for auto-approvals! (${ideWindowCount} IDE window, ${targetCount} targets monitored) ✔${C.reset}\n`);
 
     const connectedPorts = endpoints.map(e => e.port);
     if (running.app && !connectedPorts.includes(9334)) {
@@ -3045,6 +3052,8 @@ if (require.main === module) {
         targetTitle: primaryTarget ? primaryTarget.title : null,
         windows: allWindows,
         windowCount: allWindows.length,
+        targetCount: allWindows.length,
+        ideWindowCount: allWindows.filter(w => (w.url || '').toLowerCase().includes('workbench.html') || (w.url || '').toLowerCase().includes('vscode-file://vscode-app')).length || (allWindows.length > 0 ? 1 : 0),
         mode: config.mode,
         enabled: config.enabled,
         sessionApprovals: 0,
