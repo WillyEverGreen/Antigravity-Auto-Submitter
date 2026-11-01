@@ -1,98 +1,178 @@
 # Antigravity Auto-Submit
 
-Hands-free approval of Antigravity IDE tool-execution and plan prompts, controlled from the status bar. The extension bundles the [Antigravity Auto-Submitter](https://github.com/WillyEverGreen/Antigravity-Auto-Submitter) daemon, so the only prerequisite is **Node.js 22+**.
+<div align="center">
+  <img src="media/icon.png" width="120" height="120" alt="Antigravity Auto-Submit Logo" />
+  <h3>Hands-Free Autonomous Approval Engine for Google Antigravity IDE</h3>
+  <p>Never wait for permission prompts again. Auto-approves tool executions, child subagents, and implementation plans with intelligent safety guardrails.</p>
+</div>
 
-- Repository and full docs: https://github.com/WillyEverGreen/Antigravity-Auto-Submitter
-- npm package (CLI and daemon): https://www.npmjs.com/package/antigravity-auto-submit
-- Issues: https://github.com/WillyEverGreen/Antigravity-Auto-Submitter/issues
+---
 
-## How it works
+## ⚡ Why Use This Even If You Have "Turbo Mode"?
 
-The daemon attaches to the IDE over the Chrome DevTools Protocol (CDP) and clicks approval buttons for you. Prompts that match your **skip** keywords are never approved, and prompts that match your **ask** keywords are left for you to confirm. Nothing leaves your machine.
+Antigravity IDE includes a built-in **Turbo Mode**, but developers quickly realize it has critical limitations during real-world AI coding sessions:
 
-## Get started in 4 steps
+| Capability | Built-in Turbo Mode | Antigravity Auto-Submit |
+| :--- | :---: | :---: |
+| **Primary Chat Tool Calls** | ✅ Auto-runs | ✅ Auto-approves |
+| **Child Subagents & Background Workers** | ❌ **Still pauses & blocks** | ✅ **100% Hands-Free** (Auto-selects Option 1 & clicks Submit) |
+| **Implementation Plans (`Proceed` Cards)** | ❌ **Pauses workflow** | ✅ **Auto-approved in Autopilot Mode** |
+| **Safety Guardrails (`rm -rf`, `drop table`)** | ❌ **Blind execution (Zero defense)** | ✅ **Regex & keyword guardrails (Skip & Ask rules)** |
+| **Multi-Window & Multi-Workspace Coordination** | ❌ **Single window only** | ✅ **Synchronized concurrent daemon across all windows** |
+| **Cross-Tool Companion Support** | ❌ None | ✅ **Includes Kiro IDE & Claude Code CLI companions** |
+| **Session Analytics & Audit Trail** | ❌ None | ✅ **Lifetime approvals, session count & live activity feed** |
 
-A walkthrough opens automatically on first install. Reopen it with **Antigravity Auto-Submit: Open Getting Started Walkthrough**.
+> **The Subagent Problem:** Even with Turbo Mode turned ON, child subagents (e.g., `Subagent: Task 1 Implementer`, parallel tasks, and secondary workspace panes) are treated with higher isolation by Antigravity and **still require manual confirmation** (`Allow run ...? [Submit ↵]`). Antigravity Auto-Submit detects these prompts, selects **Option 1 ("Yes, allow this time")**, dispatches the confirmation keystroke, and clicks **Submit** automatically.
 
-1. **Check Node.js 22+.** Run `node -v`, or run **Check Environment**. Install from https://nodejs.org if needed.
-2. **Enable the debug port.** Run **Add Debug Port to IDE Shortcuts (setup)** once. Fully close the IDE (including background processes), then reopen it from the patched Desktop or Start Menu shortcut. The IDE must run with `--remote-debugging-port=9333`.
-3. **Start.** Click **AGY** in the status bar, or run **Start Auto-Submit**.
-4. **Verify.** Run **Show Connection Status**. You should see the attached window count and port.
+---
 
-## Prefer the command line?
+## 🚀 Key Features
 
-The same daemon is available as an npm package:
+- **Autonomous Tool Confirmation:** Automatically clicks `Allow`, `Allow this time`, `Run`, `Accept`, and `Submit` on tool execution cards.
+- **Subagent Auto-Approval:** Automatically handles nested subagent prompts with automatic radio selection and submission.
+- **Autopilot Mode (Plan Approval):** In `autopilot` mode, the engine also auto-approves implementation plans, architecture specs, and `Proceed` prompts.
+- **Intelligent Safety Guardrails:**
+  - **Skip Rules:** Hard-blocks destructive commands (`rm -rf`, `drop table`, `format c:`, `git push --force`) so they are never executed.
+  - **Ask Rules:** Pauses and alerts you on sensitive operations (`git push`, `git reset --hard`).
+- **Concurrent Multi-Window Monitoring:** Seamlessly tracks and approves prompts across all open Antigravity IDE workspaces (e.g. `2 wins (7 targets on port 9333)`).
+- **Native Sidebar Dashboard:** Beautiful, live Webview dashboard in the Antigravity activity bar with real-time metrics, rule badges, and live activity feed.
+- **Status Bar Toggle:** Quick-access status bar item (`AGY: autonomous` / `AGY: autopilot` / `AGY: off`) for instant toggling.
+- **Zero Cloud Leakage:** Communicates 100% locally over Chrome DevTools Protocol (CDP) on `127.0.0.1`. No external network requests, telemetry, or API keys required.
 
+---
+
+## 📊 Understanding the Dashboard Metrics
+
+When you open the **Antigravity: Dashboard** in the sidebar, you will see real-time statistics:
+
+- **Connection Status:** Shows active IDE windows and monitored CDP surfaces (e.g., `2 wins (7 targets on port 9333)`).
+  - *What are targets?* Electron runs several internal surfaces per window (the editor shell, the extension host, and the AI chat iframe). The daemon monitors all of them to catch prompts wherever they render.
+- **`APPROVALS` (Lifetime Approvals):** Total number of prompts auto-approved across all time and all projects.
+- **`SESSION` (Sprint Approvals):** Number of prompts auto-approved during the current running session (resets to 0 when daemon restarts).
+- **`BLOCKED` (Guardrail Interceptions):** Number of dangerous commands intercepted and blocked by your Skip/Ask rules.
+- **Rule Badges:** Visual tags showing active Skip and Ask rules with one-click removal (`x`) and addition (`+ Add`).
+- **Live Activity Feed:** Real-time chronological log of connection, approval, and rule events with color-coded badges.
+
+---
+
+## ⚡ Quick 3-Step Setup
+
+### Step 1: Install Node.js 22+
+The background engine uses Node's native WebSocket support. Check your version with:
 ```bash
-npm install -g antigravity-auto-submit
-auto-accept start
+node -v
 ```
+*(If version is older than 22, download the latest LTS from [nodejs.org](https://nodejs.org)).*
 
-Switch **Daemon Source** to `global` (setting `antigravityAutoSubmit.daemonSource`) to make the extension use that install. You can then update the daemon with `npm install -g antigravity-auto-submit@latest` without waiting for an extension update.
+### Step 2: Add Remote Debugging Port to Your IDE Shortcut
+For Chromium DevTools Protocol (CDP) access, Antigravity IDE must be launched with `--remote-debugging-port=9333`.
 
-## Dashboard
+You can do this automatically or manually:
+- **Automatic:** Open Command Palette (`Ctrl + Shift + P`) and run:
+  ```text
+  Antigravity Auto-Submit: Add Debug Port to IDE Shortcuts (setup)
+  ```
+- **Manual (Windows Shortcut):**
+  1. Right-click your **Antigravity IDE** desktop or taskbar shortcut $\to$ **Properties**.
+  2. In the **Target** field, append a space followed by `--remote-debugging-port=9333` at the end:
+     ```text
+     "C:\Users\<user>\AppData\Local\Programs\Antigravity IDE\Antigravity.exe" --remote-debugging-port=9333
+     ```
+  3. Click **Apply** and **OK**.
+  4. Fully close Antigravity IDE and relaunch from this shortcut.
 
-The extension adds an **Antigravity** panel to the activity bar (sidebar). It has four sections:
+### Step 3: Start Auto-Submit
+Click **AGY** in the status bar, or open the **Antigravity Dashboard** in the activity bar and click the green **Start** button!
 
-- **Status** — daemon state (running/stopped), operating mode, CDP connection with per-window details, Node.js version, and keyword rule counts.
-- **Stats** — lifetime approval count, last approval timestamp, and last approved action.
-- **Actions** — one-click access to start/stop, switch mode, diagnostics, setup, environment check, output log, docs, and the getting-started walkthrough.
-- **Live Log** — real-time feed of daemon events: approvals, skips, pauses, connections, disconnections, and errors, each with a timestamp.
+---
 
-The status and stats sections poll the daemon every 5 seconds while it is running. Use the refresh button in the view title bar to force an immediate update, or the clear button to reset the log.
+## 🎮 Operating Modes
 
-## Commands
+You can switch modes anytime via the status bar, sidebar dashboard, or Command Palette:
 
-| Command | What it does |
-| --- | --- |
-| Start / Stop / Toggle Auto-Submit | Control the background daemon |
-| Switch Mode | `autonomous` (tool prompts) or `autopilot` (also plan dialogs) |
-| Show Connection Status | Attached windows, port, mode, lifetime approvals |
-| Check Environment | Verifies Node version and the IDE debug port |
-| Add Debug Port to IDE Shortcuts (setup) | Patches IDE shortcuts with the debug port |
-| Run Diagnostics (doctor) | Full diagnostics in a terminal |
-| Show Daemon Log | Opens the output channel |
-| Refresh Dashboard | Force-refresh all sidebar views |
-| Clear Log | Clear the live log view |
-| Copy npm Install Command | Copies `npm install -g antigravity-auto-submit` |
-| Open Documentation | Opens the GitHub repository |
+1. **Autonomous Mode (Default - Recommended):**
+   - Auto-approves safe tool execution and subagent commands.
+   - Pauses on implementation plans (`Proceed with plan`) so you can review architecture before execution begins.
+   - Blocks dangerous commands matching Skip Rules.
 
-## Settings
+2. **Autopilot Mode (100% Hands-Free):**
+   - Auto-approves both tool execution AND implementation plans.
+   - Ideal for overnight runs, large refactors, test runs, and `/goal` tasks.
+   - Still rigorously enforces Skip Rules (`rm -rf`, `drop table`, etc.).
+
+---
+
+## 🛠️ Extension Commands
+
+| Command | Category | Description |
+| :--- | :--- | :--- |
+| `antigravityAutoSubmit.start` | Antigravity Auto-Submit | Start the background confirmation daemon |
+| `antigravityAutoSubmit.stop` | Antigravity Auto-Submit | Stop the background daemon |
+| `antigravityAutoSubmit.toggle` | Antigravity Auto-Submit | Toggle daemon between active and stopped |
+| `antigravityAutoSubmit.setMode` | Antigravity Auto-Submit | Switch between `autonomous` and `autopilot` |
+| `antigravityAutoSubmit.showStatus` | Antigravity Auto-Submit | Display connection status and approval metrics |
+| `antigravityAutoSubmit.setup` | Antigravity Auto-Submit | Automatically add debug port to IDE shortcuts |
+| `antigravityAutoSubmit.doctor` | Antigravity Auto-Submit | Run system diagnostics and verify environment |
+| `antigravityAutoSubmit.refreshDashboard` | Antigravity Auto-Submit | Refresh active targets and approval counters |
+| `antigravityAutoSubmit.clearLog` | Antigravity Auto-Submit | Clear the activity feed |
+| `antigravityAutoSubmit.addRule` | Antigravity Auto-Submit | Add a new Skip or Ask keyword rule |
+| `antigravityAutoSubmit.removeRule` | Antigravity Auto-Submit | Remove an existing keyword rule |
+
+---
+
+## ⚙️ Configuration Settings
+
+Configure via **Settings** (`Ctrl + ,` $\to$ search `Antigravity Auto-Submit`):
 
 | Setting | Default | Description |
-| --- | --- | --- |
-| `antigravityAutoSubmit.mode` | `autonomous` | Operating mode |
-| `antigravityAutoSubmit.autoStart` | `false` | Start when the IDE starts |
-| `antigravityAutoSubmit.cdpPort` | `0` | CDP port (0 = auto-detect 9333, then 9000-9400) |
-| `antigravityAutoSubmit.askKeywords` | `git push`, `git reset --hard` | Always confirm manually |
-| `antigravityAutoSubmit.skipKeywords` | `rm -rf`, `drop table`, ... | Never approve |
-| `antigravityAutoSubmit.nodePath` | `node` | Node.js executable |
-| `antigravityAutoSubmit.daemonSource` | `bundled` | `bundled` or `global` (npm install) |
-| `antigravityAutoSubmit.extraArgs` | `[]` | Extra daemon flags, for new options without an extension update |
+| :--- | :---: | :--- |
+| `antigravityAutoSubmit.mode` | `"autonomous"` | Operating mode: `"autonomous"` or `"autopilot"`. |
+| `antigravityAutoSubmit.autoStart` | `false` | Automatically start the daemon when Antigravity IDE opens. |
+| `antigravityAutoSubmit.cdpPort` | `0` | Remote debugging port (`0` = auto-discover 9333, 9334, 9300-9400). |
+| `antigravityAutoSubmit.askKeywords` | `["git push", "git reset --hard"]` | Commands that always require manual user approval. |
+| `antigravityAutoSubmit.skipKeywords` | `["rm -rf", "drop table", "git push --force", ...]` | Destructive commands that are never auto-approved. |
+| `antigravityAutoSubmit.daemonSource` | `"bundled"` | `"bundled"` (uses extension daemon) or `"global"` (uses global npm package). |
+| `antigravityAutoSubmit.nodePath` | `"node"` | Path to custom Node.js binary if not in system PATH. |
 
-## Troubleshooting
+---
 
-| Symptom | Fix |
-| --- | --- |
-| Status shows no window | The IDE is running without the debug port. Fully close it and reopen from the patched shortcut. |
-| "Node.js is too old" | Install Node.js 22+ (the daemon needs the built-in WebSocket). |
-| "Another daemon is already running" | A terminal `auto-accept` is using the same port. Quit it (`q`) or change `cdpPort`. |
-| Prompts not clicked after an IDE update | Update the daemon: `npm install -g antigravity-auto-submit@latest`, set `daemonSource` to `global`, and check the changelog. |
+## 💻 Prefer the Command Line?
 
-## Compatibility
+The exact same battle-tested daemon is published as a global CLI:
 
-Built for Antigravity IDE 2.6.0+ (VS Code 1.107+) and Antigravity App 2.23+. It runs in any VS Code-compatible editor, but only attaches to Antigravity windows. The extension is distributed on the VS Code Marketplace and Open VSX.
+```bash
+# Install globally
+npm install -g antigravity-auto-submit
 
-## Safety
+# Start interactive daemon
+auto-accept
 
-Auto-approving prompts removes a manual safety check. Keep destructive commands in `skipKeywords`, and review `askKeywords` before enabling `autopilot` or `autoStart`.
+# Run non-interactively in background
+auto-accept start
 
-## Uninstalling
+# Check live status across all windows
+auto-accept status
 
-- **From the IDE**: Open Extensions (`Ctrl + Shift + X`), search `Antigravity Auto-Submit`, click the gear icon, and select **Uninstall**.
-- **From CLI**: Run `code --uninstall-extension WillyEverGreen.antigravity-auto-submit`.
-- **Revert Shortcuts**: If you previously ran setup to add the debug port to IDE shortcuts and wish to revert them back to default, run `auto-accept uninstall` (or manually remove `--remote-debugging-port=9333` from your shortcut properties).
+# Take over interactive session with hotkeys
+auto-accept --force
+```
 
-## License
+---
 
-MIT
+## ❓ Troubleshooting
+
+- **Status shows "No window connected":**
+  Antigravity IDE is running without the remote debugging port. Fully close all IDE processes and relaunch from your shortcut configured with `--remote-debugging-port=9333`.
+- **"Node.js is too old" notification:**
+  Ensure Node.js 22 or newer is installed and in your PATH. Run `node -v` in terminal to verify.
+- **Multiple windows show different targets:**
+  The daemon automatically maps each window to its workspace (e.g. `Code Editor (Clip)` and `AI Chat Panel (Clip)`). Run **Doctor Check** from the dashboard to verify all endpoints.
+
+---
+
+## 📄 License & Links
+
+- **Repository:** [GitHub](https://github.com/WillyEverGreen/Antigravity-Auto-Submitter)
+- **npm Package:** [antigravity-auto-submit](https://www.npmjs.com/package/antigravity-auto-submit)
+- **Issue Tracker:** [GitHub Issues](https://github.com/WillyEverGreen/Antigravity-Auto-Submitter/issues)
+- **License:** MIT

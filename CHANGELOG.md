@@ -5,6 +5,19 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.3] - 2026-11-01
+
+### Added
+- **Accurate Window Telemetry (`countIdeWindows`)**: Separated physical top-level IDE windows from internal Chromium DevTools Protocol (CDP) surfaces. Reports accurate IDE windows (e.g. `2 wins (7 targets on port 9333)`).
+- **Subagent Auto-Approval**: Automatic radio button selection (`Option 1: Allow this time`) and Enter dispatch for nested subagent prompt cards and `[Submit ↵]` buttons.
+- **Universal Loopback Target Matching**: Discovers and attaches to loopback chat panels across arbitrary workspace directory names (e.g. `Clip`).
+- **Resilient Extension Daemon Fallback**: Added multi-version fallback in `daemonPath()` so existing IDE sessions seamlessly locate the active daemon across extension upgrades.
+
+### Fixed
+- **VS Code Extension View Registration**: Removed ghost tree views from `views` in `package.json` and added `"onView:antigravityAutoSubmit.dashboardView"` to `activationEvents`, resolving "No view is registered with id" toast notifications.
+- **Guardrail Self-Inspection Safety**: Fixed false-positive skip keyword matches when commands or arguments contain rule configuration inspection strings (`skipKeywords:` / `askKeywords:`).
+- **Non-TTY Stdin Guard**: Hardened `isInteractive` check to verify both `process.stdout.isTTY` and `process.stdin.isTTY` for background daemon stability.
+
 ## [1.9.0] - 2026-10-29
 
 ### Added

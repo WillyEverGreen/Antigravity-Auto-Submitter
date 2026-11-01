@@ -51,13 +51,34 @@ When working with Google Antigravity IDE on long-running AI workflows (like `/go
 
 ---
 
+## ⚡ Antigravity Auto-Submitter vs. Built-in "Turbo Mode"
+
+Antigravity IDE includes a built-in **Turbo Mode**, but developers quickly realize it has critical limitations during real-world AI coding sessions:
+
+| Capability | Built-in Turbo Mode | Antigravity Auto-Submitter |
+| :--- | :---: | :---: |
+| **Primary Chat Tool Calls** | ✅ Auto-runs | ✅ Auto-approves |
+| **Child Subagents & Background Workers** | ❌ **Still pauses & blocks** | ✅ **100% Hands-Free** (Auto-selects Option 1 & clicks Submit) |
+| **Implementation Plans (`Proceed` Cards)** | ❌ **Pauses workflow** | ✅ **Auto-approved in Autopilot Mode** |
+| **Safety Guardrails (`rm -rf`, `drop table`)** | ❌ **Blind execution (Zero defense)** | ✅ **Regex & keyword guardrails (Skip & Ask rules)** |
+| **Multi-Window & Multi-Workspace Coordination** | ❌ **Single window only** | ✅ **Synchronized concurrent daemon across all windows** |
+| **Cross-Tool Companion Support** | ❌ None | ✅ **Includes Kiro IDE & Claude Code CLI companions** |
+| **Session Analytics & Audit Trail** | ❌ None | ✅ **Lifetime approvals, session count & live activity feed** |
+
+> [!IMPORTANT]
+> **The Subagent Problem:** Even with Turbo Mode turned ON, child subagents (e.g., `Subagent: Task 1 Implementer`, parallel background tasks, and secondary workspace panes) are treated with higher isolation by Antigravity and **still require manual confirmation** (`Allow run ...? [Submit ↵]`). Antigravity Auto-Submit detects these prompts across all connected panels, automatically selects **Option 1 ("Yes, allow this time")**, dispatches the confirmation keystroke, and clicks **Submit** without human intervention.
+
+---
+
 ## 🪟 Multi-Window & Multi-Port Engine (Zero Conflicts)
 
 The daemon provides **first-class concurrent multi-window support**:
 
-- **Concurrent Window Monitoring**: If you have multiple Antigravity IDE workspaces open (e.g., `BEACON` and `antigravity-auto-submit`), `auto-accept` monitors **ALL** windows simultaneously without race conditions, cross-talk, or click collisions.
+- **Accurate Window & Target Telemetry**: Accurately distinguishes physical IDE windows from internal Chromium DevTools targets (e.g. `2 window(s) (7 targets) connected (Port 9333)`). Each IDE window contains multiple rendering surfaces (editor shell, webview host, AI chat iframe) — the daemon monitors all surfaces simultaneously to catch approval cards wherever they appear.
+- **Concurrent Window Monitoring**: If you have multiple Antigravity IDE workspaces open (e.g., `Clip` and `antigravity-auto-submit`), `auto-accept` monitors **ALL** windows simultaneously without race conditions, cross-talk, or click collisions.
 - **Dedicated Isolated Sessions**: Each window connects via its own `WindowSession` with an isolated WebSocket connection, dedicated CDP request tracking (`reqId`), and distinct keyword block state.
 - **Dynamic Auto-Attach & Detach**: When you open a new Antigravity window, the daemon auto-attaches to it within 2 seconds. When you close a window, it cleanly detaches without restarting or affecting your other open windows.
+- **Subagent Dialog Auto-Approval**: Subagent prompts and interaction cards inside nested iframes are automatically handled by choosing Option 1 and clicking `Submit`.
 - **Flexible Port Architecture**: 
   - **Auto-Discovery (Default)**: Automatically detects Antigravity across common ports (`9333`, `9334`, `9335`, etc.) and system listening ports.
   - **Explicit Single Port**: `auto-accept -p 9334` locks onto and manages only port 9334.
