@@ -5,6 +5,12 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.4] - 2026-11-01
+
+### Added
+- **Marketplace & Documentation Enhancement**: Embedded full Turbo Mode architectural comparison and subagent automation value proposition directly into the VS Code Marketplace package.
+- **Resilient Multi-Version Loader**: Enhanced extension startup fallback ensuring seamless transitions between extension updates.
+
 ## [1.9.3] - 2026-11-01
 
 ### Added
