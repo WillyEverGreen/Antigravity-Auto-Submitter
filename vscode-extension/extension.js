@@ -117,7 +117,25 @@ const REPO_URL = 'https://github.com/WillyEverGreen/Antigravity-Auto-Submitter';
 const NPM_INSTALL = 'npm install -g antigravity-auto-submit';
 
 function daemonPath() {
-  return path.join(extensionPath, 'daemon', 'auto-accept.js');
+  const p = path.join(extensionPath, 'daemon', 'auto-accept.js');
+  if (fs.existsSync(p)) return p;
+  // Fallback: check other versions in the same extensions directory
+  try {
+    const parent = path.dirname(extensionPath);
+    if (fs.existsSync(parent)) {
+      const dirs = fs.readdirSync(parent).filter(d => d.includes('antigravity-auto-submit'));
+      for (const d of dirs.reverse()) {
+        const candidate = path.join(parent, d, 'daemon', 'auto-accept.js');
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+  } catch (e) {}
+  // Fallback: global npm daemon
+  try {
+    const globalCandidate = path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', 'antigravity-auto-submit', 'auto-accept.js');
+    if (fs.existsSync(globalCandidate)) return globalCandidate;
+  } catch (e) {}
+  return p;
 }
 
 function nodeExe() {
