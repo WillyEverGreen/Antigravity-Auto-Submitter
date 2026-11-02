@@ -1043,6 +1043,7 @@ function printSetupInstructions() {
   console.log(`    • ${C.cyan}auto-accept setup${C.reset}   (Auto-configures IDE port 9333 and App port 9334 shortcuts)`);
   console.log(`    • ${C.cyan}auto-accept start${C.reset}   (Auto-starts IDE + daemon in one step)`);
   console.log(`    • ${C.cyan}auto-accept restart${C.reset} (Closes and restarts IDE/App with debug ports)\n`);
+  console.log(`  ${C.dim}⭐ Love this tool? Star our repo on GitHub:${C.reset} ${C.bold}${C.cyan}https://github.com/WillyEverGreen/Antigravity-Auto-Submitter${C.reset}\n`);
 }
 
 // ── Help Screen ──
@@ -1100,6 +1101,11 @@ ${C.bold}INSTANT HOTKEYS (Vite-style single-key presses):${C.reset}
   ${C.yellow}p${C.reset}  Pause / Resume approvals       ${C.yellow}m${C.reset}  Toggle Autonomous / Autopilot
   ${C.yellow}s${C.reset}  Live session & lifetime stats  ${C.yellow}c${C.reset}  Show active configuration
   ${C.yellow}h${C.reset}  Help reference guide           ${C.yellow}q${C.reset}  Quit daemon
+
+${C.bold}COMMUNITY:${C.reset}
+  ${C.yellow}⭐ Star our repo on GitHub:${C.reset} ${C.bold}${C.cyan}https://github.com/WillyEverGreen/Antigravity-Auto-Submitter${C.reset}
+  ${C.dim}📦 npm package:${C.reset}             ${C.cyan}https://www.npmjs.com/package/antigravity-auto-submit${C.reset}
+  ${C.dim}🐛 Issues & requests:${C.reset}      ${C.cyan}https://github.com/WillyEverGreen/Antigravity-Auto-Submitter/issues${C.reset}
 `);
   process.exit(0);
 }
@@ -2679,6 +2685,8 @@ class AutoSubmitDaemon {
   ${C.dim}Hotkeys:${C.reset}
     ${C.yellow}p${C.reset} Pause/Resume  •  ${C.yellow}m${C.reset} Mode    •  ${C.yellow}a${C.reset} Add Rule  •  ${C.yellow}r${C.reset} Remove Rule  •  ${C.yellow}l${C.reset} List Rules
     ${C.yellow}s${C.reset} Live Stats    •  ${C.yellow}c${C.reset} Config  •  ${C.yellow}d${C.reset} Doctor    •  ${C.yellow}R${C.reset} Restart IDE  •  ${C.yellow}h${C.reset} Help (?)     •  ${C.yellow}q${C.reset} Quit
+
+  ${C.dim}⭐ Love this tool? Star our repo on GitHub:${C.reset} ${C.bold}${C.cyan}https://github.com/WillyEverGreen/Antigravity-Auto-Submitter${C.reset}
 `);
   }
 

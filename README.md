@@ -12,6 +12,11 @@
     <img src="https://img.shields.io/badge/Node-%3E%3D%2022.0.0-blue?style=for-the-badge" alt="Node" />
     <img src="https://img.shields.io/badge/Dependencies-Zero-brightgreen?style=for-the-badge" alt="Dependencies" />
     <img src="https://img.shields.io/badge/Tests-All%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+    <a href="https://github.com/WillyEverGreen/Antigravity-Auto-Submitter"><img src="https://img.shields.io/github/stars/WillyEverGreen/Antigravity-Auto-Submitter?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars" /></a>
+  </p>
+
+  <p align="center">
+    <b>⭐ If you find this project helpful, please <a href="https://github.com/WillyEverGreen/Antigravity-Auto-Submitter">star our repo on GitHub</a>! It helps others discover uninterrupted AI workflows.</b>
   </p>
 
   <p>

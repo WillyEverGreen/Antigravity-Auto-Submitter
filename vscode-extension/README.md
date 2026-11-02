@@ -4,6 +4,10 @@
   <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/vscode-extension/media/icon.png" width="120" height="120" alt="Antigravity Auto-Submit Logo" />
   <h3>Hands-Free Autonomous Approval Engine for Google Antigravity IDE</h3>
   <p>Never wait for permission prompts again. Auto-approves tool executions, child subagents, and implementation plans with intelligent safety guardrails.</p>
+  <p>
+    <a href="https://github.com/WillyEverGreen/Antigravity-Auto-Submitter"><img src="https://img.shields.io/github/stars/WillyEverGreen/Antigravity-Auto-Submitter?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars" /></a>
+  </p>
+  <p><b>⭐ Love this extension? Please <a href="https://github.com/WillyEverGreen/Antigravity-Auto-Submitter">star our repo on GitHub</a>!</b></p>
 </div>
 
 ---
