@@ -1604,6 +1604,106 @@ it('buildScannerScript strictly blocks dangerous commands even when Submit butto
   assert.strictEqual(submitClicked, false, 'Submit button MUST NOT be clicked when blocked');
 });
 
+// ── 55. Regression Test: Do NOT submit user's half-written prompts in open chats ──
+it('buildScannerScript does NOT leak Enter or keystrokes to activeElement or body when user is typing in a prompt', () => {
+  const cfg = { mode: 'autonomous', askKeywords: [], skipKeywords: [] };
+  const script = buildScannerScript(cfg);
+
+  let userPromptSubmitted = false;
+  const userPromptReceivedKeys = [];
+
+  // Simulate user currently typing a prompt in another open chat
+  const mockChatPromptTextarea = {
+    tagName: 'TEXTAREA',
+    className: 'interactive-input-editor',
+    value: 'why is the server failing to start...',
+    isContentEditable: false,
+    dispatchEvent: (evt) => {
+      userPromptReceivedKeys.push(evt.key);
+      if (evt.key === 'Enter') {
+        userPromptSubmitted = true;
+      }
+    }
+  };
+
+  let submitClicked = false;
+  let option1Clicked = false;
+
+  const mockSubmitBtn = {
+    tagName: 'BUTTON',
+    disabled: false,
+    innerText: 'Submit ↵',
+    textContent: 'Submit ↵',
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { submitClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    setAttribute: () => {}
+  };
+
+  const mockOption1 = {
+    tagName: 'DIV',
+    role: 'radio',
+    innerText: '1  Yes, allow this time',
+    textContent: '1  Yes, allow this time',
+    click: () => { option1Clicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: (attr) => attr === 'role' ? 'radio' : null
+  };
+
+  const mockCard = {
+    tagName: 'DIV',
+    className: 'interaction-prompt-card',
+    innerText: 'Allow run build script?\nnode build.js\n1  Yes, allow this time\nSubmit ↵',
+    children: [mockOption1, mockSubmitBtn]
+  };
+  mockSubmitBtn.parentElement = mockCard;
+  mockOption1.parentElement = mockCard;
+
+  let bodyReceivedEnter = false;
+  let winReceivedEnter = false;
+
+  const sandbox = {
+    document: {
+      activeElement: mockChatPromptTextarea, // USER HAS FOCUS AND IS TYPING
+      body: {
+        innerText: mockCard.innerText,
+        dispatchEvent: (evt) => {
+          if (evt && evt.key === 'Enter') bodyReceivedEnter = true;
+        }
+      },
+      querySelector: () => null,
+      querySelectorAll: () => [mockOption1, mockSubmitBtn]
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+      dispatchEvent: (evt) => {
+        if (evt && evt.key === 'Enter') winReceivedEnter = true;
+      }
+    },
+    KeyboardEvent: function(type, init) {
+      this.type = type;
+      this.key = init && init.key;
+      this.bubbles = init && init.bubbles;
+    },
+    MouseEvent: function(type) { this.type = type; },
+    Event: function(type) { this.type = type; }
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must detect card');
+  assert.strictEqual(result.blocked, false, 'Card should be approved');
+  assert.strictEqual(option1Clicked, true, 'Option 1 should be clicked');
+  assert.strictEqual(submitClicked, true, 'Submit button should be clicked');
+
+  // CRITICAL VERIFICATION: The active user typing input must NEVER receive Enter or simulated keystrokes!
+  assert.strictEqual(userPromptSubmitted, false, 'User prompt must NEVER be submitted by auto-accept!');
+  assert.strictEqual(userPromptReceivedKeys.length, 0, 'User typing textarea must NEVER receive simulated keystrokes!');
+  assert.strictEqual(winReceivedEnter, false, 'Window must NEVER receive Enter when user is typing in chat!');
+  assert.strictEqual(bodyReceivedEnter, false, 'Body must NEVER receive Enter when user is typing in chat!');
+});
+
 
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}

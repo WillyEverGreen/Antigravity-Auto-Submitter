@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.8.5';
+let PKG_VERSION = '1.9.6';
 try {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   if (pkg.version) PKG_VERSION = pkg.version;
@@ -1771,6 +1771,34 @@ function buildScannerScript(cfg) {
         } catch (e) {}
       };
 
+      const isUserTyping = (el) => {
+        try {
+          if (!el || !el.tagName) return false;
+          const tag = el.tagName.toUpperCase();
+          if (tag === 'TEXTAREA') return true;
+          if (tag === 'INPUT') {
+            const type = (el.type || '').toLowerCase();
+            if (type !== 'radio' && type !== 'checkbox' && type !== 'button' && type !== 'submit' && type !== 'reset') {
+              return true;
+            }
+          }
+          if (el.isContentEditable) return true;
+          if (el.getAttribute) {
+            const role = (el.getAttribute('role') || '').toLowerCase();
+            if (role === 'textbox' || role === 'combobox' || role === 'searchbox') return true;
+          }
+          if (el.classList && (el.classList.contains('monaco-editor') || el.classList.contains('interactive-input-editor') || el.classList.contains('input-box'))) {
+            return true;
+          }
+          if (el.closest && el.closest('.monaco-editor, .interactive-input-editor, .interactive-session, [contenteditable="true"], [role="textbox"]')) {
+            return true;
+          }
+          return false;
+        } catch (e) {
+          return false;
+        }
+      };
+
       // ── Find Option 1 / Option 2 row or radio element if present ──
       let optionRow = null;
       let optionDoc = document;
@@ -1828,6 +1856,8 @@ function buildScannerScript(cfg) {
         const targetDoc = continueDoc || optionDoc;
         const targetWin = targetDoc.defaultView || window;
         const targetBody = targetDoc.body || document.body;
+        const targetCard = (targetBtn && targetBtn.closest ? targetBtn.closest('[data-testid*="interaction"], [class*="interaction"], [role="dialog"], [role="alertdialog"]') : null) || (targetBtn ? targetBtn.parentElement : null);
+        const userTypingActive = isUserTyping(targetDoc.activeElement);
 
         const rect = targetBtn.getBoundingClientRect();
         const style = targetWin.getComputedStyle(targetBtn);
@@ -1853,15 +1883,18 @@ function buildScannerScript(cfg) {
           const digitCode = autoSelectAlwaysAllow ? 'Digit2' : 'Digit1';
           const whichCode = autoSelectAlwaysAllow ? 50 : 49;
 
-          // 1. Dispatch keyboard key '1' (or '2') with composed:true across activeElement, targetBody, and targetWin
+          // 1. Dispatch keyboard key '1' (or '2') strictly to the card/option (NEVER to activeElement or window when user is typing)
           const keyEvents = [
-            new KeyboardEvent('keydown', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true, composed: true }),
-            new KeyboardEvent('keyup', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true, composed: true })
+            new KeyboardEvent('keydown', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: false, cancelable: true }),
+            new KeyboardEvent('keyup', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: false, cancelable: true })
           ];
           keyEvents.forEach(evt => {
-            try { if (targetDoc.activeElement) targetDoc.activeElement.dispatchEvent(evt); } catch (e) {}
-            try { if (targetBody) targetBody.dispatchEvent(evt); } catch (e) {}
-            try { targetWin.dispatchEvent(evt); } catch (e) {}
+            try { if (optionRow) optionRow.dispatchEvent(evt); } catch (e) {}
+            try { if (targetCard && targetCard !== targetBody) targetCard.dispatchEvent(evt); } catch (e) {}
+            if (!userTypingActive) {
+              try { if (targetBody) targetBody.dispatchEvent(evt); } catch (e) {}
+              try { if (targetWin) targetWin.dispatchEvent(evt); } catch (e) {}
+            }
           });
 
           // 2. Select matching radio option if present
@@ -1883,15 +1916,17 @@ function buildScannerScript(cfg) {
             } catch (e) {}
           }
 
-          // 4. Dispatch Enter key to confirm submission
+          // 4. Dispatch Enter key strictly to the target button/card (NEVER to activeElement, body, or window when user is typing!)
           const enterEvents = [
-            new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }),
-            new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true })
+            new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: false, cancelable: true }),
+            new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: false, cancelable: true })
           ];
           enterEvents.forEach(evt => {
-            try { if (targetDoc.activeElement) targetDoc.activeElement.dispatchEvent(evt); } catch (e) {}
-            try { if (targetBody) targetBody.dispatchEvent(evt); } catch (e) {}
-            try { targetWin.dispatchEvent(evt); } catch (e) {}
+            try { if (continueBtn) continueBtn.dispatchEvent(evt); } catch (e) {}
+            try { if (targetCard && targetCard !== targetBody) targetCard.dispatchEvent(evt); } catch (e) {}
+            if (!userTypingActive && !targetCard && targetBody) {
+              try { targetBody.dispatchEvent(evt); } catch (e) {}
+            }
           });
 
           // 5. Trigger React onClick handler and click button
@@ -2081,7 +2116,9 @@ function buildScannerScript(cfg) {
             }
             btn.click();
             btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: d.defaultView || window }));
-            if (d.body) {
+            try { btn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: false, cancelable: true })); } catch (e) {}
+            try { btn.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: false, cancelable: true })); } catch (e) {}
+            if (d.body && !isUserTyping(d.activeElement)) {
               try { d.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
             }
             return { action: raw, blocked: false, context: fullContent.substring(0, 100) };
