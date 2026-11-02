@@ -1,7 +1,7 @@
 # Antigravity Auto-Submit
 
 <div align="center">
-  <img src="media/icon.png" width="120" height="120" alt="Antigravity Auto-Submit Logo" />
+  <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/vscode-extension/media/icon.png" width="120" height="120" alt="Antigravity Auto-Submit Logo" />
   <h3>Hands-Free Autonomous Approval Engine for Google Antigravity IDE</h3>
   <p>Never wait for permission prompts again. Auto-approves tool executions, child subagents, and implementation plans with intelligent safety guardrails.</p>
 </div>

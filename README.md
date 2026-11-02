@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="resources/icon.png" width="128" height="128" alt="Antigravity Auto-Submitter Logo" />
+  <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/resources/icon.png" width="128" height="128" alt="Antigravity Auto-Submitter Logo" />
 
   <h1>Antigravity Auto-Submitter CLI</h1>
 

@@ -104,7 +104,7 @@ const DEFAULTS = {
   cdpPort: 0,         // 0 = auto-detect 9333 / scan 9000-9400
   cdpPorts: [],       // explicit candidate ports e.g. [9333, 9334]
   safetyDelayMs: 200,
-  pollIntervalMs: 250,
+  pollIntervalMs: 120,
   autoSelectAlwaysAllow: false, // Default false: preserves per-command keyword gating
   daemon: false,
   quiet: false,
@@ -1765,6 +1765,28 @@ function buildScannerScript(cfg) {
         } catch (e) {}
       };
 
+      // ── Find Option 1 / Option 2 row or radio element if present ──
+      let optionRow = null;
+      let optionDoc = document;
+      for (const d of docs) {
+        if (!d || !d.querySelectorAll) continue;
+        try {
+          const candidates = Array.from(d.querySelectorAll('button, div, label, [role="button"], [role="radio"]'));
+          const opt = candidates.find(el => {
+            if (isClicked(el)) return false;
+            const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+            return autoSelectAlwaysAllow
+              ? (t.includes('always allow in this conversation') || t.startsWith('2 ') || t.startsWith('2.'))
+              : (t.includes('yes, allow this time') || t.includes('allow this time') || t.startsWith('1 ') || t.startsWith('1.') || t === 'yes, allow this time');
+          });
+          if (opt) {
+            optionRow = opt;
+            optionDoc = d;
+            break;
+          }
+        } catch (e) {}
+      }
+
       // ── Tier 1: Antigravity interaction continue / submit button ──
       let continueBtn = null;
       let continueDoc = document;
@@ -1779,8 +1801,10 @@ function buildScannerScript(cfg) {
                     d.querySelector('[data-testid="submit-button"]');
           if (!btn && d.querySelectorAll) {
             const btns = Array.from(d.querySelectorAll('button, [role="button"], input[type="submit"]'));
+            // Note: Do not skip buttons just because they are initially disabled in React virtual DOM.
+            // When an option is unselected, React marks the button disabled until Option 1 is chosen!
             btn = btns.find(b => {
-              if (isClicked(b) || b.disabled || (b.getAttribute && b.getAttribute('aria-disabled') === 'true')) return false;
+              if (isClicked(b)) return false;
               const t = (b.innerText || b.textContent || '').trim().replace(/[\u21b5\u23ce\u21a9\u2022\u00b7]/gu, '').trim().toLowerCase();
               return t === 'submit' || t === 'allow' || t === 'yes, allow this time' || t === 'allow this time' || t === 'continue';
             });
@@ -1793,16 +1817,21 @@ function buildScannerScript(cfg) {
         } catch (e) {}
       }
 
-      if (continueBtn && !isClicked(continueBtn)) {
-        const rect = continueBtn.getBoundingClientRect();
-        const style = (continueDoc.defaultView || window).getComputedStyle(continueBtn);
+      if (continueBtn || optionRow) {
+        const targetBtn = continueBtn || optionRow;
+        const targetDoc = continueDoc || optionDoc;
+        const targetWin = targetDoc.defaultView || window;
+        const targetBody = targetDoc.body || document.body;
+
+        const rect = targetBtn.getBoundingClientRect();
+        const style = targetWin.getComputedStyle(targetBtn);
         if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') {
-          const content = extractContextText(continueBtn, continueDoc);
+          const content = extractContextText(targetBtn, targetDoc);
           const match = checkKeywords(content);
           if (match) {
             const reason = match.type === 'skip' ? 'Directly Skipped: "' + match.kw + '"' : 'Awaiting Permission: "' + match.kw + '"';
             return {
-              action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '),
+              action: (targetBtn.innerText || targetBtn.textContent || 'Submit').trim().replace(/\s+/g, ' '),
               blocked: true,
               blockedType: match.type,
               matchedKeyword: match.kw,
@@ -1810,25 +1839,29 @@ function buildScannerScript(cfg) {
               context: content.substring(0, 120)
             };
           }
-          markClicked(continueBtn);
 
-          const targetBody = continueDoc.body || document.body;
+          if (continueBtn) markClicked(continueBtn);
+          if (optionRow) markClicked(optionRow);
+
           const keyNum = autoSelectAlwaysAllow ? '2' : '1';
           const digitCode = autoSelectAlwaysAllow ? 'Digit2' : 'Digit1';
           const whichCode = autoSelectAlwaysAllow ? 50 : 49;
 
-          // 1. Dispatch keyboard key '1' (or '2') to activate Option 1 / 2
-          try {
-            if (targetBody) {
-              targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true }));
-              targetBody.dispatchEvent(new KeyboardEvent('keyup', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true }));
-            }
-          } catch (e) {}
+          // 1. Dispatch keyboard key '1' (or '2') with composed:true across activeElement, targetBody, and targetWin
+          const keyEvents = [
+            new KeyboardEvent('keydown', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true, composed: true }),
+            new KeyboardEvent('keyup', { key: keyNum, code: digitCode, keyCode: whichCode, which: whichCode, bubbles: true, cancelable: true, composed: true })
+          ];
+          keyEvents.forEach(evt => {
+            try { if (targetDoc.activeElement) targetDoc.activeElement.dispatchEvent(evt); } catch (e) {}
+            try { if (targetBody) targetBody.dispatchEvent(evt); } catch (e) {}
+            try { targetWin.dispatchEvent(evt); } catch (e) {}
+          });
 
           // 2. Select matching radio option if present
           try {
             const radioSelector = autoSelectAlwaysAllow ? 'input[type="radio"][value="2"]' : 'input[type="radio"][value="1"]';
-            const optRadio = continueDoc.querySelector(radioSelector) || continueDoc.querySelector('input[type="radio"][value="' + keyNum + '"]');
+            const optRadio = targetDoc.querySelector(radioSelector) || targetDoc.querySelector('input[type="radio"][value="' + keyNum + '"]');
             if (optRadio && !optRadio.checked) {
               optRadio.checked = true;
               optRadio.click();
@@ -1836,34 +1869,49 @@ function buildScannerScript(cfg) {
             }
           } catch (e) {}
 
-          // 3. Click option row element if present
-          try {
-            const optionEls = Array.from(continueDoc.querySelectorAll('button, div, label, [role="button"], [role="radio"]'));
-            const matchingOption = optionEls.find(el => {
-              const t = (el.innerText || el.textContent || '').trim().toLowerCase();
-              return autoSelectAlwaysAllow
-                ? (t.startsWith('2 ') || t.startsWith('2.') || t.includes('always allow in this conversation'))
-                : (t.startsWith('1 ') || t.startsWith('1.') || t.startsWith('yes, allow this time') || t === 'yes, allow this time');
-            });
-            if (matchingOption && matchingOption !== continueBtn && !isClicked(matchingOption)) {
-              matchingOption.click();
-              matchingOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            }
-          } catch (e) {}
-
-          // 4. Dispatch Enter key
-          if (targetBody) {
-            try { targetBody.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true })); } catch (e) {}
+          // 3. Click option row element directly
+          if (optionRow && optionRow !== continueBtn) {
+            try {
+              optionRow.click();
+              optionRow.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: targetWin }));
+            } catch (e) {}
           }
+
+          // 4. Dispatch Enter key to confirm submission
+          const enterEvents = [
+            new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true }),
+            new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true })
+          ];
+          enterEvents.forEach(evt => {
+            try { if (targetDoc.activeElement) targetDoc.activeElement.dispatchEvent(evt); } catch (e) {}
+            try { if (targetBody) targetBody.dispatchEvent(evt); } catch (e) {}
+            try { targetWin.dispatchEvent(evt); } catch (e) {}
+          });
 
           // 5. Trigger React onClick handler and click button
-          const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
-          if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
-            try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
+          if (continueBtn) {
+            const rk = Object.keys(continueBtn).find(k => k.startsWith('__reactProps$'));
+            if (rk && continueBtn[rk] && typeof continueBtn[rk].onClick === 'function') {
+              try { continueBtn[rk].onClick({ preventDefault: () => {}, stopPropagation: () => {} }); } catch (e) {}
+            }
+            try {
+              continueBtn.click();
+              continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: targetWin }));
+            } catch (e) {}
+
+            // Immediate microtask follow-up in case React re-rendered enabled state
+            try {
+              setTimeout(() => {
+                try {
+                  continueBtn.click();
+                  continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: targetWin }));
+                } catch (e) {}
+              }, 40);
+            } catch (e) {}
           }
-          continueBtn.click();
-          continueBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: continueDoc.defaultView || window }));
-          return { action: (continueBtn.innerText || 'Submit').trim().replace(/\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
+
+          const actionLabel = continueBtn ? (continueBtn.innerText || continueBtn.textContent || 'Submit') : 'Allow';
+          return { action: actionLabel.trim().replace(/\s+/g, ' '), blocked: false, context: content.substring(0, 100) };
         }
       }
 
@@ -2321,6 +2369,7 @@ class WindowSession {
     this.pollTimer = null;
     this.scanTimeout = null;
     this.reqId = 1;
+    this.pendingScanId = null;
     this.lastReportedBlock = '';
     this.lastApprovalKey = '';
     this.lastApprovalTime = 0;
@@ -2348,7 +2397,8 @@ class WindowSession {
     this.ws.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
-        if (msg.id === this.reqId - 1) {
+        if (msg.id !== undefined && (msg.id === this.pendingScanId || msg.id === this.reqId - 1)) {
+          this.pendingScanId = null;
           if (msg.result && msg.result.result) {
             this.handleScanResult(msg.result.result.value);
           } else {
@@ -2357,6 +2407,7 @@ class WindowSession {
         }
       } catch (e) {
         this.isScanning = false;
+        this.pendingScanId = null;
       }
     };
 
@@ -2394,10 +2445,12 @@ class WindowSession {
     if (this.scanTimeout) clearTimeout(this.scanTimeout);
     this.scanTimeout = setTimeout(() => {
       this.isScanning = false;
-    }, 5000);
+      this.pendingScanId = null;
+    }, 1000);
 
     const script = buildScannerScript(this.config);
     const id = this.reqId++;
+    this.pendingScanId = id;
 
     try {
       this.ws.send(JSON.stringify({

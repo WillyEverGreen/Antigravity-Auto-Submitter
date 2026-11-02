@@ -1419,6 +1419,191 @@ it('buildScannerScript ignores keyword matches within self-inspection arguments'
   assert.strictEqual(clicked, true, 'Submit button should be clicked');
 });
 
+it('buildScannerScript auto-approves interaction card when Submit button is initially disabled (React async activation)', () => {
+  const cfg = { mode: 'autonomous', askKeywords: ['git push'], skipKeywords: ['rm -rf'] };
+  const script = buildScannerScript(cfg);
+
+  let option1Clicked = false;
+  let submitClicked = false;
+  let dispatchedKeys = [];
+
+  const mockOption1 = {
+    tagName: 'DIV',
+    role: 'radio',
+    innerText: '1  Yes, allow this time',
+    textContent: '1  Yes, allow this time',
+    click: () => { option1Clicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: (attr) => attr === 'role' ? 'radio' : null
+  };
+
+  const mockSubmitBtn = {
+    tagName: 'BUTTON',
+    disabled: true, // Initially disabled in React UI
+    innerText: 'Submit ↵',
+    textContent: 'Submit ↵',
+    className: 'agy-button primary',
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { submitClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: (attr) => attr === 'disabled' ? 'true' : null,
+    hasAttribute: (attr) => attr === 'disabled' ? true : false,
+    setAttribute: () => {}
+  };
+
+  const mockCard = {
+    tagName: 'DIV',
+    className: 'interaction-prompt-card',
+    innerText: 'Run terminal command: node build.js\n1  Yes, allow this time\n2  Always allow in this conversation\nSubmit ↵',
+    children: [mockOption1, mockSubmitBtn]
+  };
+
+  mockSubmitBtn.parentElement = mockCard;
+  mockOption1.parentElement = mockCard;
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: (sel) => [mockOption1, mockSubmitBtn],
+      body: {
+        innerText: mockCard.innerText,
+        dispatchEvent: (evt) => { dispatchedKeys.push(evt.key); }
+      }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+      dispatchEvent: (evt) => { dispatchedKeys.push(evt.key + '@win'); }
+    },
+    KeyboardEvent: function(type, init) { this.type = type; this.key = init && init.key; },
+    MouseEvent: function(type) { this.type = type; },
+    Event: function(type) { this.type = type; }
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must detect interaction card even when Submit is initially disabled');
+  assert.strictEqual(result.blocked, false, 'Safe command must not be blocked');
+  assert.strictEqual(option1Clicked, true, 'Option 1 must be clicked');
+  assert.strictEqual(submitClicked, true, 'Submit button must be clicked');
+  assert(dispatchedKeys.includes('1') || dispatchedKeys.includes('1@win'), 'Must dispatch Digit1 key');
+});
+
+it('buildScannerScript detects Option 1 with box-drawing or prefix characters', () => {
+  const cfg = { mode: 'autonomous', askKeywords: [], skipKeywords: [] };
+  const script = buildScannerScript(cfg);
+
+  let optionClicked = false;
+  let submitClicked = false;
+
+  const mockOption1 = {
+    tagName: 'DIV',
+    role: 'radio',
+    innerText: '│ 1  Yes, allow this time │',
+    textContent: '│ 1  Yes, allow this time │',
+    click: () => { optionClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: () => null
+  };
+
+  const mockSubmitBtn = {
+    tagName: 'BUTTON',
+    disabled: true,
+    innerText: 'Submit',
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { submitClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    setAttribute: () => {}
+  };
+
+  const mockCard = {
+    tagName: 'DIV',
+    innerText: 'Run command\n│ 1  Yes, allow this time │\nSubmit',
+    children: [mockOption1, mockSubmitBtn]
+  };
+
+  mockSubmitBtn.parentElement = mockCard;
+  mockOption1.parentElement = mockCard;
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: () => [mockOption1, mockSubmitBtn],
+      body: { innerText: mockCard.innerText, dispatchEvent: () => {} }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+      dispatchEvent: () => {}
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {},
+    Event: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Must process card with box-drawing characters');
+  assert.strictEqual(optionClicked, true, 'Option 1 with box-drawing prefix must be clicked');
+});
+
+it('buildScannerScript strictly blocks dangerous commands even when Submit button is initially disabled', () => {
+  const cfg = { mode: 'autonomous', askKeywords: ['git push'], skipKeywords: ['rm -rf'] };
+  const script = buildScannerScript(cfg);
+
+  let optionClicked = false;
+  let submitClicked = false;
+
+  const mockOption1 = {
+    tagName: 'DIV',
+    innerText: '1  Yes, allow this time',
+    click: () => { optionClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: () => null
+  };
+
+  const mockSubmitBtn = {
+    tagName: 'BUTTON',
+    disabled: true,
+    innerText: 'Submit ↵',
+    getBoundingClientRect: () => ({ width: 80, height: 32 }),
+    click: () => { submitClicked = true; },
+    dispatchEvent: () => {},
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    setAttribute: () => {}
+  };
+
+  const mockCard = {
+    tagName: 'DIV',
+    innerText: 'Dangerous Operation\nrm -rf /var/data\n1  Yes, allow this time\nSubmit ↵',
+    children: [mockOption1, mockSubmitBtn]
+  };
+
+  mockSubmitBtn.parentElement = mockCard;
+  mockOption1.parentElement = mockCard;
+
+  const sandbox = {
+    document: {
+      querySelector: () => null,
+      querySelectorAll: () => [mockOption1, mockSubmitBtn],
+      body: { innerText: mockCard.innerText, dispatchEvent: () => {} }
+    },
+    window: {
+      getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+      dispatchEvent: () => {}
+    },
+    KeyboardEvent: function() {},
+    MouseEvent: function() {},
+    Event: function() {}
+  };
+
+  const result = vm.runInNewContext(script, sandbox);
+  assert(result !== null, 'Scanner must detect dangerous interaction card');
+  assert.strictEqual(result.blocked, true, 'rm -rf MUST be blocked');
+  assert.strictEqual(result.blockedType, 'skip');
+  assert.strictEqual(optionClicked, false, 'Option 1 MUST NOT be clicked when blocked');
+  assert.strictEqual(submitClicked, false, 'Submit button MUST NOT be clicked when blocked');
+});
+
 
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}
