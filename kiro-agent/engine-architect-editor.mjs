@@ -18,10 +18,14 @@ import {
 import { validateCodeSyntax, extractCodeBlocks } from './engine-verifier.mjs';
 
 function withTimeout(promise, ms, stageName) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${stageName} timed out after ${ms / 1000}s`)), ms))
-  ]);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${stageName} timed out after ${ms / 1000}s`)), ms);
+    // Do not keep the CLI alive just to wait for a timer we may not need.
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  });
+  // Promise.race never cancels the loser; clear the timer so the process can exit.
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 export async function executeArchitectEditor({

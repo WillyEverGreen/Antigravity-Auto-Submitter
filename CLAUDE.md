@@ -2,9 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **MANDATORY — read [`AGENTS.md`](AGENTS.md) before changing anything.**
+> It holds the binding maintenance rules (zero-dependency policy, fail-closed safety gates,
+> additive-only config merges, version sites, changelog, release checklist, danger zones).
+> This file holds the architecture map; `AGENTS.md` holds the rules.
+
+**Definition of done for every change:** `npm run verify` **and** `npm test` must both exit 0.
+
 ## Commonly Used Commands
 
 ### Test & Verification
+- **Verify invariants (run before every commit)**: `npm run verify`
+- **Verify + full tests**: `npm run verify:full`
 - **Run all tests**: `npm test` (runs Antigravity CLI, Kiro Agent, Kiro Auto-Accept, Claude Auto-Accept, Kiro Setup, and VS Code Extension suites)
 - **Run Antigravity CLI tests only**: `node test/cli.test.js`
 - **Run VS Code Extension tests**: `npm run test:extension` (or `node test/vscode-extension.test.js`)

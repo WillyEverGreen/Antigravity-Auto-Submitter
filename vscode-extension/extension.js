@@ -19,6 +19,8 @@ let statsView;
 let actionsView;
 let logView;
 let pollTimer = null;
+let pollInFlight = false;
+let restartTimer = null;
 let daemonStatus = null;
 let sessionApprovals = 0;
 let sessionBlocks = 0;
@@ -190,12 +192,11 @@ function queryDaemonStatusAsync() {
         resolve(null);
       }, 4000);
       proc.stdout.on('data', chunk => { out += chunk; });
-      proc.on('close', code => {
+      proc.on('close', () => {
         clearTimeout(timer);
-        if (code === 0) {
-          try { resolve(JSON.parse(out)); return; } catch (e) {}
-        }
-        resolve(null);
+        // The daemon exits 1 when no IDE window is attached, but still prints a
+        // complete status object. Parse the payload regardless of the exit code.
+        try { resolve(JSON.parse(out)); } catch (e) { resolve(null); }
       });
       proc.on('error', () => {
         clearTimeout(timer);
@@ -425,24 +426,34 @@ function start() {
 }
 
 function stop() {
-  const activePid = getRunningDaemonPid();
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
   if (child) {
     const proc = child;
     child = null;
     try { proc.kill(); } catch (e) {}
   }
-  if (activePid) {
-    try { process.kill(activePid); } catch (e) {}
-    try {
-      const globalDir = path.join(os.homedir(), '.antigravity-auto-submit');
-      if (fs.existsSync(globalDir)) {
-        const files = fs.readdirSync(globalDir).filter(f => f.startsWith('daemon_') && f.endsWith('.pid'));
-        for (const f of files) {
-          try { fs.unlinkSync(path.join(globalDir, f)); } catch (e) {}
-        }
+  // Kill every daemon that left a lock file, and remove each lock we actually
+  // handled — killing one PID while deleting all of them orphaned the others,
+  // so the next start spawned a duplicate on that port.
+  try {
+    const globalDir = path.join(os.homedir(), '.antigravity-auto-submit');
+    if (fs.existsSync(globalDir)) {
+      const files = fs.readdirSync(globalDir).filter(f => f.startsWith('daemon_') && f.endsWith('.pid'));
+      for (const f of files) {
+        const pidFile = path.join(globalDir, f);
+        try {
+          const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+          if (pid && pid !== process.pid) {
+            try { process.kill(pid); } catch (e) {}
+          }
+        } catch (e) {}
+        try { fs.unlinkSync(pidFile); } catch (e) {}
       }
-    } catch (e) {}
-  }
+    }
+  } catch (e) {}
   output.appendLine('[stop] requested');
   appendLog('stop', 'Daemon stopped');
   if (logView) logView.add('debug-stop', 'Daemon stopped');
@@ -455,7 +466,12 @@ function stop() {
 function restartIfRunning() {
   if (!isDaemonRunning()) return;
   stop();
-  setTimeout(start, 500);
+  if (restartTimer) clearTimeout(restartTimer);
+  // Tracked so deactivate() cannot leave an orphan daemon behind.
+  restartTimer = setTimeout(() => {
+    restartTimer = null;
+    start();
+  }, 500);
 }
 
 async function setMode() {
@@ -1544,6 +1560,10 @@ class DashboardViewProvider {
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(async () => {
+    // A status probe can outlive the interval; without this guard each slow probe
+    // stacks another `node --status` child process.
+    if (pollInFlight) return;
+
     const running = isDaemonRunning();
     if (!running) {
       if (daemonStatus) {
@@ -1554,7 +1574,14 @@ function startPolling() {
       }
       return;
     }
-    const s = await queryDaemonStatusAsync();
+
+    pollInFlight = true;
+    let s = null;
+    try {
+      s = await queryDaemonStatusAsync();
+    } finally {
+      pollInFlight = false;
+    }
     if (s && isDaemonRunning()) {
       daemonStatus = s;
       statusView.refresh();
@@ -1567,6 +1594,7 @@ function startPolling() {
 
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  pollInFlight = false;
 }
 
 // ── Activation ──
@@ -1684,8 +1712,17 @@ function activate(context) {
 }
 
 function deactivate() {
-  stop();
+  // Intentionally NOT calling stop(): the daemon is a standalone background process
+  // and must survive window reloads / extension updates. Killing it here is what made
+  // auto-submit switch itself off without the user asking.
   stopPolling();
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = null;
+  }
+  try {
+    output.appendLine('[deactivate] extension host unloading — daemon left running');
+  } catch (e) {}
 }
 
 module.exports = { activate, deactivate };

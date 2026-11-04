@@ -22,11 +22,16 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.9.6';
-try {
-  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
-  if (pkg.version) PKG_VERSION = pkg.version;
-} catch (e) { }
+let PKG_VERSION = '1.9.8';
+// Direct install: __dirname/package.json. Bundled in the VS Code extension
+// (daemon/ has no manifest): fall back to the extension's own package.json.
+for (const manifest of [path.join(__dirname, 'package.json'), path.join(__dirname, '..', 'package.json')]) {
+  try {
+    if (!fs.existsSync(manifest)) continue;
+    const pkg = readJsonFile(manifest);
+    if (pkg && pkg.version) { PKG_VERSION = pkg.version; break; }
+  } catch (e) { }
+}
 
 // The daemon talks CDP over the runtime's built-in WebSocket (Node 22+).
 function ensureWebSocketSupport() {
@@ -38,7 +43,11 @@ function ensureWebSocketSupport() {
 }
 
 // ── Paths ──
-const GLOBAL_DIR = path.join(os.homedir(), '.antigravity-auto-submit');
+// ANTIGRAVITY_STATE_DIR relocates daemon state (stats, locks, global config). Used by the
+// test suite so it never writes to the user's real counter, and available for portability.
+const GLOBAL_DIR = process.env.ANTIGRAVITY_STATE_DIR
+  ? path.resolve(process.env.ANTIGRAVITY_STATE_DIR)
+  : path.join(os.homedir(), '.antigravity-auto-submit');
 const STATS_FILE = path.join(GLOBAL_DIR, 'stats.json');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_DIR, 'config.json');
 const LOCAL_CONFIG_FILES = ['.auto-accept.json', 'auto-accept.config.json'];
@@ -80,7 +89,12 @@ function acquireDaemonLock(portKey = 'auto', force = false) {
     }
   } catch (e) { }
 
-  try { fs.writeFileSync(pidFile, String(process.pid), 'utf8'); } catch (e) { }
+  try {
+    fs.writeFileSync(pidFile, String(process.pid), 'utf8');
+  } catch (e) {
+    console.error(`  ⚠ Could not write daemon lock file (${pidFile}): ${e.message}`);
+    console.error('    Continuing without a lock — another daemon may already be running.');
+  }
   return null;
 }
 
@@ -162,6 +176,44 @@ function cleanStr(s, maxLen = 70) {
   } catch (e) {
     return '';
   }
+}
+
+// Read + parse a JSON file, tolerating a UTF-8 BOM (Notepad and "UTF-8 with BOM"
+// saves are common on Windows and would otherwise make JSON.parse throw).
+function readJsonFile(file) {
+  let text = fs.readFileSync(file, 'utf8');
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  return JSON.parse(text);
+}
+
+// Options that consume the following argv token as their value.
+const VALUE_FLAGS = new Set([
+  '-c', '--config', '-m', '--mode', '-p', '--port', '--ports',
+  '-d', '--delay', '--poll', '--ask', '--skip', '--add-ask', '--add-skip'
+]);
+
+// Return the argv index of the first positional command, skipping flags and values.
+// Keep the index so handlers can pass only arguments after the command to subprocesses.
+function findSubcommandIndex(args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (typeof a !== 'string') continue;
+    if (a.startsWith('-')) {
+      if (VALUE_FLAGS.has(a) && i + 1 < args.length) i++;
+      continue;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function extractSubcommand(args) {
+  const index = findSubcommandIndex(args);
+  return index < 0 ? '' : String(args[index]).toLowerCase().trim();
+}
+
+function argsAfterSubcommand(args, index) {
+  return index < 0 ? [] : args.slice(index + 1);
 }
 
 // ── Subcommand: init ──
@@ -656,16 +708,29 @@ async function handleEasyStart(cfg, configSource) {
   process.on('exit', () => releaseDaemonLock(portKey));
   process.on('SIGINT', () => { releaseDaemonLock(portKey); process.exit(0); });
   process.on('SIGTERM', () => { releaseDaemonLock(portKey); process.exit(0); });
-  process.on('uncaughtException', (err) => {
-    releaseDaemonLock(portKey);
-    console.error('Uncaught exception in daemon:', err);
-    process.exit(1);
-  });
-  process.on('unhandledRejection', (err) => {
-    releaseDaemonLock(portKey);
-    console.error('Unhandled rejection in daemon:', err);
-    process.exit(1);
-  });
+
+  // A background approver must not die because of one stray async error: that is
+  // indistinguishable from "it turned itself off". Log and keep serving, with a
+  // circuit breaker so a persistent fault cannot spin forever.
+  const errorLog = [];
+  const noteFatal = (kind, err) => {
+    const now = Date.now();
+    errorLog.push(now);
+    while (errorLog.length && now - errorLog[0] > 60000) errorLog.shift();
+    const detail = err && err.stack ? err.stack : String(err);
+    try {
+      process.stderr.write(`\n  ${C.yellow}⚠ ${kind} (daemon stays attached)${C.reset}\n  ${C.dim}${cleanStr(detail, 400)}${C.reset}\n`);
+    } catch (e) { }
+    if (errorLog.length > 20) {
+      try { process.stderr.write(`\n  ${C.red}✗ Too many errors in 60s — exiting so a restart is clean.${C.reset}\n`); } catch (e) { }
+      releaseDaemonLock(portKey);
+      process.exit(1);
+    }
+  };
+  process.on('uncaughtException', (err) => noteFatal('Uncaught exception', err));
+  process.on('unhandledRejection', (err) => noteFatal('Unhandled rejection', err));
+  // A closed stdout (terminal or extension went away) must not kill the daemon.
+  try { process.stdout.on('error', () => { }); } catch (e) { }
 
   const daemon = new AutoSubmitDaemon(cfg, configSource);
   daemon.start().catch((err) => {
@@ -1150,7 +1215,7 @@ function handleAddRuleCli(listType, rawArgs, cfg, configSource) {
 
   let fileConfig = { ...DEFAULTS };
   if (fs.existsSync(saveTarget)) {
-    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) { }
+    try { fileConfig = { ...fileConfig, ...readJsonFile(saveTarget) }; } catch (e) { }
   } else {
     fileConfig = { ...cfg };
   }
@@ -1192,7 +1257,7 @@ function handleRemoveRuleCli(listType, rawArgs, cfg, configSource) {
 
   let fileConfig = { ...DEFAULTS };
   if (fs.existsSync(saveTarget)) {
-    try { fileConfig = { ...fileConfig, ...JSON.parse(fs.readFileSync(saveTarget, 'utf8')) }; } catch (e) { }
+    try { fileConfig = { ...fileConfig, ...readJsonFile(saveTarget) }; } catch (e) { }
   } else {
     fileConfig = { ...cfg };
   }
@@ -1281,7 +1346,9 @@ ${C.bold}${C.green}✔ Removed ${removed.length} rule(s)!${C.reset}
 // ── Config Resolution (Local -> Global -> Defaults) ──
 function resolveConfig() {
   const args = process.argv.slice(2);
-  const rawFirstArg = args[0] ? args[0].toLowerCase().trim() : '';
+  const subcommandIndex = findSubcommandIndex(args);
+  const subcommandArgs = argsAfterSubcommand(args, subcommandIndex);
+  const rawFirstArg = extractSubcommand(args);
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
   let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
@@ -1299,16 +1366,21 @@ function resolveConfig() {
   else if (['r'].includes(firstArg)) firstArg = 'restart';
 
   if (firstArg === 'init') handleInit();
-  if (firstArg === '-h' || firstArg === '--help' || firstArg === 'help') printHelp();
-  if (firstArg === '-v' || firstArg === '--version') {
+
+  // Flag-only invocations: extractSubcommand() returns '' because every token is a
+  // flag, so match them on the raw argv or they would fall through to the daemon.
+  if (args.includes('-v') || args.includes('--version')) {
     console.log(`v${PKG_VERSION}`);
     process.exit(0);
   }
+  if (args.includes('-h') || args.includes('--help')) printHelp();
+
+  if (firstArg === 'help') printHelp();
 
   // ── Subcommand: check / agy-check ──
   if (firstArg === 'check' || firstArg === 'agy-check') {
     const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
-    const pyArgs = ['--check', ...args.slice(1)];
+    const pyArgs = ['--check', ...subcommandArgs];
     const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
     let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
     if (res.error && res.error.code === 'ENOENT') {
@@ -1320,7 +1392,7 @@ function resolveConfig() {
   // ── Subcommand: find-temp / agy-find-temp ──
   if (firstArg === 'find-temp' || firstArg === 'agy-find-temp') {
     const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
-    const pyArgs = ['--scan', ...args.slice(1)];
+    const pyArgs = ['--scan', ...subcommandArgs];
     const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
     let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
     if (res.error && res.error.code === 'ENOENT') {
@@ -1332,7 +1404,7 @@ function resolveConfig() {
   // ── Subcommand: clean / agy-clean ──
   if (firstArg === 'clean' || firstArg === 'agy-clean') {
     const scriptPath = path.join(__dirname, 'scripts', 'antigravity_cleaner.py');
-    const pyArgs = [...args.slice(1)];
+    const pyArgs = [...subcommandArgs];
     const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
     let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
     if (res.error && res.error.code === 'ENOENT') {
@@ -1344,7 +1416,7 @@ function resolveConfig() {
   // ── Subcommand: brain / agy-brain ──
   if (firstArg === 'brain' || firstArg === 'agy-brain') {
     const scriptPath = path.join(__dirname, 'scripts', 'antigravity_brain.py');
-    const pyArgs = [...args.slice(1)];
+    const pyArgs = [...subcommandArgs];
     const pyCmd = process.platform === 'win32' ? 'py' : 'python3';
     let res = spawnSync(pyCmd, [scriptPath, ...pyArgs], { stdio: 'inherit' });
     if (res.error && res.error.code === 'ENOENT') {
@@ -1366,27 +1438,33 @@ function resolveConfig() {
   // 1. Explicit config
   if (explicitConfig && fs.existsSync(explicitConfig)) {
     try {
-      cfg = { ...cfg, ...JSON.parse(fs.readFileSync(explicitConfig, 'utf8')) };
+      cfg = { ...cfg, ...readJsonFile(explicitConfig) };
       configSource = explicitConfig;
-    } catch (e) { }
+    } catch (e) {
+      console.error(`${C.yellow}⚠ Ignoring unreadable config ${explicitConfig}: ${e.message}${C.reset}`);
+    }
   } else {
     // 2. Local config in current directory
     for (const f of LOCAL_CONFIG_FILES) {
       const localP = path.join(process.cwd(), f);
       if (fs.existsSync(localP)) {
         try {
-          cfg = { ...cfg, ...JSON.parse(fs.readFileSync(localP, 'utf8')) };
+          cfg = { ...cfg, ...readJsonFile(localP) };
           configSource = localP;
           break;
-        } catch (e) { }
+        } catch (e) {
+          console.error(`${C.yellow}⚠ Ignoring unreadable config ${localP}: ${e.message}${C.reset}`);
+        }
       }
     }
     // 3. Global config
     if (configSource === 'default' && fs.existsSync(GLOBAL_CONFIG_FILE)) {
       try {
-        cfg = { ...cfg, ...JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8')) };
+        cfg = { ...cfg, ...readJsonFile(GLOBAL_CONFIG_FILE) };
         configSource = GLOBAL_CONFIG_FILE;
-      } catch (e) { }
+      } catch (e) {
+        console.error(`${C.yellow}⚠ Ignoring unreadable config ${GLOBAL_CONFIG_FILE}: ${e.message}${C.reset}`);
+      }
     }
   }
 
@@ -1485,11 +1563,11 @@ function resolveConfig() {
   if (firstArg === 'uninstall' || firstArg === 'remove-all') { handleUninstall(); process.exit(0); }
   if (firstArg === 'kill' || firstArg === 'stop-ide') { killAntigravity(); console.log(`\n  ${C.green}✔ Terminated all Antigravity IDE processes.${C.reset}\n`); process.exit(0); }
   if (firstArg === 'list' || firstArg === 'rules') { handleList(cfg); process.exit(0); }
-  if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') { handleAddRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
-  if (firstArg === 'add-skip' || firstArg === 'skip') { handleAddRuleCli('skip', args.slice(1), cfg, configSource); process.exit(0); }
-  if (firstArg === 'rm-ask' || firstArg === 'remove-ask') { handleRemoveRuleCli('ask', args.slice(1), cfg, configSource); process.exit(0); }
-  if (firstArg === 'rm-skip' || firstArg === 'remove-skip') { handleRemoveRuleCli('skip', args.slice(1), cfg, configSource); process.exit(0); }
-  if (firstArg === 'rm' || firstArg === 'remove') { handleRemoveRuleCli('all', args.slice(1), cfg, configSource); process.exit(0); }
+  if (firstArg === 'add-ask' || firstArg === 'ask' || firstArg === 'add') { handleAddRuleCli('ask', subcommandArgs, cfg, configSource); process.exit(0); }
+  if (firstArg === 'add-skip' || firstArg === 'skip') { handleAddRuleCli('skip', subcommandArgs, cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm-ask' || firstArg === 'remove-ask') { handleRemoveRuleCli('ask', subcommandArgs, cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm-skip' || firstArg === 'remove-skip') { handleRemoveRuleCli('skip', subcommandArgs, cfg, configSource); process.exit(0); }
+  if (firstArg === 'rm' || firstArg === 'remove') { handleRemoveRuleCli('all', subcommandArgs, cfg, configSource); process.exit(0); }
 
   if (firstArg === 'config') {
     console.log(`\n${C.bold}${C.cyan}Active Configuration (${configSource}):${C.reset}\n${JSON.stringify(cfg, null, 2)}\n`);
@@ -1614,13 +1692,15 @@ class StatsManager {
     this.lifetimeClicks = 0;
     this.lastAction = '';
     this.lastClicked = '';
+    this._saveHandle = null;
+    this.cleanupStaleTempFiles();
     this.load();
   }
 
   load() {
     try {
       if (fs.existsSync(STATS_FILE)) {
-        const data = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'));
+        const data = readJsonFile(STATS_FILE);
         this.lifetimeClicks = parseInt(data.total_clicks, 10) || 0;
         this.lastClicked = data.last_clicked || '';
         this.lastAction = cleanStr(data.last_action || '');
@@ -1633,14 +1713,36 @@ class StatsManager {
     this.lifetimeClicks++;
     this.lastClicked = new Date().toISOString().replace('T', ' ').substring(0, 19);
     this.lastAction = cleanStr(action);
-    this.save();
+    // Defer the disk write: a synchronous write here blocks the single event loop,
+    // which is what made approvals from several windows serialise instead of landing
+    // together. Bursts are coalesced into one write on the next tick.
+    this.scheduleSave();
   }
 
   recordBlock() {
     this.sessionBlocks++;
   }
 
+  scheduleSave() {
+    if (this._saveHandle) return;
+    this._saveHandle = setImmediate(() => {
+      this._saveHandle = null;
+      this.save();
+    });
+    // Never hold the process open just to flush stats.
+    if (this._saveHandle && typeof this._saveHandle.unref === 'function') this._saveHandle.unref();
+  }
+
+  flush() {
+    if (this._saveHandle) {
+      clearImmediate(this._saveHandle);
+      this._saveHandle = null;
+    }
+    this.save();
+  }
+
   save() {
+    let tmpFile = null;
     try {
       if (!fs.existsSync(GLOBAL_DIR)) {
         fs.mkdirSync(GLOBAL_DIR, { recursive: true });
@@ -1650,14 +1752,40 @@ class StatsManager {
         last_clicked: this.lastClicked,
         last_action: this.lastAction
       };
-      const tmpFile = `${STATS_FILE}.${process.pid}.${Date.now()}.tmp`;
+      tmpFile = `${STATS_FILE}.${process.pid}.${Date.now()}.tmp`;
       fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(tmpFile, STATS_FILE);
+      tmpFile = null;
+    } catch (e) {
+      // Never leave a partial .tmp file behind if the write or rename failed.
+      if (tmpFile) {
+        try { fs.unlinkSync(tmpFile); } catch (e2) { }
+      }
+    }
+  }
+
+  // Remove .tmp files orphaned by a crashed or killed earlier process.
+  cleanupStaleTempFiles() {
+    try {
+      if (!fs.existsSync(GLOBAL_DIR)) return;
+      const cutoff = Date.now() - 60 * 60 * 1000;
+      for (const f of fs.readdirSync(GLOBAL_DIR)) {
+        if (!/^stats\.json\.\d+\.\d+\.tmp$/.test(f)) continue;
+        const p = path.join(GLOBAL_DIR, f);
+        try {
+          if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+        } catch (e) { }
+      }
     } catch (e) { }
   }
 }
 
 // ── Injected Scanner Script ──
+// The generated script is a pure function of (askKeywords, skipKeywords, mode,
+// autoSelectAlwaysAllow). Rebuilding ~20 KB of string on every 120 ms tick for every
+// attached window is pure overhead, so memoize it and invalidate by signature.
+const SCANNER_CACHE = new Map();
+
 function buildScannerScript(cfg) {
   const askKeywords = Array.isArray(cfg && cfg.askKeywords) ? cfg.askKeywords : DEFAULTS.askKeywords;
   const skipKeywords = Array.isArray(cfg && cfg.skipKeywords) ? cfg.skipKeywords : DEFAULTS.skipKeywords;
@@ -1669,7 +1797,11 @@ function buildScannerScript(cfg) {
   const mode = JSON.stringify(modeVal);
   const alwaysAllow = JSON.stringify(Boolean(cfg && cfg.autoSelectAlwaysAllow));
 
-  return `(() => {
+  const cacheKey = `${ask}|${skip}|${mode}|${alwaysAllow}`;
+  const cached = SCANNER_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  const script = `(() => {
     try {
       const askKeywords = ${ask};
       const skipKeywords = ${skip};
@@ -1677,18 +1809,31 @@ function buildScannerScript(cfg) {
       const autoSelectAlwaysAllow = ${alwaysAllow};
 
       const checkKeywords = (text) => {
-        const raw = String(text || '').toLowerCase();
+        // Strip the scanner's own configuration vocabulary (e.g. skipKeywords: ["rm -rf"]) so
+        // self-inspection code does not trip the gate. Only the vocabulary itself is removed:
+        // any real command left in the same card is still evaluated below.
+        const raw = String(text || '').toLowerCase()
+          .replace(/\\b(?:skip|ask)keywords\\s*:\\s*\\[[^\\]]*\\]/g, ' ')
+          .replace(/\\bcheckkeywords\\b/g, ' ');
         const t = raw.replace(/\\s+/g, ' ');
-
-        // Guard against false positives when keywords appear inside script strings or options:
-        const isSelfInspection = raw.includes('skipkeywords:') || raw.includes('askkeywords:') || raw.includes('checkkeywords');
-        if (isSelfInspection) return null;
 
         if (/\\bgit\\s+push\\b.*(?:\\s|^)(--force|-f|--force-with-lease)(?:\\s|$)/i.test(t)) {
           return { blocked: true, type: 'skip', kw: 'git push --force' };
         }
-        if (/(?:\\s|^)rm\\s+-[a-z]*r[a-z]*f\\b/i.test(t) || /(?:\\s|^)rm\\s+-[a-z]*f[a-z]*r\\b/i.test(t)) {
-          return { blocked: true, type: 'skip', kw: 'rm -rf' };
+        // Recursive force delete in any flag arrangement: -rf, -fr, -r -f, --recursive --force
+        const rmCmd = /(?:^|[;&|('"\\x60\\s])rm\\s+([^;&|\\n]*)/i.exec(t);
+        if (rmCmd) {
+          const seg = rmCmd[1];
+          const recursive = /(?:^|\\s)(?:-[a-z]*r[a-z]*|--recursive)(?=\\s|$)/i.test(seg);
+          const force = /(?:^|\\s)(?:-[a-z]*f[a-z]*|--force)(?=\\s|$)/i.test(seg);
+          if (recursive && force) {
+            return { blocked: true, type: 'skip', kw: 'rm -rf' };
+          }
+        }
+        // PowerShell recursive force delete (Windows equivalent of rm -rf)
+        if (/\\bremove-item\\b[^;&|\\n]*-recurse\\b[^;&|\\n]*-force\\b/i.test(t) ||
+            /\\bremove-item\\b[^;&|\\n]*-force\\b[^;&|\\n]*-recurse\\b/i.test(t)) {
+          return { blocked: true, type: 'skip', kw: 'remove-item -recurse -force' };
         }
         for (const kw of skipKeywords) {
           if (kw && (raw.includes(kw) || t.includes(kw))) return { blocked: true, type: 'skip', kw: kw };
@@ -2131,6 +2276,10 @@ function buildScannerScript(cfg) {
       return null;
     }
   })()`;
+
+  if (SCANNER_CACHE.size >= 32) SCANNER_CACHE.clear();
+  SCANNER_CACHE.set(cacheKey, script);
+  return script;
 }
 
 // ── Fast CDP Port Discovery ──
@@ -2421,23 +2570,32 @@ class WindowSession {
   }
 
   connect() {
-    if (this.ws) {
-      try { this.ws.close(); } catch (e) { }
-      this.ws = null;
+    const prev = this.ws;
+    this.ws = null;
+    if (prev) {
+      // Detach handlers first: a late onclose from the old socket must not tear down
+      // the replacement connection we are about to create.
+      try { prev.onopen = null; prev.onmessage = null; prev.onerror = null; prev.onclose = null; } catch (e) { }
+      try { prev.close(); } catch (e) { }
     }
+
+    let ws;
     try {
-      this.ws = new WebSocket(this.url);
+      ws = new WebSocket(this.url);
     } catch (e) {
       return;
     }
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      if (ws !== this.ws) return;
       this.isConnected = true;
       this.onEvent('info', ` READY `, `Connected: ${this.title} (Port ${this.port})`, `Target: ${this.title}`, C.pillGreen);
       this.startScanner();
     };
 
-    this.ws.onmessage = (evt) => {
+    ws.onmessage = (evt) => {
+      if (ws !== this.ws) return;
       try {
         const msg = JSON.parse(evt.data);
         if (msg.id !== undefined && (msg.id === this.pendingScanId || msg.id === this.reqId - 1)) {
@@ -2454,11 +2612,13 @@ class WindowSession {
       }
     };
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
+      if (ws !== this.ws) return;
       this.destroy();
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      if (ws !== this.ws) return;
       this.destroy();
     };
   }
@@ -2581,6 +2741,9 @@ class AutoSubmitDaemon {
     this.isPrompting = false;
     this.isInteractive = Boolean(process.stdout.isTTY && process.stdin.isTTY && !this.config.daemon);
     this.lastConfigFileMtime = 0;
+    // Last `enabled` value actually read from the config file, so a hot reload can
+    // tell a deliberate enable/disable apart from an unrelated edit.
+    this.lastFileEnabled = null;
     this.initConfigFileMtime();
   }
 
@@ -2589,6 +2752,10 @@ class AutoSubmitDaemon {
       const target = this.configSource !== 'default' ? this.configSource : path.join(process.cwd(), '.auto-accept.json');
       if (fs.existsSync(target)) {
         this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
+        try {
+          const boot = readJsonFile(target);
+          if (boot && typeof boot.enabled === 'boolean') this.lastFileEnabled = boot.enabled;
+        } catch (e) { }
       }
     } catch (e) { }
   }
@@ -2599,8 +2766,11 @@ class AutoSubmitDaemon {
       if (!fs.existsSync(target)) return;
       const stat = fs.statSync(target);
       if (stat.mtimeMs > this.lastConfigFileMtime) {
+        const fresh = readJsonFile(target);
+        // Advance the watermark only after a successful parse, otherwise a partially
+        // written file (editor mid-save) would never be re-read.
         this.lastConfigFileMtime = stat.mtimeMs;
-        const fresh = JSON.parse(fs.readFileSync(target, 'utf8'));
+        if (!fresh || typeof fresh !== 'object' || Array.isArray(fresh)) return;
 
         // Check mode change
         if (fresh.mode && typeof fresh.mode === 'string') {
@@ -2614,10 +2784,15 @@ class AutoSubmitDaemon {
           }
         }
 
-        // Check enabled change
-        if (fresh.enabled !== undefined && fresh.enabled !== this.config.enabled) {
-          this.config.enabled = Boolean(fresh.enabled);
-          this.logEvent('info', ` TOGGLE `, `Auto-submit is now ${this.config.enabled ? 'ACTIVE' : 'PAUSED'} (from config)`, '', this.config.enabled ? C.pillGreen : C.pillYellow);
+        // Apply an enable/disable ONLY when the file's own value changed. Editing
+        // unrelated keys (keywords, delays) must never flip the running state, which
+        // is how the daemon used to turn itself on or off without a user action.
+        if (typeof fresh.enabled === 'boolean' && fresh.enabled !== this.lastFileEnabled) {
+          this.lastFileEnabled = fresh.enabled;
+          if (fresh.enabled !== this.config.enabled) {
+            this.config.enabled = fresh.enabled;
+            this.logEvent('info', ` TOGGLE `, `Auto-submit is now ${this.config.enabled ? 'ACTIVE' : 'PAUSED'} (from config)`, '', this.config.enabled ? C.pillGreen : C.pillYellow);
+          }
         }
 
         // Check keywords
@@ -2775,7 +2950,16 @@ class AutoSubmitDaemon {
           emptyCycles = 0;
           warnedUnpatchedRunning = false;
         }
-      } catch (e) { }
+      } catch (e) {
+        // Surface recurring sync failures instead of spinning silently, but throttle
+        // so a persistent fault cannot flood the terminal.
+        const now = Date.now();
+        if (!this._lastLoopError || (now - this._lastLoopErrorAt) > 30000) {
+          this._lastLoopError = e;
+          this._lastLoopErrorAt = now;
+          this.logEvent('warn', '  ERR  ', `Monitor cycle failed: ${cleanStr(e && e.message ? e.message : e, 120)}`, 'Retrying in 2s...', C.pillRed);
+        }
+      }
       await new Promise(r => setTimeout(r, 2000));
     }
   }
@@ -2998,6 +3182,10 @@ class AutoSubmitDaemon {
     const onExit = () => this.shutdown();
     process.on('SIGINT', onExit);
     process.on('SIGTERM', onExit);
+    // Persist any coalesced stats before the process goes away.
+    process.on('exit', () => {
+      try { this.stats.flush(); } catch (e) { }
+    });
   }
 
   saveActiveConfig() {
@@ -3009,6 +3197,8 @@ class AutoSubmitDaemon {
       if (fs.existsSync(target)) {
         this.lastConfigFileMtime = fs.statSync(target).mtimeMs;
       }
+      // We just wrote this value ourselves; do not treat it as an external change.
+      if (typeof this.config.enabled === 'boolean') this.lastFileEnabled = this.config.enabled;
     } catch (e) { }
   }
 
@@ -3141,6 +3331,7 @@ class AutoSubmitDaemon {
     console.log(`\n  ${C.yellow}Shutting down auto-submit daemon...${C.reset}\n`);
     releaseDaemonLock(this.portKey);
     this.stopScanner();
+    try { this.stats.flush(); } catch (e) { }
     for (const session of this.sessions.values()) {
       session.destroy();
     }
@@ -3159,7 +3350,7 @@ if (require.main === module) {
   const { config, configSource } = resolved;
 
   const binName = path.basename(process.argv[1] || '', path.extname(process.argv[1] || '')).toLowerCase();
-  const rawFirstArg = (process.argv.slice(2).find(a => !a.startsWith('-')) || '').toLowerCase().trim();
+  const rawFirstArg = extractSubcommand(process.argv.slice(2));
   let firstArg = rawFirstArg || (
     binName.includes('doctor') ? 'doctor' :
       binName.includes('start') ? 'start' :
@@ -3326,6 +3517,10 @@ module.exports = {
   releaseDaemonLock,
   getPidFilePath,
   cleanStr,
+  readJsonFile,
+  findSubcommandIndex,
+  extractSubcommand,
+  argsAfterSubcommand,
   DEFAULTS,
   handleAddRuleCli,
   handleRemoveRuleCli,

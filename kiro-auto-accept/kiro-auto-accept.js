@@ -15,16 +15,10 @@ const os = require('os');
 const http = require('http');
 const { execSync, spawn } = require('child_process');
 
-let WebSocket = globalThis.WebSocket;
-if (!WebSocket) {
-  try {
-    WebSocket = require('ws');
-  } catch (e) {
-    try {
-      WebSocket = require(path.join(__dirname, 'node_modules', 'ws'));
-    } catch (err) {}
-  }
-}
+// Node >= 22 ships a global WebSocket (see package.json engines), so this package
+// intentionally has no third-party dependencies. The old optional `require('ws')`
+// fallback was dead code on every supported runtime.
+const WebSocket = globalThis.WebSocket;
 
 const PKG_VERSION = '1.1.0';
 const GLOBAL_DIR = path.join(os.homedir(), '.kiro-auto-accept');
@@ -917,24 +911,45 @@ class WindowSession {
   }
 
   connect() {
-    if (this.ws) {
-      try { this.ws.terminate(); } catch (e) {}
-      this.ws = null;
+    const prev = this.ws;
+    this.ws = null;
+    if (prev) {
+      // Detach listeners first so a late 'close' from the old socket cannot tear
+      // down the replacement connection created just below.
+      try {
+        if (typeof prev.removeAllListeners === 'function') {
+          prev.removeAllListeners();
+        } else {
+          prev.onopen = null;
+          prev.onmessage = null;
+          prev.onerror = null;
+          prev.onclose = null;
+        }
+      } catch (e) {}
+      // Node's built-in WebSocket has close(), not terminate().
+      try {
+        if (typeof prev.close === 'function') prev.close();
+      } catch (e) {}
     }
     if (!WebSocket) return;
+
+    let ws;
     try {
-      this.ws = new WebSocket(this.url);
+      ws = new WebSocket(this.url);
     } catch (e) {
       return;
     }
+    this.ws = ws;
 
     const onOpen = () => {
+      if (ws !== this.ws) return;
       this.isConnected = true;
       this.onEvent('info', ' READY ', `Connected to window: "${this.title}" (Port ${this.port})`, `Target ID: ${this.target.id || 'N/A'}`, C.pillGreen);
       this.startScanner();
     };
 
     const onMsg = (evt) => {
+      if (ws !== this.ws) return;
       try {
         const raw = (evt && evt.data !== undefined) ? evt.data : evt;
         const msg = JSON.parse(raw.toString ? raw.toString() : raw);
@@ -953,19 +968,20 @@ class WindowSession {
     };
 
     const onClose = () => {
+      if (ws !== this.ws) return;
       this.destroy();
     };
 
-    if (typeof this.ws.on === 'function') {
-      this.ws.on('open', onOpen);
-      this.ws.on('message', onMsg);
-      this.ws.on('error', onClose);
-      this.ws.on('close', onClose);
+    if (typeof ws.on === 'function') {
+      ws.on('open', onOpen);
+      ws.on('message', onMsg);
+      ws.on('error', onClose);
+      ws.on('close', onClose);
     } else {
-      this.ws.onopen = onOpen;
-      this.ws.onmessage = onMsg;
-      this.ws.onerror = onClose;
-      this.ws.onclose = onClose;
+      ws.onopen = onOpen;
+      ws.onmessage = onMsg;
+      ws.onerror = onClose;
+      ws.onclose = onClose;
     }
   }
 
@@ -1061,8 +1077,14 @@ class WindowSession {
     }
     this.isConnected = false;
     if (this.ws) {
-      try { this.ws.terminate(); } catch (e) {}
+      const ws = this.ws;
       this.ws = null;
+      try {
+        if (typeof ws.removeAllListeners === 'function') ws.removeAllListeners();
+      } catch (e) {}
+      try {
+        if (typeof ws.close === 'function') ws.close();
+      } catch (e) {}
     }
   }
 }

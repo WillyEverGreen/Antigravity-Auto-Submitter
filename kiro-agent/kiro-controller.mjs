@@ -362,6 +362,7 @@ export async function refreshAccountToken(idOrEmail) {
         });
       });
       req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('Token refresh request timed out')));
       req.write(payload);
       req.end();
     });
@@ -394,6 +395,7 @@ export async function refreshAccountToken(idOrEmail) {
         });
       });
       req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('Token refresh request timed out')));
       req.write(payload);
       req.end();
     });
@@ -809,6 +811,8 @@ export async function sendWebhookTest(webhookIdOrUrl) {
     });
 
     req.on('error', (e) => reject(new Error(`Webhook dispatch failed: ${e.message}`)));
+    // Node only emits 'timeout'; without destroying the request the promise never settles.
+    req.on('timeout', () => req.destroy(new Error('Webhook request timed out')));
     req.write(bodyData);
     req.end();
   });

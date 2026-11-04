@@ -86,6 +86,10 @@ def fast_scan_dir(path, collect_files=False):
                             if collect_files:
                                 file_list.append((entry.path, stat.st_size, stat.st_mtime))
                         elif entry.is_dir(follow_symlinks=False):
+                            # Junction-safe: is_dir(follow_symlinks=False) is still True
+                            # for Windows junctions, which can point outside the root.
+                            if is_reparse_path(entry.path):
+                                continue
                             stack.append(entry.path)
                     except Exception:
                         pass
@@ -153,8 +157,12 @@ def scan_electron_caches(collect_files=False):
     if not appdata:
         return 0, 0, []
 
-    ide_appdata = os.path.join(appdata, "Antigravity IDE")
-    if not os.path.exists(ide_appdata):
+    # Both Antigravity products keep Chromium/Electron caches in the same layout:
+    # "Antigravity IDE" (VS Code fork, port 9333) and "Antigravity" (standalone App,
+    # port 9334). Only the IDE profile used to be scanned, so the App never got cleaned.
+    profile_roots = [os.path.join(appdata, name) for name in ("Antigravity IDE", "Antigravity")]
+    profile_roots = [p for p in profile_roots if os.path.exists(p)]
+    if not profile_roots:
         return 0, 0, []
 
     target_subdirs = {
@@ -165,31 +173,138 @@ def scan_electron_caches(collect_files=False):
     total_sz = 0
     file_list = []
 
-    try:
-        with os.scandir(ide_appdata) as it:
-            for entry in it:
-                try:
-                    name_lower = entry.name.lower()
-                    if entry.is_dir(follow_symlinks=False) and name_lower in target_subdirs:
-                        c, s, fl = fast_scan_dir(entry.path, collect_files)
-                        total_cnt += c
-                        total_sz += s
-                        if collect_files:
-                            file_list.extend(fl)
-                    elif entry.is_dir(follow_symlinks=False) and name_lower == "service worker":
-                        sw_cache = os.path.join(entry.path, "CacheStorage")
-                        if os.path.exists(sw_cache):
-                            c, s, fl = fast_scan_dir(sw_cache, collect_files)
+    for profile in profile_roots:
+        try:
+            with os.scandir(profile) as it:
+                for entry in it:
+                    try:
+                        name_lower = entry.name.lower()
+                        if entry.is_dir(follow_symlinks=False) and name_lower in target_subdirs:
+                            c, s, fl = fast_scan_dir(entry.path, collect_files)
                             total_cnt += c
                             total_sz += s
                             if collect_files:
                                 file_list.extend(fl)
-                except Exception:
-                    pass
+                        elif entry.is_dir(follow_symlinks=False) and name_lower == "service worker":
+                            sw_cache = os.path.join(entry.path, "CacheStorage")
+                            if os.path.exists(sw_cache):
+                                c, s, fl = fast_scan_dir(sw_cache, collect_files)
+                                total_cnt += c
+                                total_sz += s
+                                if collect_files:
+                                    file_list.extend(fl)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    return total_cnt, total_sz, file_list
+
+
+def scan_claude_code(collect_files=False, stale_days=7):
+    """Claude Code home (~/.claude).
+
+    Safe: ephemeral caches/logs/telemetry. Review: conversation transcripts and
+    file-edit history, which are age-gated so active work is never touched.
+    Returns (safe_cnt, safe_sz, safe_files, stale_cnt, stale_sz, stale_files).
+    """
+    root = os.path.expanduser("~/.claude")
+    if not os.path.isdir(root):
+        return 0, 0, [], 0, 0, []
+
+    safe_names = {"telemetry", "cache", "shell-snapshots", "logs", "debug", "statsig"}
+    s_cnt = s_sz = 0
+    s_files = []
+    try:
+        for entry in os.scandir(root):
+            try:
+                if entry.is_dir(follow_symlinks=False) and entry.name.lower() in safe_names:
+                    c, sz, fl = fast_scan_dir(entry.path, collect_files)
+                    s_cnt += c; s_sz += sz; s_files.extend(fl)
+            except Exception:
+                pass
     except Exception:
         pass
 
-    return total_cnt, total_sz, file_list
+    cutoff = time.time() - (stale_days * 86400)
+    r_cnt = r_sz = 0
+    r_files = []
+    for sub in ("projects", "file-history"):
+        base = os.path.join(root, sub)
+        if not os.path.isdir(base):
+            continue
+        stack = [base]
+        while stack:
+            cur = stack.pop()
+            try:
+                with os.scandir(cur) as it:
+                    for entry in it:
+                        try:
+                            if is_reparse_path(entry.path):
+                                continue
+                            if entry.is_file(follow_symlinks=False):
+                                st = entry.stat(follow_symlinks=False)
+                                if st.st_mtime < cutoff:
+                                    r_cnt += 1
+                                    r_sz += st.st_size
+                                    if collect_files:
+                                        r_files.append((entry.path, st.st_size, st.st_mtime))
+                            elif entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+    return s_cnt, s_sz, s_files, r_cnt, r_sz, r_files
+
+
+def scan_jetbrains_caches(collect_files=False):
+    """JetBrains IDEs (IntelliJ, PyCharm, WebStorm, ...) and Android Studio keep
+    regenerable caches, indexes and logs under %LOCALAPPDATA%\\JetBrains\\<Product>
+    and %LOCALAPPDATA%\\Google\\AndroidStudio*. Settings live in %APPDATA% and are
+    never touched here.
+    """
+    local = os.environ.get("LOCALAPPDATA", "")
+    if not local:
+        return 0, 0, []
+    base = os.path.join(local, "JetBrains")
+    google = os.path.join(local, "Google")
+    if not os.path.isdir(base) and not os.path.isdir(google):
+        return 0, 0, []
+
+    products = []
+    for root, prefix in ((base, None), (google, "androidstudio")):
+        if not os.path.isdir(root):
+            continue
+        try:
+            for entry in os.scandir(root):
+                try:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                    if prefix and not entry.name.lower().startswith(prefix):
+                        continue
+                    products.append(entry.path)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    safe_subdirs = {"caches", "log", "logs", "tmp", "compile-server", "index", "jcef_cache"}
+    cnt = sz = 0
+    files = []
+    for product in products:
+        try:
+            for entry in os.scandir(product):
+                try:
+                    if entry.is_dir(follow_symlinks=False) and entry.name.lower() in safe_subdirs:
+                        c, s, fl = fast_scan_dir(entry.path, collect_files)
+                        cnt += c; sz += s; files.extend(fl)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return cnt, sz, files
 
 
 def scan_browser_caches(collect_files=False):
@@ -202,24 +317,30 @@ def scan_browser_caches(collect_files=False):
         return 0, 0, []
 
     target_subdirs = {"cache", "code cache", "gpucache", "shadercache", "grshadercache", "cachestorage", "reports"}
-    stack = [profile_dir]
+    stack = [(profile_dir, False)]
 
     while stack:
-        curr = stack.pop()
+        curr, in_cache = stack.pop()
         try:
             with os.scandir(curr) as it:
                 for entry in it:
                     try:
                         name_lower = entry.name.lower()
                         if entry.is_file(follow_symlinks=False):
+                            # Only cache files are delete candidates. Files sitting directly
+                            # in the profile root or in Default/ (Local State, Preferences,
+                            # Login Data, Bookmarks, Cookies, History) are user data, not caches.
+                            if not in_cache:
+                                continue
                             stat = entry.stat(follow_symlinks=False)
                             total_sz += stat.st_size
                             total_cnt += 1
                             if collect_files:
                                 file_list.append((entry.path, stat.st_size, stat.st_mtime))
                         elif entry.is_dir(follow_symlinks=False):
-                            if curr == profile_dir or name_lower == "default" or name_lower in target_subdirs or "cache" in name_lower:
-                                stack.append(entry.path)
+                            is_cache_dir = name_lower in target_subdirs or "cache" in name_lower
+                            if in_cache or name_lower == "default" or is_cache_dir:
+                                stack.append((entry.path, in_cache or is_cache_dir))
                     except Exception:
                         pass
         except Exception:
@@ -315,6 +436,22 @@ def scan_external_ide_caches(collect_files=False):
             os.path.expanduser("~/AppData/Local/Claude/logs"),
             os.path.expanduser("~/AppData/Local/Claude-Data/logs"),
         ]),
+        ("VSCodium Caches & Logs", [
+            os.path.expanduser("~/AppData/Roaming/VSCodium/Crashpad"),
+            os.path.expanduser("~/AppData/Roaming/VSCodium/Cache"),
+            os.path.expanduser("~/AppData/Roaming/VSCodium/Code Cache"),
+            os.path.expanduser("~/AppData/Roaming/VSCodium/GPUCache"),
+            os.path.expanduser("~/AppData/Roaming/VSCodium/CachedData"),
+            os.path.expanduser("~/AppData/Roaming/VSCodium/logs"),
+        ]),
+        ("Sublime Text Caches", [
+            os.path.expanduser("~/AppData/Local/Sublime Text/Cache"),
+            os.path.expanduser("~/AppData/Local/Sublime Text/Index"),
+            os.path.expanduser("~/AppData/Local/Sublime Text/logs"),
+        ]),
+        ("Visual Studio Component Cache", [
+            os.path.expanduser("~/AppData/Local/Microsoft/VisualStudio/ComponentModelCache"),
+        ]),
     ]
 
     for label, paths in targets:
@@ -329,6 +466,179 @@ def scan_external_ide_caches(collect_files=False):
             total_sz += s_tot
 
     return ide_categories, total_cnt, total_sz
+
+
+# Single source of truth for the Protected tier. purge_files() enforces this list, so a
+# future scan pattern cannot delete protected state even when it overlaps.
+PROTECTED_PATH_GROUPS = [
+    ("Global Config, Rules & Skills", [
+        os.path.expanduser("~/.gemini/config"),
+        os.path.expanduser("~/.gemini/antigravity-ide/plugins"),
+        os.path.expanduser("~/.gemini/antigravity/plugins"),
+    ]),
+    ("Built-in Core Skills & Assets", [
+        os.path.expanduser("~/.gemini/antigravity-ide/builtin"),
+        os.path.expanduser("~/.gemini/antigravity/builtin"),
+    ]),
+    ("Knowledge Items (KI Artifacts)", [
+        os.path.expanduser("~/.gemini/antigravity-ide/knowledge"),
+        os.path.expanduser("~/.gemini/antigravity/knowledge"),
+        os.path.expanduser("~/.gemini/knowledge"),
+    ]),
+    ("MCP Configuration & Schemas", [
+        os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json"),
+        os.path.expanduser("~/.gemini/antigravity/mcp_config.json"),
+        os.path.expanduser("~/.gemini/antigravity-ide/mcp"),
+        os.path.expanduser("~/.gemini/antigravity/mcp"),
+        os.path.expanduser("~/.gemini/antigravity-ide/mcp_oauth_tokens.json"),
+        os.path.expanduser("~/.gemini/antigravity/mcp_oauth_tokens.json"),
+    ]),
+    ("IDE & Root Settings State", [
+        os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb"),
+        os.path.expanduser("~/.gemini/antigravity/user_settings.pb"),
+        os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt"),
+        os.path.expanduser("~/.gemini/antigravity-ide/browserAllowlist.txt"),
+        os.path.expanduser("~/.gemini/antigravity-ide/browserOnboardingStatus.txt"),
+        os.path.expanduser("~/.gemini/settings.json"),
+        os.path.expanduser("~/.gemini/state.json"),
+        os.path.expanduser("~/.gemini/trustedFolders.json"),
+        os.path.expanduser("~/.gemini/memory_graph.json"),
+        os.path.expanduser("~/.gemini/projects.json"),
+        os.path.expanduser("~/.gemini/GEMINI.md"),
+        os.path.expanduser("~/.gemini/AGENTS.md"),
+        os.path.expanduser("~/.gemini/CLAUDE.md"),
+    ]),
+    ("Installation Identifiers", [
+        os.path.expanduser("~/.gemini/antigravity-ide/installation_id"),
+        os.path.expanduser("~/.gemini/antigravity/installation_id"),
+        os.path.expanduser("~/.gemini/installation_id"),
+    ]),
+    ("Gemini Account Auth Creds", [
+        os.path.expanduser("~/.gemini/google_accounts.json"),
+        os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
+    ]),
+    ("OAuth Tokens State", [
+        os.path.expanduser("~/.gemini/oauth_creds.json"),
+    ]),
+    ("Kiro Protected Settings & Extensions", [
+        os.path.expanduser("~/.kiro/settings"),
+        os.path.expanduser("~/.kiro/skills"),
+        os.path.expanduser("~/.kiro/agents"),
+        os.path.expanduser("~/.kiro/powers"),
+        os.path.expanduser("~/.kiro/extensions"),
+        os.path.expanduser("~/.kiro/argv.json"),
+    ]),
+    ("Zed Language Servers & Toolchains", [
+        os.path.expanduser("~/AppData/Local/Zed/languages"),
+        os.path.expanduser("~/AppData/Local/Zed/node"),
+        os.path.expanduser("~/AppData/Local/Zed/prettier"),
+        os.path.expanduser("~/AppData/Local/Zed/threads"),
+        os.path.expanduser("~/AppData/Local/Zed/prompts"),
+        os.path.expanduser("~/AppData/Local/Zed/extensions"),
+        os.path.expanduser("~/AppData/Local/Zed/db"),
+        os.path.expanduser("~/AppData/Local/Zed/copilot"),
+        os.path.expanduser("~/AppData/Roaming/Zed/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Zed/AGENTS.md"),
+        os.path.expanduser("~/AppData/Roaming/Zed/themes"),
+    ]),
+    ("VS Code & Cursor Extensions & Settings", [
+        os.path.expanduser("~/.vscode/extensions"),
+        os.path.expanduser("~/.vscode-insiders/extensions"),
+        os.path.expanduser("~/.vscode-insiders/argv.json"),
+        os.path.expanduser("~/.cursor/extensions"),
+        os.path.expanduser("~/.cursor/skills-cursor"),
+        os.path.expanduser("~/.cursor/mcp.json"),
+        os.path.expanduser("~/.cursor/projects"),
+        os.path.expanduser("~/AppData/Roaming/Code/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Code/User/keybindings.json"),
+        os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/keybindings.json"),
+        os.path.expanduser("~/AppData/Roaming/Cursor/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Cursor/User/keybindings.json"),
+    ]),
+    ("Windsurf & Trae Extensions & Settings", [
+        os.path.expanduser("~/.windsurf/extensions"),
+        os.path.expanduser("~/.windsurf/argv.json"),
+        os.path.expanduser("~/AppData/Roaming/Windsurf/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Windsurf/User/keybindings.json"),
+        os.path.expanduser("~/.trae/extensions"),
+        os.path.expanduser("~/.trae/argv.json"),
+        os.path.expanduser("~/AppData/Roaming/Trae/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/Trae/User/keybindings.json"),
+    ]),
+    ("Claude Code Config, Plugins & Commands", [
+        os.path.expanduser("~/.claude/settings.json"),
+        os.path.expanduser("~/.claude/settings.local.json"),
+        os.path.expanduser("~/.claude/plugins"),
+        os.path.expanduser("~/.claude/commands"),
+        os.path.expanduser("~/.claude/agents"),
+        os.path.expanduser("~/.claude/CLAUDE.md"),
+        os.path.expanduser("~/.claude.json"),
+    ]),
+    ("JetBrains & VSCodium Settings", [
+        os.path.expanduser("~/AppData/Roaming/JetBrains"),
+        os.path.expanduser("~/.vscode-oss/extensions"),
+        os.path.expanduser("~/AppData/Roaming/VSCodium/User/settings.json"),
+        os.path.expanduser("~/AppData/Roaming/VSCodium/User/keybindings.json"),
+    ]),
+]
+
+
+def get_protected_paths():
+    """Flat list of every path in the Protected tier."""
+    out = []
+    for _name, plist in PROTECTED_PATH_GROUPS:
+        out.extend(plist)
+    return out
+
+
+def _norm_path(p):
+    try:
+        return os.path.normcase(os.path.realpath(os.path.abspath(p)))
+    except Exception:
+        return os.path.normcase(os.path.abspath(p))
+
+
+_PROTECTED_NORM = None
+
+
+def is_protected_path(path):
+    """True when `path` is, or lives inside, a Protected-tier path.
+
+    Protection used to be implicit: the scan patterns simply happened not to
+    overlap the protected list. This makes it explicit so a future scan pattern
+    cannot silently delete protected state.
+    """
+    global _PROTECTED_NORM
+    if _PROTECTED_NORM is None:
+        _PROTECTED_NORM = sorted({_norm_path(p) for p in get_protected_paths()})
+    target = _norm_path(path)
+    for prot in _PROTECTED_NORM:
+        if target == prot or target.startswith(prot + os.sep):
+            return True
+    return False
+
+
+def is_reparse_path(path):
+    """True for symlinks and Windows junctions.
+
+    os.scandir(...).is_dir(follow_symlinks=False) is still True for a junction
+    (reparse tag 0xA0000003), so junctions must be excluded explicitly.
+    """
+    try:
+        st = os.lstat(path)
+    except Exception:
+        return False
+    if getattr(st, "st_file_attributes", 0) & 0x400:  # FILE_ATTRIBUTE_REPARSE_POINT
+        return True
+    try:
+        return os.path.islink(path)
+    except Exception:
+        return False
+
+
+# Counted so `main` can tell the user when protection actually blocked a deletion.
+PURGE_STATS = {"protected_skipped": 0}
 
 
 def collect_audit_metrics(stale_days=7, collect_files=False):
@@ -489,14 +799,23 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     b_cnt, b_sz, b_fl = scan_browser_caches(collect_files)
     add_tier1("Browser Profile Web Caches", b_cnt, b_sz, b_fl)
 
-    # 11. Antigravity Electron IDE Runtime Caches (%APPDATA%\Antigravity IDE)
+    # 11. Antigravity Electron Runtime Caches (%APPDATA%\Antigravity IDE and %APPDATA%\Antigravity)
     e_cnt, e_sz, e_fl = scan_electron_caches(collect_files)
     add_tier1("Electron IDE Runtime Caches", e_cnt, e_sz, e_fl)
+
+    # 11b. Claude Code home (~/.claude): ephemeral caches are safe, transcripts are age-gated.
+    cc_s_cnt, cc_s_sz, cc_s_fl, cc_r_cnt, cc_r_sz, cc_r_fl = scan_claude_code(collect_files, stale_days)
+    add_tier1("Claude Code Caches", cc_s_cnt, cc_s_sz, cc_s_fl)
+    add_tier2(f"Stale Claude Code Transcripts (> {stale_days}d)", cc_r_cnt, cc_r_sz, cc_r_fl)
 
     # 12. External AI IDEs & Editors (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)
     ext_ides, ext_cnt, ext_sz = scan_external_ide_caches(collect_files)
     for cat_name, cat_data in ext_ides.items():
         add_tier1(cat_name, cat_data["count"], cat_data["size"], cat_data["files"])
+
+    # 12b. JetBrains IDEs (IntelliJ, PyCharm, WebStorm, ...) caches, indexes and logs
+    jb_cnt, jb_sz, jb_fl = scan_jetbrains_caches(collect_files)
+    add_tier1("JetBrains IDE Caches & Logs", jb_cnt, jb_sz, jb_fl)
 
     # 12. System Temp Scripts & Dumps
     sys_temp_dir = os.environ.get("TEMP", "")
@@ -518,20 +837,30 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
             pass
     add_tier1("System Temp Scripts", temp_cnt, temp_sz, temp_fl)
 
-    # 13. Package Caches (UV, NPM, PNPM, Pip, Yarn)
+    # 13. Package Caches (npm, pnpm, yarn, bun, uv, pip, cargo)
+    # Paths verified against real installs: pnpm's store lives in pnpm/store (the old
+    # "pnpm-cache" path does not exist), and bun/cargo caches were missing entirely.
     pkg_caches = [
         os.path.expanduser("~/AppData/Local/uv/cache"),
         os.path.expanduser("~/AppData/Local/npm-cache"),
-        os.path.expanduser("~/AppData/Local/pnpm-cache"),
+        os.path.expanduser("~/AppData/Local/pnpm/store"),
+        os.path.expanduser("~/AppData/Local/pnpm-cache"),   # legacy pnpm layout
         os.path.expanduser("~/AppData/Local/pip/Cache"),
         os.path.expanduser("~/AppData/Local/Yarn/Cache"),
+        os.path.expanduser("~/AppData/Local/Composer/cache"),
+        os.path.expanduser("~/.bun/install/cache"),
+        os.path.expanduser("~/.cargo/registry"),
+        os.path.expanduser("~/.gradle/caches"),
+        os.path.expanduser("~/.m2/repository"),
+        os.path.expanduser("~/.nuget/packages"),
+        os.path.expanduser("~/go/pkg/mod"),
     ]
     pkg_cnt, pkg_sz, pkg_fl = 0, 0, []
     for pc in pkg_caches:
         if os.path.exists(pc):
             c, s, fl = fast_scan_dir(pc, collect_files)
             pkg_cnt += c; pkg_sz += s; pkg_fl.extend(fl)
-    add_tier1("Package Manager Caches (UV/NPM/Pip)", pkg_cnt, pkg_sz, pkg_fl)
+    add_tier1("Package Manager Caches", pkg_cnt, pkg_sz, pkg_fl)
 
     # 14. Loose Gemini Root Scratch Scripts (~/.gemini/*.js, *.py, *.tmp)
     gemini_root = os.path.expanduser("~/.gemini")
@@ -634,103 +963,7 @@ def collect_audit_metrics(stale_days=7, collect_files=False):
     add_tier2("IDE Code Tracker History", t_cnt, t_sz, t_fl, is_advisable=False)
 
     # 21. Protected Tier 3 Systems (Strictly shielded from deletion)
-    tier_critical_definitions = [
-        ("Global Config, Rules & Skills", [
-            os.path.expanduser("~/.gemini/config"),
-            os.path.expanduser("~/.gemini/antigravity-ide/plugins"),
-            os.path.expanduser("~/.gemini/antigravity/plugins"),
-        ]),
-        ("Built-in Core Skills & Assets", [
-            os.path.expanduser("~/.gemini/antigravity-ide/builtin"),
-            os.path.expanduser("~/.gemini/antigravity/builtin"),
-        ]),
-        ("Knowledge Items (KI Artifacts)", [
-            os.path.expanduser("~/.gemini/antigravity-ide/knowledge"),
-            os.path.expanduser("~/.gemini/antigravity/knowledge"),
-            os.path.expanduser("~/.gemini/knowledge"),
-        ]),
-        ("MCP Configuration & Schemas", [
-            os.path.expanduser("~/.gemini/antigravity-ide/mcp_config.json"),
-            os.path.expanduser("~/.gemini/antigravity/mcp_config.json"),
-            os.path.expanduser("~/.gemini/antigravity-ide/mcp"),
-            os.path.expanduser("~/.gemini/antigravity/mcp"),
-            os.path.expanduser("~/.gemini/antigravity-ide/mcp_oauth_tokens.json"),
-            os.path.expanduser("~/.gemini/antigravity/mcp_oauth_tokens.json"),
-        ]),
-        ("IDE & Root Settings State", [
-            os.path.expanduser("~/.gemini/antigravity-ide/user_settings.pb"),
-            os.path.expanduser("~/.gemini/antigravity/user_settings.pb"),
-            os.path.expanduser("~/.gemini/antigravity/antigravity_state.pbtxt"),
-            os.path.expanduser("~/.gemini/antigravity-ide/browserAllowlist.txt"),
-            os.path.expanduser("~/.gemini/antigravity-ide/browserOnboardingStatus.txt"),
-            os.path.expanduser("~/.gemini/settings.json"),
-            os.path.expanduser("~/.gemini/state.json"),
-            os.path.expanduser("~/.gemini/trustedFolders.json"),
-            os.path.expanduser("~/.gemini/memory_graph.json"),
-            os.path.expanduser("~/.gemini/projects.json"),
-            os.path.expanduser("~/.gemini/GEMINI.md"),
-            os.path.expanduser("~/.gemini/AGENTS.md"),
-            os.path.expanduser("~/.gemini/CLAUDE.md"),
-        ]),
-        ("Installation Identifiers", [
-            os.path.expanduser("~/.gemini/antigravity-ide/installation_id"),
-            os.path.expanduser("~/.gemini/antigravity/installation_id"),
-            os.path.expanduser("~/.gemini/installation_id"),
-        ]),
-        ("Gemini Account Auth Creds", [
-            os.path.expanduser("~/.gemini/google_accounts.json"),
-            os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token"),
-        ]),
-        ("OAuth Tokens State", [
-            os.path.expanduser("~/.gemini/oauth_creds.json"),
-        ]),
-        ("Kiro Protected Settings & Extensions", [
-            os.path.expanduser("~/.kiro/settings"),
-            os.path.expanduser("~/.kiro/skills"),
-            os.path.expanduser("~/.kiro/agents"),
-            os.path.expanduser("~/.kiro/powers"),
-            os.path.expanduser("~/.kiro/extensions"),
-            os.path.expanduser("~/.kiro/argv.json"),
-        ]),
-        ("Zed Language Servers & Toolchains", [
-            os.path.expanduser("~/AppData/Local/Zed/languages"),
-            os.path.expanduser("~/AppData/Local/Zed/node"),
-            os.path.expanduser("~/AppData/Local/Zed/prettier"),
-            os.path.expanduser("~/AppData/Local/Zed/threads"),
-            os.path.expanduser("~/AppData/Local/Zed/prompts"),
-            os.path.expanduser("~/AppData/Local/Zed/extensions"),
-            os.path.expanduser("~/AppData/Local/Zed/db"),
-            os.path.expanduser("~/AppData/Local/Zed/copilot"),
-            os.path.expanduser("~/AppData/Roaming/Zed/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Zed/AGENTS.md"),
-            os.path.expanduser("~/AppData/Roaming/Zed/themes"),
-        ]),
-        ("VS Code & Cursor Extensions & Settings", [
-            os.path.expanduser("~/.vscode/extensions"),
-            os.path.expanduser("~/.vscode-insiders/extensions"),
-            os.path.expanduser("~/.vscode-insiders/argv.json"),
-            os.path.expanduser("~/.cursor/extensions"),
-            os.path.expanduser("~/.cursor/skills-cursor"),
-            os.path.expanduser("~/.cursor/mcp.json"),
-            os.path.expanduser("~/.cursor/projects"),
-            os.path.expanduser("~/AppData/Roaming/Code/User/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Code/User/keybindings.json"),
-            os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Code - Insiders/User/keybindings.json"),
-            os.path.expanduser("~/AppData/Roaming/Cursor/User/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Cursor/User/keybindings.json"),
-        ]),
-        ("Windsurf & Trae Extensions & Settings", [
-            os.path.expanduser("~/.windsurf/extensions"),
-            os.path.expanduser("~/.windsurf/argv.json"),
-            os.path.expanduser("~/AppData/Roaming/Windsurf/User/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Windsurf/User/keybindings.json"),
-            os.path.expanduser("~/.trae/extensions"),
-            os.path.expanduser("~/.trae/argv.json"),
-            os.path.expanduser("~/AppData/Roaming/Trae/User/settings.json"),
-            os.path.expanduser("~/AppData/Roaming/Trae/User/keybindings.json"),
-        ]),
-    ]
+    tier_critical_definitions = PROTECTED_PATH_GROUPS
     for name, p_list in tier_critical_definitions:
         t3_cnt, t3_sz, t3_fl = 0, 0, []
         for p in p_list:
@@ -1003,6 +1236,11 @@ def purge_files(files_to_delete):
 
     for fp in files_to_delete:
         try:
+            # Fail closed: refuse anything inside the Protected tier, regardless of
+            # which scan produced it.
+            if is_protected_path(fp):
+                PURGE_STATS["protected_skipped"] += 1
+                continue
             if os.path.exists(fp):
                 if os.path.isfile(fp):
                     sz = os.path.getsize(fp)
@@ -1023,14 +1261,107 @@ def purge_files(files_to_delete):
 def purge_empty_dirs(path):
     if not os.path.exists(path):
         return
-    for root, dirs, _ in os.walk(path, topdown=False):
+    # os.walk(followlinks=False) still descends Windows junctions, so prune them
+    # explicitly and remove deepest-first afterwards.
+    collected = []
+    for root, dirs, _ in os.walk(path, topdown=True):
+        dirs[:] = [d for d in dirs if not is_reparse_path(os.path.join(root, d))]
         for d in dirs:
-            dp = os.path.join(root, d)
-            try:
-                if not os.listdir(dp):
-                    os.rmdir(dp)
-            except Exception:
-                pass
+            collected.append(os.path.join(root, d))
+    for dp in sorted(collected, key=len, reverse=True):
+        try:
+            if os.path.isdir(dp) and not os.listdir(dp):
+                os.rmdir(dp)
+        except Exception:
+            pass
+
+
+# Apps and ecosystems this tool knows how to clean. Printed by `--coverage` so the
+# user can always see exactly what is supported, what was detected, and what is off-limits.
+SUPPORTED_TOOLS = [
+    ("Antigravity IDE", "scratch, brain sessions, recordings, logs, browser web caches, Electron caches"),
+    ("Antigravity App", "Electron runtime caches"),
+    ("Kiro", "crashpad, caches, logs"),
+    ("Zed", "logs, hang traces"),
+    ("VS Code / CodeX (+ Insiders)", "caches, crashpad, logs"),
+    ("VSCodium", "caches, crashpad, logs"),
+    ("Cursor", "caches, crashpad, logs"),
+    ("Windsurf", "caches, crashpad, logs"),
+    ("Trae", "caches, crashpad, logs"),
+    ("Qoder", "caches, logs"),
+    ("JetBrains IDEs", "caches, index, logs, tmp"),
+    ("Android Studio", "caches, index, logs, tmp"),
+    ("Sublime Text", "cache, index, logs"),
+    ("Visual Studio", "component-model cache"),
+    ("Claude Desktop", "logs"),
+    ("Claude Code", "telemetry, cache, shell snapshots; stale transcripts (age-gated)"),
+    ("npm / pnpm / yarn / bun", "package caches"),
+    ("uv / pip / Composer", "package caches"),
+    ("cargo / Gradle / Maven / NuGet / Go", "package and module caches"),
+]
+
+
+def print_coverage(output_json=False):
+    """Full transparency: every category, whether it was detected, and its size.
+
+    Tier 1 is safe to delete, Tier 2 is age-gated/opt-in, Tier 3 is never deleted.
+    """
+    metrics = collect_audit_metrics(collect_files=False)
+
+    rows = []
+    for name, v in metrics["tier1_safe"].items():
+        rows.append({"category": name, "tier": "1-safe", "files": v["count"],
+                     "size_bytes": v["size"], "detected": v["count"] > 0})
+    for name, v in metrics["tier2_review"].items():
+        rows.append({"category": name, "tier": "2-review" if v["advisable"] else "2-review-opt-in",
+                     "files": v["count"], "size_bytes": v["size"], "detected": v["count"] > 0})
+    for name, v in metrics["tier3_protected"].items():
+        rows.append({"category": name, "tier": "3-protected", "files": v["count"],
+                     "size_bytes": v["size"], "detected": v["count"] > 0})
+
+    if output_json:
+        print(json.dumps({
+            "supported_tools": [{"tool": t, "cleans": d} for t, d in SUPPORTED_TOOLS],
+            "categories": rows,
+            "totals": {
+                "tier1_safe_bytes": metrics["safe_total_bytes"],
+                "tier1_safe_files": metrics["safe_total_files"],
+                "tier2_reclaimable_bytes": metrics["reclaimable_total_bytes"],
+                "tier2_reclaimable_files": metrics["reclaimable_total_files"],
+            },
+            "search_roots": get_antigravity_roots(),
+        }, indent=2))
+        return
+
+    print()
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+    print(f"{BOLD}{CYAN}      COVERAGE — WHAT THIS TOOL CAN CLEAN, AND WHAT IT REFUSES TO TOUCH           {RESET}")
+    print(f"{BOLD}{CYAN}================================================================================{RESET}")
+
+    print(f"\n{BOLD}Supported tools & ecosystems ({len(SUPPORTED_TOOLS)}):{RESET}")
+    for tool, what in SUPPORTED_TOOLS:
+        print(f"  • {BOLD}{tool}{RESET} — {what}")
+
+    def section(title, tier_key, colour):
+        items = [r for r in rows if r["tier"] == tier_key]
+        hit = [r for r in items if r["detected"]]
+        miss = [r for r in items if not r["detected"]]
+        print(f"\n{BOLD}{colour}{title}{RESET} ({len(hit)} detected / {len(items)} categories)")
+        for r in sorted(hit, key=lambda x: -x["size_bytes"]):
+            print(f"  {format_size(r['size_bytes']):>10}  {r['files']:>8,} files  {r['category']}")
+        if miss:
+            print(f"  {DIM}not present on this machine: {', '.join(m['category'] for m in miss)}{RESET}")
+
+    section("TIER 1 — SAFE TO DELETE (included in --all)", "1-safe", GREEN)
+    section("TIER 2 — REVIEW (age-gated; --stale / --deep)", "2-review", YELLOW)
+    section("TIER 2 — OPT-IN ONLY (never auto-selected)", "2-review-opt-in", YELLOW)
+    section("TIER 3 — PROTECTED (never deleted; refused at delete time)", "3-protected", RED)
+
+    print(f"\n{BOLD}Totals:{RESET} Tier 1 safe {format_size(metrics['safe_total_bytes'])} "
+          f"({metrics['safe_total_files']:,} files) · Tier 2 reclaimable "
+          f"{format_size(metrics['reclaimable_total_bytes'])} ({metrics['reclaimable_total_files']:,} files)")
+    print(f"{DIM}Deletion is refused for any path inside Tier 3, even if a scan pattern matches it.{RESET}")
+    print(f"{DIM}Windows junctions are skipped. Run --check before any cleanup.{RESET}\n")
 
 
 def main():
@@ -1052,6 +1383,7 @@ def main():
     )
 
     parser.add_argument("--check", action="store_true", help="Run 3-tier audit scan (default)")
+    parser.add_argument("--coverage", action="store_true", help="Show every supported tool/category, what is detected, and what is protected")
     parser.add_argument("--scan", action="store_true", help="Scan and preview individual candidate files")
     parser.add_argument("--json", action="store_true", help="Output audit or scan metrics as JSON")
     parser.add_argument("--limit", type=int, default=35, help="Number of files to display in --scan preview (default: 35)")
@@ -1062,7 +1394,7 @@ def main():
     parser.add_argument("--recordings", action="store_true", help="Clean browser WebP video recordings")
     parser.add_argument("--annotations", action="store_true", help="Clean cached AST annotations")
     parser.add_argument("--temp", action="store_true", help="Clean system temp scripts (%%TEMP%%)")
-    parser.add_argument("--caches", action="store_true", help="Clean NPM, Pip, and UV package caches")
+    parser.add_argument("--caches", action="store_true", help="Clean npm, pnpm, yarn, bun, uv, pip and cargo caches")
     parser.add_argument("--browser-cache", action="store_true", help="Clean Antigravity browser profile web caches")
     parser.add_argument("--electron-cache", "--ide-cache", dest="electron_cache", action="store_true", help="Clean Antigravity Electron IDE runtime caches (%%APPDATA%%\\Antigravity IDE)")
     parser.add_argument("--ides", action="store_true", help="Clean ephemeral caches & logs from external IDEs (Kiro, Zed, Code, Cursor, Windsurf, Trae, Qoder, Claude)")
@@ -1073,7 +1405,7 @@ def main():
     parser.add_argument("--windsurf", action="store_true", help="Clean Windsurf caches, logs, and crash dumps")
     parser.add_argument("--trae", action="store_true", help="Clean Trae AI IDE caches, logs, and crashpad dumps")
     parser.add_argument("--qoder", action="store_true", help="Clean Qoder caches and logs")
-    parser.add_argument("--claude", action="store_true", help="Clean Claude Desktop application logs")
+    parser.add_argument("--claude", action="store_true", help="Clean Claude Desktop logs and Claude Code caches (~/.claude)")
     parser.add_argument("--conversations", action="store_true", help="Clean stale conversation SQLite database files")
     parser.add_argument("--tmp", action="store_true", help="Clean cloned temporary workspaces in ~/.gemini/tmp")
     parser.add_argument("--history", action="store_true", help="Clean workspace file history in ~/.gemini/history")
@@ -1089,6 +1421,11 @@ def main():
 
     args = parser.parse_args()
 
+    # A non-positive threshold makes every file "stale" — one typo away from wiping
+    # all conversation history, so reject it instead of silently accepting it.
+    if args.days < 1:
+        parser.error(f"--days must be 1 or greater (got {args.days})")
+
     # Handle scan mode
     if args.scan:
         run_temp_scanner(stale_days=args.days, limit=args.limit, output_json=args.json)
@@ -1102,6 +1439,10 @@ def main():
         args.windsurf or args.trae or args.qoder or args.claude or
         args.conversations or args.tmp or args.history or args.stale or args.deep or args.all
     )
+
+    if args.coverage:
+        print_coverage(output_json=args.json)
+        return
 
     if args.check or not is_clean:
         if args.json:
@@ -1142,7 +1483,7 @@ def main():
             raw_targets.extend(v["files"])
             target_names.append(k)
         for k, v in metrics["tier2_review"].items():
-            if "Stale Brain" in k or "Stale Conversation" in k:
+            if "Stale Brain" in k or "Stale Conversation" in k or "Stale Claude" in k:
                 raw_targets.extend(v["files"])
                 target_names.append(k)
     elif args.all:
@@ -1187,7 +1528,7 @@ def main():
             raw_targets.extend(metrics["tier1_safe"]["System Temp Scripts"]["files"])
             target_names.append("System Temp Scripts")
         if args.caches:
-            raw_targets.extend(metrics["tier1_safe"]["Package Manager Caches (UV/NPM/Pip)"]["files"])
+            raw_targets.extend(metrics["tier1_safe"]["Package Manager Caches"]["files"])
             target_names.append("Package Manager Caches")
         if args.browser_cache:
             raw_targets.extend(metrics["tier1_safe"]["Browser Profile Web Caches"]["files"])
@@ -1227,6 +1568,15 @@ def main():
             if "Claude Desktop Logs" in metrics["tier1_safe"]:
                 raw_targets.extend(metrics["tier1_safe"]["Claude Desktop Logs"]["files"])
                 target_names.append("Claude Desktop Logs")
+            if "Claude Code Caches" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["Claude Code Caches"]["files"])
+                target_names.append("Claude Code Caches")
+            if "VSCodium Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["VSCodium Caches & Logs"]["files"])
+                target_names.append("VSCodium Caches & Logs")
+            if "JetBrains IDE Caches & Logs" in metrics["tier1_safe"]:
+                raw_targets.extend(metrics["tier1_safe"]["JetBrains IDE Caches & Logs"]["files"])
+                target_names.append("JetBrains IDE Caches & Logs")
         if args.conversations:
             raw_targets.extend(metrics["tier2_review"][f"Stale Conversation DBs (> {args.days}d)"]["files"])
             target_names.append("Stale Conversation DBs")
@@ -1264,6 +1614,10 @@ def main():
 
     print(f"\n{BOLD}{CYAN}Deleting temporary & stale files...{RESET}")
     del_count, del_bytes, err_count = purge_files(targets)
+
+    if PURGE_STATS["protected_skipped"] > 0:
+        print(f"{BOLD}{YELLOW}[PROTECTED] Skipped {PURGE_STATS['protected_skipped']:,} target(s) "
+              f"inside the Protected tier — refuse-by-default guard.{RESET}")
 
     # Clean up empty directories across all roots
     for r in get_antigravity_roots():

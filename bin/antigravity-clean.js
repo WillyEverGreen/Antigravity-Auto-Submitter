@@ -13,10 +13,11 @@ if (res.error && res.error.code === 'ENOENT') {
 }
 
 if (res.error) {
-  console.error('\n  \x1b[31m✗ Python 3 runtime is required for antigravity-clean.\x1b[0m');
+  console.error('\n  \x1b[31mâœ— Python 3 runtime is required for antigravity-clean.\x1b[0m');
   console.error('  \x1b[90mPlease install Python 3 from https://python.org or run:\x1b[0m');
   console.error('  \x1b[36mwinget install Python.Python.3\x1b[0m (Windows) or \x1b[36mbrew install python3\x1b[0m (macOS/Linux)\n');
   process.exit(1);
 }
 
-process.exit(res.status !== null ? res.status : 0);
+// A null status means the child was killed by a signal: report failure, not success.
+process.exit(res.status !== null ? res.status : 1);

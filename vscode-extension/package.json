@@ -2,7 +2,7 @@
   "name": "antigravity-auto-submit",
   "displayName": "Antigravity Auto-Submit",
   "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
-  "version": "1.9.6",
+  "version": "1.9.8",
   "publisher": "WillyEverGreen",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -292,7 +292,9 @@
     "test": "node ../test/vscode-extension.test.js",
     "prepackage": "node scripts/bundle.js",
     "package": "npx --yes @vscode/vsce package",
+    "prepublish:vsce": "node scripts/bundle.js",
     "publish:vsce": "npx --yes @vscode/vsce publish",
+    "prepublish:ovsx": "node scripts/bundle.js",
     "publish:ovsx": "npx --yes ovsx publish"
   }
 }

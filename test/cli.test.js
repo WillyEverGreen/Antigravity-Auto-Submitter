@@ -10,6 +10,11 @@ const path = require('path');
 const os = require('os');
 const vm = require('vm');
 
+// Isolate daemon state (stats + lock files) from the developer's real
+// ~/.antigravity-auto-submit. Without this the suite inflated the live counters.
+const TEST_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-test-state-'));
+process.env.ANTIGRAVITY_STATE_DIR = TEST_STATE_DIR;
+
 const {
   buildScannerScript,
   StatsManager,
@@ -20,6 +25,11 @@ const {
   getPidFilePath,
   acquireDaemonLock,
   releaseDaemonLock,
+  readJsonFile,
+  findSubcommandIndex,
+  extractSubcommand,
+  argsAfterSubcommand,
+  resolveConfig,
   DEFAULTS
 } = require('../auto-accept.js');
 
@@ -1704,6 +1714,372 @@ it('buildScannerScript does NOT leak Enter or keystrokes to activeElement or bod
   assert.strictEqual(bodyReceivedEnter, false, 'Body must NEVER receive Enter when user is typing in chat!');
 });
 
+
+// ── 22. Regression: safety gate must not be disarmed by self-inspection text ──
+function runScannerForCardText(cardText, cfg) {
+  const script = buildScannerScript(cfg || {
+    mode: 'autonomous',
+    askKeywords: ['git push'],
+    skipKeywords: ['rm -rf', 'drop table']
+  });
+
+  let clicked = false;
+  // The scanner only widens to the ancestor card once its text exceeds the button
+  // label by >10 chars, so pad the fixture the way a real approval card is padded.
+  const fullText = cardText + '  (review before continuing)';
+  const mockBtn = {
+    innerText: 'Submit',
+    disabled: false,
+    getBoundingClientRect: () => ({ width: 100, height: 30 }),
+    parentElement: { innerText: fullText },
+    click: () => { clicked = true; },
+    dispatchEvent: () => {},
+    setAttribute: () => {},
+    getAttribute: () => null,
+    closest: () => null
+  };
+
+  const sandbox = {
+    document: {
+      body: { dispatchEvent: () => {} },
+      querySelector: () => mockBtn,
+      querySelectorAll: () => [mockBtn],
+      getElementById: () => null,
+      defaultView: {
+        getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
+        MouseEvent: function () {},
+        KeyboardEvent: function () {}
+      }
+    },
+    KeyboardEvent: function () {},
+    MouseEvent: function () {},
+    Event: function () {}
+  };
+
+  return { result: vm.runInNewContext(script, sandbox), wasClicked: () => clicked };
+}
+
+it('self-inspection text must not disable keyword gating for a dangerous command in the same card', () => {
+  const { result, wasClicked } = runScannerForCardText(
+    'Edit the config: skipKeywords: ["git push"] and then run rm -rf /'
+  );
+  assert.ok(result, 'Scanner should evaluate');
+  assert.strictEqual(result.blocked, true, 'Dangerous command must still be blocked');
+  assert.strictEqual(result.blockedType, 'skip');
+  assert.strictEqual(wasClicked(), false, 'Blocked button must never be clicked');
+});
+
+it('self-inspection text alone still approves benign commands (no over-blocking)', () => {
+  const { result } = runScannerForCardText(
+    "Allow run test? node -e 'const script = buildScannerScript({ skipKeywords: [\"rm -rf\"] });'"
+  );
+  assert.ok(result);
+  assert.strictEqual(result.blocked, false, 'Benign self-inspection command should be approved');
+});
+
+// ── 23. Regression: recursive-force delete must not evade the skip list ──
+it('blocks rm with recursive and force flags in any arrangement', () => {
+  for (const cmd of [
+    'rm -rf /var/data',
+    'rm -fr /var/data',
+    'rm -r -f /var/data',
+    'rm --recursive --force /var/data',
+    'cd /tmp && rm   -rf   /var/data'
+  ]) {
+    const { result, wasClicked } = runScannerForCardText(cmd);
+    assert.ok(result, `No result for: ${cmd}`);
+    assert.strictEqual(result.blocked, true, `Must block: ${cmd}`);
+    assert.strictEqual(result.blockedType, 'skip', `Must be a skip block: ${cmd}`);
+    assert.strictEqual(wasClicked(), false, `Must not click: ${cmd}`);
+  }
+});
+
+it('blocks PowerShell recursive force delete', () => {
+  const { result } = runScannerForCardText('Remove-Item -Recurse -Force C:\\data');
+  assert.ok(result);
+  assert.strictEqual(result.blocked, true);
+  assert.strictEqual(result.blockedType, 'skip');
+});
+
+it('does not over-block a plain recursive rm without force', () => {
+  const { result } = runScannerForCardText('rm -r node_modules');
+  assert.ok(result);
+  assert.strictEqual(result.blocked, false, 'rm -r without force should stay auto-approvable');
+});
+
+// ── 24. Regression: BOM-prefixed config must be honoured ──
+it('readJsonFile tolerates a UTF-8 BOM (Notepad / UTF-8-with-BOM saves)', () => {
+  const file = path.join(os.tmpdir(), `agy-bom-read-${Date.now()}.json`);
+  fs.writeFileSync(file, '\uFEFF' + JSON.stringify({ mode: 'autopilot' }), 'utf8');
+  try {
+    assert.deepStrictEqual(readJsonFile(file), { mode: 'autopilot' });
+  } finally {
+    try { fs.unlinkSync(file); } catch (e) {}
+  }
+});
+
+it('resolveConfig honours a BOM-prefixed --config file', () => {
+  const file = path.join(os.tmpdir(), `agy-bom-resolve-${Date.now()}.json`);
+  fs.writeFileSync(file, '\uFEFF' + JSON.stringify({
+    mode: 'autopilot',
+    cdpPort: 9555,
+    skipKeywords: ['custom-skip']
+  }), 'utf8');
+
+  const savedArgv = process.argv;
+  const savedPort = process.env.ANTIGRAVITY_CDP_PORT;
+  const savedMode = process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE;
+  // Env vars intentionally override the config file; clear them so this test
+  // asserts on the file's own values.
+  delete process.env.ANTIGRAVITY_CDP_PORT;
+  delete process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE;
+  process.argv = ['node', 'auto-accept.js', '--config', file, ''];
+  try {
+    const resolved = resolveConfig();
+    assert.strictEqual(resolved.configSource, file, 'BOM config must be recognised as the source');
+    assert.strictEqual(resolved.config.mode, 'autopilot');
+    assert.strictEqual(resolved.config.cdpPort, 9555);
+    assert.deepStrictEqual(resolved.config.skipKeywords, ['custom-skip']);
+  } finally {
+    process.argv = savedArgv;
+    if (savedPort === undefined) delete process.env.ANTIGRAVITY_CDP_PORT;
+    else process.env.ANTIGRAVITY_CDP_PORT = savedPort;
+    if (savedMode === undefined) delete process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE;
+    else process.env.ANTIGRAVITY_AUTO_SUBMIT_MODE = savedMode;
+    try { fs.unlinkSync(file); } catch (e) {}
+  }
+});
+
+// ── 25. Regression: option values must never be mistaken for a subcommand ──
+it('extractSubcommand skips flags and the values they consume', () => {
+  assert.strictEqual(extractSubcommand(['--config', 'x.json', 'status']), 'status');
+  assert.strictEqual(extractSubcommand(['-c', 'x.json', 'doctor']), 'doctor');
+  assert.strictEqual(extractSubcommand(['--mode', 'autopilot', 'status']), 'status');
+  assert.strictEqual(extractSubcommand(['--mode=autopilot', 'status']), 'status');
+  assert.strictEqual(extractSubcommand(['--poll', '500', 'list']), 'list');
+  assert.strictEqual(extractSubcommand(['status', '--config', 'x.json']), 'status');
+  assert.strictEqual(extractSubcommand([]), '');
+  assert.strictEqual(extractSubcommand(['--mode', 'autopilot']), '');
+  assert.strictEqual(extractSubcommand(['--config', 'x.json']), '');
+  assert.strictEqual(extractSubcommand(['-p', '9333']), '');
+
+  // Subcommand index and argument slicing
+  assert.strictEqual(findSubcommandIndex(['--config', 'cfg.json', 'add-ask', 'git push']), 2);
+  assert.deepStrictEqual(argsAfterSubcommand(['--config', 'cfg.json', 'add-ask', 'git push'], 2), ['git push']);
+  assert.deepStrictEqual(argsAfterSubcommand(['clean', '--all'], 0), ['--all']);
+  assert.deepStrictEqual(argsAfterSubcommand(['--mode', 'autopilot'], -1), []);
+});
+
+// ── 26. Regression: hot-reload must retry after a transient parse failure ──
+it('checkConfigReload retries after a bad write instead of silently dropping the update', () => {
+  const file = path.join(os.tmpdir(), `agy-reload-${Date.now()}.json`);
+  fs.writeFileSync(file, JSON.stringify({ mode: 'autonomous' }), 'utf8');
+  const daemon = new AutoSubmitDaemon({ ...DEFAULTS, mode: 'autonomous' }, file);
+  try {
+    // Simulate an editor mid-save: truncated JSON.
+    fs.writeFileSync(file, '{ "mode": "autopilot" ', 'utf8');
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 2000));
+    daemon.checkConfigReload();
+    assert.strictEqual(daemon.config.mode, 'autonomous', 'Partial config must not be applied');
+
+    // The completed save must still be picked up.
+    fs.writeFileSync(file, JSON.stringify({ mode: 'autopilot' }), 'utf8');
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 4000));
+    daemon.checkConfigReload();
+    assert.strictEqual(daemon.config.mode, 'autopilot', 'Valid save after a bad write must apply');
+  } finally {
+    try { fs.unlinkSync(file); } catch (e) {}
+  }
+});
+
+// ── 27. Regression: flag-only invocations must never fall through to the daemon ──
+it('--version / --help exit immediately instead of starting the daemon', () => {
+  const { spawnSync } = require('child_process');
+  const env = { ...process.env, ANTIGRAVITY_CDP_PORT: '9599', NO_COLOR: '1' };
+  const cli = path.join(__dirname, '..', 'auto-accept.js');
+
+  const version = spawnSync(process.execPath, [cli, '--version'], { encoding: 'utf8', env, timeout: 20000 });
+  assert.strictEqual(version.status, 0, '--version must exit 0');
+  assert(/^v\d+\.\d+\.\d+/.test(version.stdout.trim()), 'Must print the version');
+  assert(!/READY|ONLINE|Connected:/.test(version.stdout), '--version must not start the daemon');
+
+  const help = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8', env, timeout: 20000 });
+  assert.strictEqual(help.status, 0, '--help must exit 0');
+  assert(/USAGE/i.test(help.stdout), 'Must print usage');
+  assert(!/READY|ONLINE|Connected:/.test(help.stdout), '--help must not start the daemon');
+});
+
+// ── 31. Regression: destructive tooling guards ──
+it('antigravity_brain resolves sessions deterministically and refuses to guess', () => {
+  const { spawnSync } = require('child_process');
+  const pyCmd = getPythonCommand();
+  const scriptsDir = path.join(__dirname, '..', 'scripts').replace(/\\/g, '/');
+  const pyCode = `
+import sys
+sys.path.insert(0, '${scriptsDir}')
+import importlib.util
+spec = importlib.util.spec_from_file_location('b', '${scriptsDir}/antigravity_brain.py')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+sessions = [
+    {'id': 'aa1-first', 'title': 'A1'},
+    {'id': 'aa2-second', 'title': 'A2'},
+    {'id': 'zz9-third', 'title': 'Z3'},
+]
+def rid(q):
+    s = m.find_target_session(q, sessions)
+    return s['id'] if s else None
+
+assert rid('zz9') == 'zz9-third', 'unique prefix must resolve'
+assert rid('aa1-first') == 'aa1-first', 'exact ID must win'
+assert rid('2') == 'aa2-second', 'numeric query is a 1-based row'
+assert rid('0') is None, 'invalid row must NOT fall back to a prefix match'
+assert rid('99') is None, 'out-of-range row must not resolve'
+assert rid('aa') is None, 'ambiguous prefix must refuse'
+assert rid('') is None and rid('   ') is None
+print("brain resolution tests passed")
+`;
+  let res = spawnSync(pyCmd, ['-c', pyCode], { encoding: 'utf8' });
+  if (res.error && res.error.code === 'ENOENT') res = spawnSync('python', ['-c', pyCode], { encoding: 'utf8' });
+  assert(res.status === 0, `brain resolution test failed: ${res.stderr || res.stdout}`);
+});
+
+it('cleaner enforces the Protected tier and skips junctions', () => {
+  const { spawnSync } = require('child_process');
+  const pyCmd = getPythonCommand();
+  const scriptsDir = path.join(__dirname, '..', 'scripts').replace(/\\/g, '/');
+  const pyCode = `
+import os, importlib.util
+spec = importlib.util.spec_from_file_location('cl', '${scriptsDir}/antigravity_cleaner.py')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+assert m.is_protected_path(os.path.expanduser('~/.gemini/config')), 'config dir must be protected'
+assert m.is_protected_path(os.path.expanduser('~/.gemini/config/x.json')), 'children of protected paths must be protected'
+assert m.is_protected_path(os.path.expanduser('~/.gemini/google_accounts.json')), 'credentials must be protected'
+assert not m.is_protected_path(os.path.expanduser('~/.gemini/antigravity/scratch/tmp.py')), 'scratch must not be protected'
+assert not m.is_protected_path(os.path.expanduser('~/.gemini/tmp/x.log')), 'tmp must not be protected'
+assert isinstance(m.PROTECTED_PATH_GROUPS, list) and len(m.PROTECTED_PATH_GROUPS) > 5, 'protected tier must be populated'
+# ~/Application Data is a Windows junction: is_dir(follow_symlinks=False) is still True.
+if os.name == 'nt':
+    p = os.path.expanduser('~/Application Data')
+    if os.path.exists(p):
+        assert m.is_reparse_path(p), 'junctions must be detected'
+print("cleaner guard tests passed")
+`;
+  let res = spawnSync(pyCmd, ['-c', pyCode], { encoding: 'utf8' });
+  if (res.error && res.error.code === 'ENOENT') res = spawnSync('python', ['-c', pyCode], { encoding: 'utf8' });
+  assert(res.status === 0, `cleaner guard test failed: ${res.stderr || res.stdout}`);
+});
+
+it('cleaner rejects a non-positive --days threshold', () => {
+  const { spawnSync } = require('child_process');
+  const pyCmd = getPythonCommand();
+  const script = path.join(__dirname, '..', 'scripts', 'antigravity_cleaner.py');
+  let res = spawnSync(pyCmd, [script, '--check', '--days', '0'], { encoding: 'utf8' });
+  if (res.error && res.error.code === 'ENOENT') res = spawnSync('python', [script, '--check', '--days', '0'], { encoding: 'utf8' });
+  assert(res.status !== 0, '--days 0 must be rejected');
+  assert(/--days must be 1 or greater/.test(res.stderr || ''), 'must explain the rejection');
+});
+
+// ── 32. Multi-window concurrency & state stability ──
+it('approvals from several windows are recorded together, not serialised', () => {
+  const stats = new StatsManager();
+  const before = stats.lifetimeClicks;
+  const mk = (id) => new WindowSession(
+    { id, title: id, webSocketDebuggerUrl: `ws://127.0.0.1:9333/${id}` },
+    9333,
+    { ...DEFAULTS, pollIntervalMs: 120 },
+    stats,
+    () => {}
+  );
+
+  const a = mk('win-a');
+  const b = mk('win-b');
+  const c = mk('win-c');
+
+  // Same tick: all three windows resolve an approval simultaneously.
+  a.handleScanResult({ action: 'Submit', context: 'command A', blocked: false });
+  b.handleScanResult({ action: 'Submit', context: 'command B', blocked: false });
+  c.handleScanResult({ action: 'Submit', context: 'command C', blocked: false });
+
+  assert.strictEqual(stats.lifetimeClicks, before + 3, 'all three must be counted');
+  assert.strictEqual(a.sessionApprovals, 1);
+  assert.strictEqual(b.sessionApprovals, 1);
+  assert.strictEqual(c.sessionApprovals, 1);
+  stats.flush();
+});
+
+it('stats survive a deferred write once flushed', () => {
+  const stats = new StatsManager();
+  const before = stats.lifetimeClicks;
+  stats.recordApproval('deferred write test');
+  assert.strictEqual(stats.lifetimeClicks, before + 1, 'in-memory counter updates immediately');
+  stats.flush();
+  const persisted = new StatsManager();
+  assert(persisted.lifetimeClicks >= before + 1, 'flush must persist the counter');
+});
+
+it('scanner script depends only on the safety configuration', () => {
+  const base = { mode: 'autonomous', askKeywords: ['git push'], skipKeywords: ['rm -rf'], autoSelectAlwaysAllow: false };
+  const s1 = buildScannerScript(base);
+  const s2 = buildScannerScript({ ...base });
+  assert.strictEqual(s1, s2, 'identical config must produce an identical script');
+
+  const auto = buildScannerScript({ ...base, mode: 'autopilot' });
+  assert.notStrictEqual(s1, auto, 'mode must affect the script');
+
+  const extraSkip = buildScannerScript({ ...base, skipKeywords: ['rm -rf', 'drop table'] });
+  assert.notStrictEqual(s1, extraSkip, 'keyword changes must invalidate the cached script');
+});
+
+it('editing unrelated config keys never enables or disables the daemon', () => {
+  const file = path.join(os.tmpdir(), `agy-toggle-${Date.now()}.json`);
+  fs.writeFileSync(file, JSON.stringify({ enabled: false, mode: 'autonomous' }), 'utf8');
+  const daemon = new AutoSubmitDaemon({ ...DEFAULTS, enabled: false }, file);
+  try {
+    // Unrelated edit: keywords changed, enabled untouched.
+    fs.writeFileSync(file, JSON.stringify({ enabled: false, mode: 'autonomous', skipKeywords: ['zeta-rule'] }), 'utf8');
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 2000));
+    daemon.checkConfigReload();
+    assert.strictEqual(daemon.config.enabled, false, 'an unrelated edit must not switch it on');
+    assert(daemon.config.skipKeywords.includes('zeta-rule'), 'the actual change must still apply');
+
+    // Deliberate change: user flips enabled.
+    fs.writeFileSync(file, JSON.stringify({ enabled: true, mode: 'autonomous', skipKeywords: ['zeta-rule'] }), 'utf8');
+    fs.utimesSync(file, new Date(), new Date(Date.now() + 4000));
+    daemon.checkConfigReload();
+    assert.strictEqual(daemon.config.enabled, true, 'an explicit enable must apply');
+  } finally {
+    try { fs.unlinkSync(file); } catch (e) {}
+  }
+});
+
+it('coverage command exposes every category, tool and protection tier', () => {
+  const { spawnSync } = require('child_process');
+  const pyCmd = getPythonCommand();
+  const script = path.join(__dirname, '..', 'scripts', 'antigravity_cleaner.py');
+  let res = spawnSync(pyCmd, [script, '--coverage', '--json'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  if (res.error && res.error.code === 'ENOENT') {
+    res = spawnSync('python', [script, '--coverage', '--json'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  }
+  assert.strictEqual(res.status, 0, `coverage failed: ${res.stderr || ''}`);
+  const data = JSON.parse(res.stdout);
+
+  assert(Array.isArray(data.supported_tools) && data.supported_tools.length >= 15, 'must list supported tools');
+  assert(Array.isArray(data.categories) && data.categories.length > 20, 'must list categories');
+  for (const tier of ['1-safe', '2-review', '3-protected']) {
+    assert(data.categories.some(c => c.tier === tier), `missing tier ${tier}`);
+  }
+  // Transparency: the protection tier must be represented, and totals reported.
+  assert(data.categories.filter(c => c.tier === '3-protected').length >= 10, 'protected tier must be itemised');
+  assert(typeof data.totals.tier1_safe_bytes === 'number');
+  assert(typeof data.totals.tier2_reclaimable_bytes === 'number');
+  // The common toolchains must all be represented in the supported list.
+  const tools = data.supported_tools.map(t => t.tool).join(' | ');
+  for (const expected of ['JetBrains', 'Android Studio', 'Sublime', 'VS Code', 'VSCodium', 'Cursor', 'Windsurf', 'Claude', 'cargo', 'Gradle', 'Maven', 'NuGet', 'Go']) {
+    assert(tools.includes(expected), `supported tools missing ${expected}`);
+  }
+});
 
 console.log(`\nResults: ${passed}/${total} passed.`);
 try { process.stdin.pause(); } catch (e) {}

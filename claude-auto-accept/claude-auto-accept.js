@@ -28,7 +28,9 @@ const readline = require('readline');
 const PKG_VERSION = '1.0.0';
 
 // ── Paths ──
-const GLOBAL_DIR = path.join(os.homedir(), '.claude-auto-accept');
+const GLOBAL_DIR = process.env.CLAUDE_AUTO_ACCEPT_STATE_DIR
+  ? path.resolve(process.env.CLAUDE_AUTO_ACCEPT_STATE_DIR)
+  : path.join(os.homedir(), '.claude-auto-accept');
 const GLOBAL_CONFIG_FILE = path.join(GLOBAL_DIR, 'config.json');
 const GLOBAL_STATS_FILE = path.join(GLOBAL_DIR, 'stats.json');
 const LOCAL_CONFIG_FILES = ['.claude-auto-accept.json', 'claude-auto-accept.config.json'];
@@ -59,7 +61,9 @@ const DEFAULTS = {
     '*.key',
     '*.pem',
     'id_rsa*',
-    '.git/*'
+    '.git/*',
+    '.claude/settings.json',
+    '.claude-auto-accept.json'
   ],
   autoApproveReadOnly: true,
   autoApproveEdits: true
@@ -87,6 +91,27 @@ const C = {
   pillRed:      isTty ? '\x1b[1m\x1b[41m\x1b[37m' : ''
 };
 
+// A project-local config may ADD restrictions but must never remove the built-in
+// ones: otherwise any checked-out repository could silently disable every guardrail.
+function mergeConfig(parsed) {
+  const extra = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+  const merged = { ...DEFAULTS, ...extra };
+  for (const key of ['askKeywords', 'skipKeywords', 'protectedFiles']) {
+    const additions = Array.isArray(extra[key])
+      ? extra[key].filter(v => typeof v === 'string' && v.trim())
+      : [];
+    merged[key] = Array.from(new Set([...DEFAULTS[key], ...additions]));
+  }
+  return merged;
+}
+
+// Tolerate a UTF-8 BOM so a BOM-saved config is not silently ignored.
+function readJsonFile(file) {
+  let text = fs.readFileSync(file, 'utf8');
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  return JSON.parse(text);
+}
+
 // ── Config Resolution ──
 function resolveConfig(customCwd = null) {
   const searchDir = customCwd || process.cwd();
@@ -96,8 +121,7 @@ function resolveConfig(customCwd = null) {
     const localPath = path.join(searchDir, filename);
     if (fs.existsSync(localPath)) {
       try {
-        const parsed = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-        return { config: { ...DEFAULTS, ...parsed }, source: localPath };
+        return { config: mergeConfig(readJsonFile(localPath)), source: localPath };
       } catch (e) {}
     }
   }
@@ -105,8 +129,7 @@ function resolveConfig(customCwd = null) {
   // 2. Check global config (~/.claude-auto-accept/config.json)
   if (fs.existsSync(GLOBAL_CONFIG_FILE)) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_FILE, 'utf8'));
-      return { config: { ...DEFAULTS, ...parsed }, source: GLOBAL_CONFIG_FILE };
+      return { config: mergeConfig(readJsonFile(GLOBAL_CONFIG_FILE)), source: GLOBAL_CONFIG_FILE };
     } catch (e) {}
   }
 
@@ -126,7 +149,7 @@ class ClaudeStatsManager {
   load() {
     try {
       if (fs.existsSync(GLOBAL_STATS_FILE)) {
-        const data = JSON.parse(fs.readFileSync(GLOBAL_STATS_FILE, 'utf8'));
+        const data = readJsonFile(GLOBAL_STATS_FILE);
         this.lifetimeApprovals = data.lifetimeApprovals || 0;
         this.lifetimeBlocks = data.lifetimeBlocks || 0;
         this.lastAction = data.lastAction || '';
@@ -184,6 +207,33 @@ function matchPattern(filePath, pattern) {
   return baseName === pattern || normPath.includes(pattern);
 }
 
+// Structural detection of destructive shell commands, independent of the
+// user-editable keyword list (which is easy to sidestep by reordering flags).
+function findDestructiveCommand(lowerCmd) {
+  const t = String(lowerCmd || '').replace(/\s+/g, ' ');
+
+  const rmCmd = /(?:^|[;&|('"`\s])rm\s+([^;&|\n]*)/.exec(t);
+  if (rmCmd) {
+    const seg = rmCmd[1];
+    const recursive = /(?:^|\s)(?:-[a-z]*r[a-z]*|--recursive)(?=\s|$)/.test(seg);
+    const force = /(?:^|\s)(?:-[a-z]*f[a-z]*|--force)(?=\s|$)/.test(seg);
+    if (recursive && force) return 'rm -rf (recursive force delete)';
+  }
+  if (/\bremove-item\b[^;&|\n]*-recurse\b[^;&|\n]*-force\b/.test(t) ||
+      /\bremove-item\b[^;&|\n]*-force\b[^;&|\n]*-recurse\b/.test(t)) {
+    return 'Remove-Item -Recurse -Force';
+  }
+  if (/\bchmod\s+-[a-z]*r[a-z]*\s+[^;&|\n]*\b777\b/.test(t)) {
+    return 'chmod -R 777 (world-writable)';
+  }
+  if (/\b(?:curl|wget)\b[^|]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node)\b/.test(t)) {
+    return 'piping a download straight into a shell';
+  }
+  if (/\bmkfs(?:\.\w+)?\s/.test(t)) return 'mkfs (reformatting a filesystem)';
+  if (/\bdd\s+[^;&|\n]*\bof=\/dev\//.test(t)) return 'dd writing directly to a device';
+  return null;
+}
+
 // ── Decision Evaluator Core ──
 function evaluateDecision(payload, config = DEFAULTS) {
   if (!payload || typeof payload !== 'object') {
@@ -219,12 +269,34 @@ function evaluateDecision(payload, config = DEFAULTS) {
       }
     }
 
+    // Structural checks: catch destructive commands that evade the keyword list.
+    const destructive = findDestructiveCommand(lowerCmd);
+    if (destructive) {
+      return {
+        decision: 'deny',
+        reason: `Blocked: Command performs a destructive operation (${destructive})`
+      };
+    }
+
     // Check Ask Keywords
     for (const kw of (config.askKeywords || [])) {
       if (kw && lowerCmd.includes(kw.toLowerCase())) {
         return {
           decision: 'ask',
           reason: `Paused for review: Command contains sensitive keyword "${kw}"`
+        };
+      }
+    }
+
+    // Protected files must be shielded from shell reads/overwrites too, not just
+    // from the Write/Edit tools (e.g. `cat .env`, `echo SECRET > .env`).
+    const tokens = command.split(/[\s'"=<>|;&()`]+/).filter(Boolean);
+    for (const pattern of (config.protectedFiles || [])) {
+      if (!pattern) continue;
+      if (tokens.some(tok => matchPattern(tok.replace(/\\/g, '/'), pattern))) {
+        return {
+          decision: 'ask',
+          reason: `Paused for review: Command references protected file matching "${pattern}"`
         };
       }
     }
@@ -352,8 +424,16 @@ function installHookInSettings(isGlobal = false) {
   let settings = {};
   if (fs.existsSync(settingsPath)) {
     try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      settings = readJsonFile(settingsPath);
     } catch (e) {
+      // Never overwrite a file we cannot parse: it may contain the user's
+      // permissions, env block and comments (JSONC is common for this file).
+      throw new Error(
+        `Refusing to modify ${settingsPath} because it is not valid JSON (${e.message}).\n` +
+        '  Your existing settings were left untouched. Fix or remove the file, then run setup again.'
+      );
+    }
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
       settings = {};
     }
   }
@@ -400,7 +480,7 @@ function uninstallHookFromSettings(isGlobal = false) {
 
   let settings = {};
   try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    settings = readJsonFile(settingsPath);
   } catch (e) {
     return false;
   }
@@ -422,7 +502,7 @@ function uninstallHookFromSettings(isGlobal = false) {
     delete settings.hooks.PreToolUse;
   }
   if (Object.keys(settings.hooks).length === 0) {
-    delete settings.hooks.PreToolUse;
+    delete settings.hooks;
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
@@ -433,7 +513,7 @@ function isHookInstalled(isGlobal = false) {
   const settingsPath = getSettingsPath(isGlobal);
   if (!fs.existsSync(settingsPath)) return false;
   try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const settings = readJsonFile(settingsPath);
     if (settings.hooks && Array.isArray(settings.hooks.PreToolUse)) {
       return settings.hooks.PreToolUse.some(group =>
         group && Array.isArray(group.hooks) && group.hooks.some(h => h.command && h.command.includes('claude-auto-accept'))
@@ -454,7 +534,16 @@ function printBanner() {
 function handleSetup(args) {
   printBanner();
   const isGlobal = args.includes('--global') || args.includes('-g');
-  const targetPath = installHookInSettings(isGlobal);
+
+  let targetPath;
+  try {
+    targetPath = installHookInSettings(isGlobal);
+  } catch (e) {
+    console.error(`  ${C.pillRed} FAILED ${C.reset}  ${C.bold}Hook not installed.${C.reset}`);
+    console.error(`  ${e.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
 
   console.log(`  ${C.pillGreen} INSTALLED ${C.reset}  ${C.bold}PreToolUse hook registered successfully!${C.reset}`);
   console.log(`  ${C.gray}Settings file:${C.reset}  ${C.cyan}${targetPath}${C.reset}`);
@@ -564,7 +653,15 @@ function printHelp() {
 // ── Main Entrypoint ──
 function main() {
   const args = process.argv.slice(2);
-  const isHookMode = args.includes('--hook') || (!process.stdin.isTTY && !args.some(a => ['setup', 'install', 'uninstall', 'status', 'doctor', 'init', 'mode', 'test', 'help', '-h', '--help', '-v', '--version'].includes(a)));
+  const CLI_COMMANDS = [
+    'setup', 'install', 'uninstall', 'remove', 'status', 'doctor', 'init', 'mode', 'test',
+    'add-ask', 'add-skip', 'rm', 'rm-ask', 'rm-skip', 'remove-ask', 'remove-skip',
+    'help', '-h', '--help', '-v', '--version'
+  ];
+  // Without the full command list, a documented CLI command run from CI (where stdin
+  // is not a TTY) would instead be treated as a hook payload and silently do nothing.
+  const isHookMode = args.includes('--hook') ||
+    (!process.stdin.isTTY && !args.some(a => CLI_COMMANDS.includes(a)));
 
   if (isHookMode) {
     handleHookExecution();

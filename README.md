@@ -572,7 +572,7 @@ The **Antigravity Auto-Submitter** suite provides unified CLI tools (`antigravit
 
 | Tier | Category / Storage Path | Description & Behavior |
 | :--- | :--- | :--- |
-| **🟢 Tier 1: SAFE TO DELETE**<br>*(No review required)* | • `scratch/` (Global across roots)<br>• `browser_recordings/` (WebP videos)<br>• `brain/<id>/scratch/`<br>• `brain/<id>/.system_generated/` (Logs)<br>• `annotations/` (Cached AST indices)<br>• `crashes/` (Crash dump logs)<br>• `implicit/` (Implicit context caches)<br>• `context_state/` (Context caches)<br>• `html_artifacts/` (HTML previews)<br>• `prompting/` (Browser step caches)<br>• `antigravity-browser-profile/` (Web caches)<br>• `%TEMP%` (Agent temporary scripts)<br>• `uv/cache`, `npm-cache`, `pip/Cache` | Disposable cache files, video recordings, scratch scripts, and logs that can be purged at any time without data loss. Reclaimed via `antigravity-clean --all`. |
+| **🟢 Tier 1: SAFE TO DELETE**<br>*(No review required)* | • `scratch/` (Global across roots)<br>• `browser_recordings/` (WebP videos)<br>• `brain/<id>/scratch/`<br>• `brain/<id>/.system_generated/` (Logs)<br>• `annotations/` (Cached AST indices)<br>• `crashes/` (Crash dump logs)<br>• `implicit/` (Implicit context caches)<br>• `context_state/` (Context caches)<br>• `html_artifacts/` (HTML previews)<br>• `prompting/` (Browser step caches)<br>• `antigravity-browser-profile/` (Web caches)<br>• `%APPDATA%\Antigravity IDE` **and** `%APPDATA%\Antigravity` (Electron caches for the IDE *and* the App)<br>• `~/.claude` telemetry, cache, shell-snapshots, logs<br>• JetBrains `caches`/`index`/`log`/`tmp`, Android Studio, Sublime Text, Visual Studio component cache, VSCodium caches<br>• `%TEMP%` (Agent temporary scripts)<br>• npm, pnpm, yarn, bun, uv, pip, cargo, Gradle, Maven, NuGet, Go and Composer caches | Disposable cache files, video recordings, scratch scripts, and logs that can be purged at any time without data loss. Reclaimed via `antigravity-clean --all`. Run `agy-coverage` to see every category detected on your machine. |
 | **🟡 Tier 2: REVIEW CANDIDATES**<br>*(Age-gated analysis)* | • `brain/<id>` (Inactive sessions > 7d)<br>• `conversations/*.db` (Databases > 7d)<br>• `~/.gemini/tmp/` (Cloned workspaces)<br>• `~/.gemini/history/` (File history)<br>• `~/tools/**/node_modules`, `.venv` (> 14d)<br>• `%LOCALAPPDATA%/ms-playwright` | Historical artifacts and past conversation databases. Advisable to delete when stale, but guarded against active conversations. Reclaimed via `--stale` or `--deep`. |
 | **🔴 Tier 3: DO NOT DELETE**<br>*(Strictly Protected)* | • `~/.gemini/config/` (User rules & skills)<br>• `antigravity-ide/builtin/` (Core skills)<br>• `mcp_config.json` & `mcp/` folders<br>• `user_settings.pb` & `settings.json`<br>• `installation_id`<br>• `google_accounts.json` & OAuth tokens<br>• **Active Conversation Session** | Core configuration, custom skills, user settings, auth credentials, and active session files are permanently shielded from deletion. |
 
@@ -712,7 +712,7 @@ Three dedicated commands make safe workstation cleanup effortless:
 | Command | Scope | What Gets Purged | What is Strictly Protected |
 | :--- | :--- | :--- | :--- |
 | **`clean-ag`**<br>`agy-clean-ag` | **Antigravity Only** | Global & session scratch scripts, browser recordings (.webp), session transcripts & logs, AST annotations, Electron runtime caches | Active sessions (< 2h / .db-wal locks), user_settings.pb, memory_graph, MCP tokens, credentials |
-| **`clean-ides`**<br>`agy-clean-ides` | **All Other IDEs** | Kiro, Zed, VS Code/CodeX, VS Code Insiders, Cursor, Windsurf, Trae, Qoder, Claude Desktop (caches, crash dumps, hang traces, logs) | All extensions, settings.json, keybindings, language server runtimes (Zed node/languages), user threads |
+| **`clean-ides`**<br>`agy-clean-ides` | **All Other IDEs** | Kiro, Zed, VS Code/CodeX, VS Code Insiders, VSCodium, Cursor, Windsurf, Trae, Qoder, JetBrains (IntelliJ/PyCharm/WebStorm…), Claude Desktop, Claude Code (caches, crash dumps, hang traces, logs, indexes) | All extensions, settings.json, keybindings, language server runtimes (Zed node/languages), JetBrains settings, user threads |
 | **`clean-all`**<br>`agy-clean-all` | **Full Workstation Sweep** | All Tier 1 safe categories: Antigravity + All Other IDEs + Package Caches (UV, NPM, PNPM, Pip, Yarn) | All active projects, credentials, language servers, and settings |
 
 ```bash
@@ -728,6 +728,10 @@ clean-ides
 clean-all
 # or: agy-clean-all / antigravity-clean --all
 
+# See exactly what is supported, detected, and protected (deletes nothing):
+coverage
+# or: agy-coverage / antigravity-clean --coverage [--json]
+
 # Granular single-IDE cleanups:
 antigravity-clean --kiro         # Kiro IDE crashpad dumps & web caches
 antigravity-clean --zed          # Zed editor logs & hang traces
@@ -736,7 +740,7 @@ antigravity-clean --cursor       # Cursor AI editor caches & crashpad dumps
 antigravity-clean --windsurf     # Windsurf (Codeium) caches & crashpad
 antigravity-clean --trae         # Trae (ByteDance) AI IDE caches & logs
 antigravity-clean --qoder        # Qoder caches & logs
-antigravity-clean --claude       # Claude Desktop application logs
+antigravity-clean --claude       # Claude Desktop logs + Claude Code caches (~/.claude)
 
 # Granular Antigravity cleanups:
 antigravity-clean --browser-cache   # Chromium browser profile web caches
@@ -868,10 +872,36 @@ For complete documentation, tool input schemas, and configuration variables, rea
 
 
 ```bash
-npm test
+npm test        # all suites
+npm run verify  # static invariants (dependencies, versions, manifests, forbidden patterns)
 ```
 
 Runs all test suites: the Antigravity CLI (scanner script compilation, configuration parsing, target filtering, stats persistence), Kiro agent, Kiro auto-accept, and Claude auto-accept hook tests.
+
+`npm run verify` enforces the maintenance rules in [`AGENTS.md`](AGENTS.md): zero runtime
+dependencies, all four version sites in sync, every `bin` target present, the published file
+whitelist covering the runtime, the extension manifest matching its registered commands,
+the bundled daemon matching source, and no forbidden patterns.
+
+---
+
+## ⚠️ Known Limitations & Open Risks
+
+These are known, documented and deliberately not "fixed blind". Each is tracked here so it
+can be addressed with the right test (live IDE or a product decision), not by guesswork.
+
+| Area | Risk | Status |
+|---|---|---|
+| **Kiro auto-accept** | If Kiro's DOM does not match the four guessed panel classes, the keyword gate degrades to the button's parent element. There is no fail-closed branch, so a card whose command text sits outside that parent could be approved. | **Open** — needs a live Kiro window to fix safely |
+| **Kiro auto-accept** | Approval matching is document-wide and label-generic (`allow`, `keep`, `continue`, `apply`, `run`). Merge-editor "Keep…" or a sign-in "Continue" button can be clicked. | **Open** — needs live DOM validation |
+| **Kiro auto-accept** | Any VS Code-family workbench on ports 9220–9230 (Cursor, Windsurf, VSCodium) matches the Kiro workbench URL pattern. | **Open** — narrowing it may break real Kiro detection |
+| **Claude hook** | Unknown tool payloads (`mcp__*`, schema drift) fall through to `allow` rather than `ask`. | **Open** — changing it adds prompts for every MCP tool |
+| **Cleaner `--all`** | Tier 1 removes transcripts/scratch of sessions its heuristic does not classify as "active" (env var, recent DB write, WAL file). An open-but-idle session may not be detected. | **Open** — needs an archive/retention policy decision |
+| **Cleaner `%TEMP%`** | Deletion is a name-prefix heuristic with no age or ownership check, and is part of `--all`. | Mitigated by `--check` / `--dry-run` |
+
+Safety posture: the cleanup tools support `--check` (cleaner) and `--dry-run` (brain), the
+Protected tier is enforced at delete time in `purge_files()`, and Windows junctions are
+skipped. Run a dry-run before every destructive command.
 
 ---
 

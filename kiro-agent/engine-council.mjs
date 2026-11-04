@@ -30,9 +30,11 @@ export async function executeCouncil({
     const rolePrompt = `You are Council Member #${idx + 1}. Independently provide the best, most robust, and highest-performing technical solution for the request below. Focus on strict correctness and edge cases.`;
     const fullPrompt = `${context ? `### Context:\n${context}\n` : ''}### Task:\n${prompt}`;
     
-    const timeoutPromise = new Promise((resolve) =>
-      setTimeout(() => resolve({ success: false, error: 'Model timed out after 25s' }), 25000)
-    );
+    let proposalTimer;
+    const timeoutPromise = new Promise((resolve) => {
+      proposalTimer = setTimeout(() => resolve({ success: false, error: 'Model timed out after 25s' }), 25000);
+      if (proposalTimer && typeof proposalTimer.unref === 'function') proposalTimer.unref();
+    });
 
     const callPromise = executeRaw({
       prompt: fullPrompt,
@@ -42,7 +44,7 @@ export async function executeCouncil({
       temperature: 0.2
     }).catch(err => ({ success: false, error: err.message }));
 
-    const res = await Promise.race([callPromise, timeoutPromise]);
+    const res = await Promise.race([callPromise, timeoutPromise]).finally(() => clearTimeout(proposalTimer));
 
     return {
       model,
@@ -100,10 +102,14 @@ ${prompt}
 4. Output your ranking in order of best to worst.`;
 
   function withTimeout(promise, ms, fallbackValue) {
-    return Promise.race([
-      promise,
-      new Promise(resolve => setTimeout(() => resolve(fallbackValue), ms))
-    ]);
+    let timer;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => resolve(fallbackValue), ms);
+      // Do not keep the CLI alive just to wait for a timer we may not need.
+      if (timer && typeof timer.unref === 'function') timer.unref();
+    });
+    // Promise.race never cancels the loser; clear the timer so the process can exit.
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   const [evaluatorA, evaluatorB] = await Promise.all([

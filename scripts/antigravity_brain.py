@@ -61,10 +61,14 @@ def format_age(age_seconds):
 def get_dir_size_and_mtime(path):
     total = 0
     count = 0
-    ctime = 0
+    # "Age" must mean last activity, not creation time: on Windows os.path.getctime()
+    # returns creation time, which labels a long-lived but actively used session as
+    # stale and lets --delete-older-than remove the conversation in use right now.
+    # Track the newest mtime anywhere under the session instead.
+    latest = 0.0
     if os.path.exists(path):
         try:
-            ctime = os.path.getctime(path)
+            latest = os.path.getmtime(path)
         except Exception:
             pass
         stack = [path]
@@ -74,8 +78,11 @@ def get_dir_size_and_mtime(path):
                 with os.scandir(curr) as it:
                     for entry in it:
                         try:
+                            st = entry.stat(follow_symlinks=False)
+                            if st.st_mtime > latest:
+                                latest = st.st_mtime
                             if entry.is_file(follow_symlinks=False):
-                                total += entry.stat(follow_symlinks=False).st_size
+                                total += st.st_size
                                 count += 1
                             elif entry.is_dir(follow_symlinks=False):
                                 stack.append(entry.path)
@@ -83,7 +90,7 @@ def get_dir_size_and_mtime(path):
                             pass
             except Exception:
                 pass
-    return count, total, ctime
+    return count, total, latest
 
 
 def extract_session_title(conv_path):
@@ -214,24 +221,60 @@ def display_distribution(sessions, top_n=20, full_id=False):
     print()
 
 
+LAST_LOOKUP_ERROR = ""
+
+
 def find_target_session(query, sessions):
+    """Resolve a query to exactly one session, or None.
+
+    Resolution is deterministic and refuses to guess: an exact ID wins, a numeric
+    query is a 1-based row index, and anything else must be a UNIQUE ID prefix.
+    It never silently falls back from a bad index to a prefix (that made
+    `--delete 0` delete an unrelated session starting with "0").
+    """
+    global LAST_LOOKUP_ERROR
+    LAST_LOOKUP_ERROR = ""
+
     if not query:
         return None
     query_clean = query.strip().rstrip(".").rstrip()
     if not query_clean:
         return None
 
-    # 1. Check if query is an index number (1-based)
-    if query_clean.isdigit():
-        idx = int(query_clean) - 1
-        if 0 <= idx < len(sessions):
-            return sessions[idx]
-
-    # 2. Check by full ID or prefix matching
+    # 1. Exact ID always wins.
     for s in sessions:
-        if s["id"] == query_clean or s["id"].startswith(query_clean):
+        if s["id"] == query_clean:
             return s
 
+    # 2. Numeric query = 1-based row index (never a prefix fallback).
+    if query_clean.isdigit():
+        idx = int(query_clean) - 1
+        if not (0 <= idx < len(sessions)):
+            LAST_LOOKUP_ERROR = (
+                f"Row {query_clean} does not exist — the current list has {len(sessions)} rows. "
+                f"Refusing to guess a session from a numeric prefix."
+            )
+            return None
+        target = sessions[idx]
+        prefixed = [s for s in sessions if s["id"].startswith(query_clean)]
+        if len(prefixed) > 1 and target not in prefixed:
+            LAST_LOOKUP_ERROR = (
+                f'"{query_clean}" was treated as row {idx + 1}, but it is also the prefix of '
+                f"{len(prefixed)} session IDs. Use a longer ID prefix if you meant one of those."
+            )
+        return target
+
+    # 3. Unique ID prefix only.
+    matches = [s for s in sessions if s["id"].startswith(query_clean)]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        shown = ", ".join(m["id"][:12] for m in matches[:5])
+        more = "..." if len(matches) > 5 else ""
+        LAST_LOOKUP_ERROR = (
+            f'"{query_clean}" matches {len(matches)} sessions ({shown}{more}). '
+            f"Use a longer prefix."
+        )
     return None
 
 
@@ -276,13 +319,15 @@ def purge_associated_session_files(session_id):
     return deleted_files, deleted_bytes
 
 
-def delete_session(query, force=False):
+def delete_session(query, force=False, dry_run=False):
     sessions = get_all_sessions()
     target = find_target_session(query, sessions)
 
     if not target:
-        print(f"\n{BOLD}{RED}No brain session matching '{query}' found.{RESET}")
-        print(f"{BOLD}Tip:{RESET} Use table index number (e.g. {BOLD}antigravity-brain --delete 2{RESET}) or ID prefix.\n")
+        print(f"\n{BOLD}{RED}No unique brain session matching '{query}' found.{RESET}")
+        if LAST_LOOKUP_ERROR:
+            print(f"{BOLD}{YELLOW}{LAST_LOOKUP_ERROR}{RESET}")
+        print(f"{BOLD}Tip:{RESET} Use table index number (e.g. {BOLD}antigravity-brain --delete 2{RESET}) or a unique ID prefix.\n")
         return
 
     if target["is_active"]:
@@ -295,6 +340,10 @@ def delete_session(query, force=False):
     print(f"  Topic   : {target['title']}")
     print(f"  Size    : {sz_str} ({target['files']:,} files)")
     print(f"  Age     : {format_age(target['age_sec'])}\n")
+
+    if dry_run:
+        print(f"{BOLD}{CYAN}[DRY RUN] Nothing was deleted.{RESET}\n")
+        return
 
     if not force:
         confirm = input(f"{BOLD}{RED}Are you sure you want to permanently delete this brain session and its conversation DB? [y/N]: {RESET}").strip().lower()
@@ -324,7 +373,7 @@ def run_interactive_mode():
     delete_session(choice, force=False)
 
 
-def delete_sessions_older_than(days, force=False):
+def delete_sessions_older_than(days, force=False, dry_run=False):
     sessions = get_all_sessions()
     cutoff_sec = days * 86400
     targets = [s for s in sessions if s["age_sec"] > cutoff_sec and not s["is_active"]]
@@ -339,6 +388,20 @@ def delete_sessions_older_than(days, force=False):
     print(f"\n{BOLD}{YELLOW}Sessions Older Than {days} Days:{RESET} {len(targets):,} sessions")
     print(f"  Total Space: {BOLD}{RED}{format_size(total_sz)}{RESET} ({total_files:,} files)\n")
 
+    # Always list WHAT will be deleted: the prompt used to offer only a bare count,
+    # so a user could not tell which conversations were about to disappear.
+    print(f"{BOLD}Sessions targeted:{RESET}")
+    for i, s in enumerate(targets, 1):
+        print(f"  {i:3}. {s['id'][:12]}  {format_age(s['age_sec']):>9}  {format_size(s['size']):>10}  {str(s['title'])[:48]}")
+        if i >= 50:
+            print(f"  ... and {len(targets) - 50:,} more")
+            break
+    print()
+
+    if dry_run:
+        print(f"{BOLD}{CYAN}[DRY RUN] Nothing was deleted.{RESET}\n")
+        return
+
     if not force:
         confirm = input(f"{BOLD}{RED}Are you sure you want to permanently delete these {len(targets)} brain sessions? [y/N]: {RESET}").strip().lower()
         if confirm not in ["y", "yes"]:
@@ -347,16 +410,26 @@ def delete_sessions_older_than(days, force=False):
 
     deleted_sz = 0
     deleted_count = 0
+    failed = []
     for s in targets:
         try:
             shutil.rmtree(s["path"])
-            _, extra_bytes = purge_associated_session_files(s["id"])
+            try:
+                _, extra_bytes = purge_associated_session_files(s["id"])
+            except Exception:
+                extra_bytes = 0
             deleted_sz += s["size"] + extra_bytes
             deleted_count += 1
-        except Exception:
-            pass
+        except Exception as e:
+            failed.append((s["id"], str(e)))
 
-    print(f"\n{BOLD}{GREEN}✓ Purged {deleted_count:,} stale brain sessions! ({format_size(deleted_sz)} freed){RESET}\n")
+    print(f"\n{BOLD}{GREEN}✓ Purged {deleted_count:,} stale brain sessions! ({format_size(deleted_sz)} freed){RESET}")
+    # Report failures instead of printing an unconditional success banner.
+    if failed:
+        print(f"{BOLD}{RED}✗ {len(failed)} session(s) could not be removed:{RESET}")
+        for sid, err in failed[:10]:
+            print(f"    {sid[:12]}: {err}")
+    print()
 
 
 def main():
@@ -374,15 +447,16 @@ def main():
     parser.add_argument("--delete-older-than", type=int, metavar="DAYS", help="Delete sessions older than N days")
     parser.add_argument("--clean-empty", action="store_true", help="Delete empty/zero-artifact brain folders")
     parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation prompt")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted without deleting anything")
 
     args = parser.parse_args()
 
     if args.interactive:
         run_interactive_mode()
     elif args.delete:
-        delete_session(args.delete, force=args.force)
+        delete_session(args.delete, force=args.force, dry_run=args.dry_run)
     elif args.delete_older_than:
-        delete_sessions_older_than(args.delete_older_than, force=args.force)
+        delete_sessions_older_than(args.delete_older_than, force=args.force, dry_run=args.dry_run)
     elif args.clean_empty:
         sessions = get_all_sessions()
         empties = [s for s in sessions if s["files"] == 0 and not s["is_active"]]

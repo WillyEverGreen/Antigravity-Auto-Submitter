@@ -59,7 +59,8 @@ export async function routeTask({
     selectedMode  = routing.mode;
     selectedModel = model || routing.model;
     routeReason   = routing.reason;
-    console.log(`[router] Semantic route → ${selectedMode} (${routeReason})`);
+    // stderr only: stdout carries the MCP JSON-RPC stream and must stay clean.
+    console.warn(`[router] Semantic route → ${selectedMode} (${routeReason})`);
   } else {
     selectedModel = model || 'claude-sonnet-4.5';
   }

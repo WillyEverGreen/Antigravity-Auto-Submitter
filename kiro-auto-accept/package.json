@@ -51,9 +51,6 @@
     "easy-start": "node kiro-auto-accept.js start",
     "test": "node test/kiro.test.js"
   },
-  "dependencies": {
-    "ws": "^8.16.0"
-  },
   "engines": {
     "node": ">=22.0.0"
   }

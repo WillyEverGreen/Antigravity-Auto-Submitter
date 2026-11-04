@@ -5,6 +5,71 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.8] - 2026-11-04
+
+Production-readiness audit: correctness, data-safety and packaging hardening.
+
+### Security
+- **Keyword gate could be disarmed by card text**: any approval card containing `skipKeywords:` / `askKeywords:` (for example while editing this project's own config) made the scanner skip *all* keyword checks, auto-approving dangerous commands in the same card. Only the config vocabulary itself is now stripped; any real command left in the card is still evaluated.
+- **Recursive force deletes evaded the skip list**: `rm -fr`, `rm -r -f`, `rm --recursive --force` and `Remove-Item -Recurse -Force` were auto-approved because only the literal string `rm -rf` was matched. All flag arrangements are now detected, in both the daemon and the Claude hook.
+- **Claude hook: a project config could remove every guardrail**: `.claude-auto-accept.json` was shallow-merged over the defaults, so a repository shipping empty `skipKeywords`/`askKeywords`/`protectedFiles` disabled the deny list and file shield. Project configs can now only *add* rules.
+- **Claude hook: protected files were only shielded from Write/Edit**: `cat .env`, `echo SECRET > .env` and similar shell access bypassed the shield. Protected paths are now checked on the shell path too, and the hook's own `settings.json`/`.claude-auto-accept.json` are protected.
+- **Claude hook: `setup` destroyed hand-edited settings.json**: a file with comments or a trailing comma failed to parse and was silently rewritten as `{}`, wiping `permissions`, `env` and comments. It now refuses to modify an unparseable file and reports why.
+
+### Fixed
+- **Config files with a UTF-8 BOM were silently ignored**: `JSON.parse` threw, the error was swallowed, and the daemon ran on defaults — discarding the user's `skipKeywords` and `cdpPort`. BOMs are tolerated across all config/stats reads, and unreadable configs now warn instead of failing silently.
+- **`--config FILE <subcommand>` started the daemon instead of running the subcommand**: the option's value was mistaken for the subcommand (same for `--mode`, `--poll`, `-p`, `--ports`, `-d`, `--ask`, `--skip`). Option values are now skipped in both parsers.
+- **Hot reload lost config updates permanently**: the mtime watermark advanced before the parse, so a file caught mid-save was never re-read. The watermark now advances only after a successful parse.
+- **Daemon could run without its lock**: a failed lock-file write was swallowed and reported as success, allowing two daemons to approve the same prompt. The failure is now surfaced.
+- **Reconnects could tear down the fresh connection**: a late `onclose` from the previous WebSocket called `destroy()` on the replacement socket. Handlers are now bound to their own socket.
+- **Kiro: CDP sockets were never closed**: `destroy()`/`connect()` called `ws.terminate()`, which does not exist on Node's built-in WebSocket, so every teardown leaked a socket and its listeners. Now uses `close()` with identity-guarded handlers.
+- **Kiro: MCP stdout corruption**: `engine-router.mjs` logged to stdout on the default `auto` route, corrupting the JSON-RPC framing. It logs to stderr now.
+- **Kiro: token refresh and webhook tests hung forever**: `timeout:` was set with no `'timeout'` listener, so a stalled endpoint never settled the promise.
+- **Kiro: `kiro arch`/`kiro council` lingered after printing results**: `Promise.race` timeout timers were never cleared, keeping the CLI alive up to 60s.
+- **`antigravity-brain`: `--delete-older-than` could delete an actively used session**: "age" used `os.path.getctime` (on Windows, *creation* time) as last-activity. Age now derives from the newest mtime under the session.
+- **Cleaner: browser-profile scan targeted user data**: every file at the profile root and in `Default/` (`Local State`, `Login Data`, `Bookmarks`, `Cookies`, `Preferences`, `History`) was treated as a cache. Only files inside actual cache directories are now candidates.
+- **Cleaner: `--days` accepted 0 and negative values**, making every file "stale". Values below 1 are now rejected.
+- **Daemon main loop failed silently**: recurring monitor-cycle errors were swallowed. They are now surfaced (throttled to once per 30s).
+- **Stats writes could leak `.tmp` files** on a failed rename or crash; partial writes are cleaned up and stale temporaries are swept on startup.
+- **`bin/*.js` reported success when Python died from a signal** (null exit status).
+- **VS Code extension discarded a valid status payload**: the daemon exits `1` when no window is attached but still prints JSON, so the "no window" state was unreachable and the status bar showed green while disconnected.
+- **Publishing never rebuilt the bundled daemon**: `publish:vsce`/`publish:ovsx` had no pre-hook, and `vscode-extension/daemon/` is gitignored, so a publish could ship a stale or missing daemon. Both now bundle first, and `bundle.js` verifies the copy's SHA-256.
+- **Stale `package-lock.json`** (pinned at 1.8.5 with `engines: node >=18`) regenerated for 1.9.6 / Node >=22.
+- **`kiro-auto-accept` declared a third-party `ws` dependency** despite the zero-dependency policy; the `require('ws')` fallback is dead code on Node ≥22. Removed, along with two leftover `ws.terminate()` calls.
+- **More BOM-intolerant config reads**: `add-skip`/`remove` rule edits, Claude hook stats, `uninstall` and `isHookInstalled` all used raw `JSON.parse(fs.readFileSync(...))`, so a BOM-saved file was silently unusable. All now use `readJsonFile()`.
+- **Extension status polling could stack `node` processes**: a 2.5s interval against a 4s probe timeout had no in-flight guard.
+- **Extension left an orphan daemon on reload**: the 500ms restart timer was untracked and survived `deactivate()`.
+- **Extension `stop()` killed one daemon but deleted every PID file**, orphaning the others so the next start spawned a duplicate — it now kills each PID it removes.
+- **Cleaner's "Protected" tier was display-only**: `purge_files()` now refuses any target inside a Protected path (`is_protected_path()`), so a future scan pattern cannot delete protected state. The tier also moved to a single `PROTECTED_PATH_GROUPS` constant to prevent list drift.
+- **Cleaner followed Windows junctions**: `is_dir(follow_symlinks=False)` is still true for a junction, so scans and `purge_empty_dirs()` could reach outside the cleanup root. Reparse points are now skipped.
+- **`antigravity-brain` could delete the wrong session**: `--delete 0` failed the index bounds check and then silently fell back to matching any ID prefix beginning with "0". Resolution is now deterministic — exact ID, then 1-based row, then a *unique* ID prefix — and ambiguous prefixes are refused with the matching IDs listed.
+- **`antigravity-brain` had no dry-run**, and the bulk-delete prompt named only a count. Added `--dry-run`, an explicit list of targeted sessions before confirmation, and real failure reporting instead of an unconditional success banner.
+
+### Concurrency & reliability
+- **Approvals from several windows now land together**: each window already polled independently, but every approval performed a *synchronous* stats write inside the WebSocket handler, blocking the event loop and serialising other windows. Writes are now coalesced and flushed on shutdown/exit.
+- **Scanner script is memoized** by configuration signature instead of being rebuilt (~20 KB) on every tick for every window.
+- **The daemon no longer dies from a single stray error**: `uncaughtException`/`unhandledRejection` used to `process.exit(1)` — indistinguishable from "it turned itself off". It now logs and keeps serving, with a circuit breaker (exits only after >20 faults in 60s). A closed stdout can no longer kill it either.
+- **Hot reload could silently enable or disable the daemon**: applying `enabled` on *any* config edit meant editing keywords could flip the running state. An enable/disable is now applied only when the file's own `enabled` value actually changed.
+- **The extension killed the daemon on every reload**: `deactivate()` called `stop()`, so a window reload or extension update switched auto-submit off. The daemon is a standalone background process and now survives; only an explicit Stop command stops it.
+
+### Cleaner coverage (`antigravity-clean`)
+- **Claude Code home (`~/.claude`) was entirely unscanned** — 934 MB on a typical install, of which **852 MB were stale transcripts**. Added: telemetry/cache/shell-snapshots/logs as Tier 1 (safe), and conversation transcripts + file-edit history as an age-gated Tier 2 (`--stale` / `--deep`).
+- **The standalone Antigravity App was never cleaned**: Electron caches were scanned only for `%APPDATA%\Antigravity IDE`, not `%APPDATA%\Antigravity` (the App on port 9334). Both profiles are covered now.
+- **Claude Code config is now in the Protected tier** (`settings.json`, `plugins/`, `commands/`, `agents/`, `CLAUDE.md`, `~/.claude.json`) so the new scan can never reach it.
+- **Package-manager coverage was partly broken and incomplete**: the pnpm path pointed at a non-existent `pnpm-cache` (the real store is `%LOCALAPPDATA%\pnpm\store`), and bun (`~/.bun/install/cache`) and cargo (`~/.cargo/registry`) were never scanned. Verified paths added; the category is now `Package Manager Caches` covering npm, pnpm, yarn, bun, uv, pip and cargo.
+- **JetBrains IDEs (IntelliJ, PyCharm, WebStorm, …) were not covered at all**: added a per-product scan of `%LOCALAPPDATA%\JetBrains\<Product>\{caches,index,log,tmp,compile-server,jcef_cache}`; settings under `%APPDATA%\JetBrains` stay protected.
+- **VSCodium added** to the external-IDE scan (same Electron layout as VS Code); its user settings and `~/.vscode-oss/extensions` are protected.
+- Net effect measured on one developer machine: Tier 1 reclaimable went from **914 MB → 2,742 MB** and total reclaimable from **4.5 GB → 6.3 GB**.
+- **More common toolchains covered**: Gradle, Maven, NuGet, Go module cache and Composer were missing; Android Studio, Sublime Text and the Visual Studio component cache are now scanned too (Android Studio is handled by the JetBrains-family scanner).
+- **New `--coverage` command** (`agy-coverage`, `npm run coverage`): a transparency report listing all 19 supported tools, every category with detected size, what is *not* present on this machine, the full Protected tier, and the searched roots. Supports `--json` for scripting. It never deletes anything.
+
+### Tooling
+- **`AGENTS.md`** added: binding maintenance rules (invariants, per-change-type rules, danger zones, definition of done, anti-patterns) shared by every agent working in this repo.
+- **`npm run verify`** added: 9 static invariant checks (zero deps, version sites, bin targets, publish whitelist, extension manifest ↔ registered commands, daemon bundle parity, forbidden patterns, Python compile). Wired to `prepublishOnly` so an unverified release cannot be published.
+
+### Tests
+- 19 new regression tests covering the keyword-bypass, recursive-delete, BOM config, CLI dispatch, hot-reload retry, hook guardrail, settings-preservation, brain-resolution and cleaner-protection fixes.
+
 ## [1.9.4] - 2026-11-01
 
 ### Added
