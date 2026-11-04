@@ -50,3 +50,6 @@ __pycache__/
 vscode-extension/*.vsix
 *.vsix
 vscode-extension/daemon/
+
+# Agent tooling state (worktrees, local settings, task scratch)
+.claude/
