@@ -36,6 +36,11 @@ The **Kiro Agent Subsystem** transforms your local Kiro IDE Proxy into a product
 7. **Native Model Context Protocol (MCP) Server (`kiro-mcp.mjs`)**:
    Exposes 14 native MCP tools directly into Google Antigravity IDE, including `kiro_smart_route`.
 
+8. **Swarm Coordination Primitives (`blackboard.mjs`, `dag-scheduler.mjs`, `a2a-bus.mjs`)**:
+   - **Shared Blackboard**: In-memory working memory with optimistic concurrency (`ifVersion`), non-blocking subscriptions (`waitFor`), TTL expirations, and lightweight structural validation.
+   - **DAG Dependency Scheduler**: Dependency-aware topological execution (Kahn's algorithm) with cycle detection, failure policies (`skip`, `continue`, `repair`, `abort`), exponential backoffs, and model escalation.
+   - **Inter-Agent Clarification Bus**: Orchestrator-mediated pub/sub protocol with 0-token blackboard lookups, semantic deduplication, hop limits, and runaway loop tripwires.
+
 ---
 
 ## 📋 Requirements: Which Kiro Piece Needs What

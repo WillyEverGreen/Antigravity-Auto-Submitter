@@ -23,6 +23,8 @@ import { semanticRoute } from './engine-semantic-router.mjs';
 import { runCriticLoop } from './engine-critic.mjs';
 import { fitToContextBudget } from './engine-context-budget.mjs';
 import { executeWithQualityRetry } from './engine-quality-retry.mjs';
+import { DagScheduler } from './dag-scheduler.mjs';
+import { Blackboard } from './blackboard.mjs';
 
 /**
  * Route task based on intent or explicit mode
@@ -201,6 +203,97 @@ export async function executeParallelBatch({
   const results = [];
   const queue = [...tasks];
   const activeRoute = routeFn || routeTask;
+
+  // ── DAG Dependency Routing ──────────────────────────────────────────────
+  const hasDependencies = tasks.some(t => Array.isArray(t.dependsOn) && t.dependsOn.length > 0);
+  if (hasDependencies) {
+    const bb = new Blackboard();
+    const scheduler = new DagScheduler({
+      concurrency: Math.min(Math.max(1, concurrency), 50),
+      defaultOnFailure: 'skip'
+    });
+
+    const runner = async (task, ctx) => {
+      const t0 = Date.now();
+      let inputContext = task.context || '';
+      if (ctx.inputs && Object.keys(ctx.inputs).length > 0) {
+        const upstreamText = Object.entries(ctx.inputs)
+          .map(([depId, depRes]) => `[Dependency ${depId} Output]:\n${typeof depRes === 'string' ? depRes : JSON.stringify(depRes)}`)
+          .join('\n\n');
+        inputContext = inputContext ? `${inputContext}\n\n${upstreamText}` : upstreamText;
+      }
+
+      let res = null;
+      let routeErr = null;
+      try {
+        res = await activeRoute({
+          prompt: task.prompt,
+          mode: task.mode || defaultMode,
+          model: ctx.model || task.model || null,
+          context: inputContext
+        });
+      } catch (err) {
+        routeErr = err;
+      }
+
+      const isSuccess = Boolean(!routeErr && res && res.success);
+      const output = (res && (res.finalCode || res.finalSolution || res.content || res.error)) || (routeErr ? routeErr.message : '');
+      const entry = {
+        id: task.id,
+        title: task.title || (task.prompt ? task.prompt.slice(0, 40) : 'Untitled'),
+        success: isSuccess,
+        pattern: res ? res.pattern : 'DAG-Runner',
+        model: (res && res.model) || ctx.model || task.model || 'auto',
+        durationMs: Date.now() - t0,
+        output,
+        error: isSuccess ? undefined : (routeErr?.message || res?.error || 'Task execution failed')
+      };
+      results.push(entry);
+      if (typeof onProgress === 'function') {
+        try { onProgress({ completed: results.length, total: tasks.length, latest: entry }); } catch (err) {
+          process.stderr.write(`[kiro-router] onProgress notification error: ${err.message}\n`);
+        }
+      }
+      if (!isSuccess) {
+        throw (routeErr || new Error(res?.error || 'Task execution failed'));
+      }
+      return output;
+    };
+
+    const dagSummary = await scheduler.run(tasks, runner, { bb });
+
+    // Ensure skipped tasks are represented in results for consistent contract
+    for (const skippedId of dagSummary.skipped) {
+      if (!results.some(r => r.id === skippedId)) {
+        const taskObj = tasks.find(t => t.id === skippedId);
+        results.push({
+          id: skippedId,
+          title: taskObj?.title || taskObj?.prompt?.slice(0, 40) || 'Skipped task',
+          success: false,
+          pattern: 'DAG-Skipped',
+          model: taskObj?.model || 'none',
+          durationMs: 0,
+          output: dagSummary.errors[skippedId] || 'Skipped due to dependency failure',
+          error: dagSummary.errors[skippedId] || 'Skipped due to dependency failure',
+          skipped: true
+        });
+      }
+    }
+
+    const successful = results.filter(r => r.success).length;
+    const failed = tasks.length - successful;
+
+    return {
+      total: tasks.length,
+      totalTasks: tasks.length,
+      successful,
+      completed: successful,
+      failed,
+      totalDurationMs: Date.now() - tStart,
+      results,
+      dagSummary
+    };
+  }
 
   async function worker(workerId) {
     while (true) {

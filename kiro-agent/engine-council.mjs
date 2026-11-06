@@ -32,7 +32,7 @@ export async function executeCouncil({
     
     let proposalTimer;
     const timeoutPromise = new Promise((resolve) => {
-      proposalTimer = setTimeout(() => resolve({ success: false, error: 'Model timed out after 25s' }), 25000);
+      proposalTimer = setTimeout(() => resolve({ success: false, error: 'Model timed out after 60s' }), 60000);
       if (proposalTimer && typeof proposalTimer.unref === 'function') proposalTimer.unref();
     });
 
@@ -121,8 +121,8 @@ ${prompt}
         maxTokens: 1500,
         temperature: 0.1
       }),
-      35000,
-      { success: false, content: 'DeepSeek peer review timed out after 35s.' }
+      60000,
+      { success: false, content: 'DeepSeek peer review timed out after 60s.' }
     ),
     withTimeout(
       executeRaw({
@@ -132,8 +132,8 @@ ${prompt}
         maxTokens: 1500,
         temperature: 0.1
       }),
-      35000,
-      { success: false, content: 'Sonnet peer review timed out after 35s.' }
+      60000,
+      { success: false, content: 'Sonnet peer review timed out after 60s.' }
     )
   ]);
 
@@ -167,8 +167,8 @@ ${evaluatorB.content || 'N/A'}
       maxTokens: 4096,
       temperature: 0.15
     }),
-    45000,
-    { success: false, content: validProposals[0]?.content || 'Chairman synthesis timed out after 45s.', error: 'Chairman synthesis timed out after 45s' }
+    90000,
+    { success: false, content: validProposals[0]?.content || 'Chairman synthesis timed out after 90s.', error: 'Chairman synthesis timed out after 90s' }
   );
 
   const totalDuration = Date.now() - tStart;

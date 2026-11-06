@@ -343,7 +343,66 @@ await asyncTest('executeParallelBatch executes tasks concurrently with worker po
   }
 });
 
+await asyncTest('executeParallelBatch routes DAG dependencies with topological cascading and input propagation', async () => {
+  const executionOrder = [];
+  const mockRoute = async ({ prompt, context }) => {
+    executionOrder.push(prompt);
+    return {
+      success: true,
+      finalCode: `Result of ${prompt} with context: ${context}`,
+      model: 'dag-model'
+    };
+  };
+
+  const tasks = [
+    { id: 'db', prompt: 'Setup DB' },
+    { id: 'api', prompt: 'Setup API', dependsOn: ['db'] },
+    { id: 'ui', prompt: 'Setup UI', dependsOn: ['api'] }
+  ];
+
+  const res = await executeParallelBatch({
+    tasks,
+    concurrency: 2,
+    routeFn: mockRoute
+  });
+
+  assert.strictEqual(res.successful, 3);
+  assert.deepStrictEqual(executionOrder, ['Setup DB', 'Setup API', 'Setup UI']);
+  const uiResult = res.results.find(r => r.id === 'ui');
+  assert.ok(uiResult.output.includes('Dependency api Output'), 'Downstream task must receive upstream dependency output');
+});
+
+await asyncTest('executeParallelBatch accurately records skipped DAG tasks when upstream fails', async () => {
+  const mockRoute = async ({ prompt }) => {
+    if (prompt.includes('fail')) throw new Error('Root failed');
+    return { success: true, finalCode: 'ok' };
+  };
+
+  const tasks = [
+    { id: 'root', prompt: 'fail root' },
+    { id: 'child', prompt: 'child task', dependsOn: ['root'] },
+    { id: 'independent', prompt: 'indep' }
+  ];
+
+  const res = await executeParallelBatch({
+    tasks,
+    concurrency: 2,
+    routeFn: mockRoute
+  });
+
+  assert.strictEqual(res.total, 3);
+  assert.strictEqual(res.successful, 1);
+  assert.strictEqual(res.failed, 2);
+  assert.strictEqual(res.results.length, 3);
+  const skippedChild = res.results.find(r => r.id === 'child');
+  assert.ok(skippedChild, 'Skipped task must exist in results');
+  assert.strictEqual(skippedChild.skipped, true);
+  assert.strictEqual(skippedChild.success, false);
+});
+
 await asyncTest('executeParallel enforces swarm readiness and throws KiroSetupError when proxy is offline', async () => {
+  const origPort = process.env.KIRO_PROXY_PORT;
+  process.env.KIRO_PROXY_PORT = '59999';
   let errorCaught = null;
   try {
     await executeParallel({
@@ -351,6 +410,9 @@ await asyncTest('executeParallel enforces swarm readiness and throws KiroSetupEr
     });
   } catch (err) {
     errorCaught = err;
+  } finally {
+    if (origPort !== undefined) process.env.KIRO_PROXY_PORT = origPort;
+    else delete process.env.KIRO_PROXY_PORT;
   }
 
   assert.ok(errorCaught, 'Expected KiroSetupError to be thrown');
@@ -363,6 +425,7 @@ await asyncTest('executeParallel enforces swarm readiness and throws KiroSetupEr
 await asyncTest('MCP server handles kiro_parallel_tasks tool invocation and returns structured response', async () => {
   const mcpScript = path.resolve('kiro-agent/kiro-mcp.mjs');
   const child = spawn('node', [mcpScript], {
+    env: { ...process.env, KIRO_PROXY_PORT: '59999' },
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
@@ -409,4 +472,4 @@ await asyncTest('MCP server handles kiro_parallel_tasks tool invocation and retu
   );
 });
 
-console.log(`\nResults: ${passed}/18 Kiro Agent tests passed cleanly.\n`);
+console.log(`\nResults: ${passed}/20 Kiro Agent tests passed cleanly.\n`);

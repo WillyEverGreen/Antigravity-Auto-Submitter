@@ -113,8 +113,8 @@ export function getProxyAuth(forceRefresh = false) {
       const storeData = decryptConfData(raw, STORE_SECRET_KEY);
       if (storeData) {
         if (storeData.proxyConfig) {
-          port = storeData.proxyConfig.port || port;
-          host = storeData.proxyConfig.host || host;
+          if (!process.env.KIRO_PROXY_PORT && storeData.proxyConfig.port) port = storeData.proxyConfig.port;
+          if (!process.env.KIRO_PROXY_HOST && storeData.proxyConfig.host) host = storeData.proxyConfig.host;
           if (!apiKey) {
             if (storeData.proxyConfig.apiKey) {
               apiKey = storeData.proxyConfig.apiKey;
@@ -124,8 +124,10 @@ export function getProxyAuth(forceRefresh = false) {
             }
           }
         }
-        if (storeData.accountData && Array.isArray(storeData.accountData.accounts)) {
-          accountsCount = storeData.accountData.accounts.length;
+        if (storeData.accountData?.accounts) {
+          accountsCount = Array.isArray(storeData.accountData.accounts)
+            ? storeData.accountData.accounts.length
+            : Object.keys(storeData.accountData.accounts).length;
         }
       }
     } catch {
@@ -437,7 +439,10 @@ export async function executeParallel({
       id: t.id,
       prompt: t.prompt,
       model: t.model || defaultModel,
-      mode: 'auto'
+      mode: t.mode || 'auto',
+      dependsOn: t.dependsOn,
+      context: t.context,
+      role: t.role || defaultRole
     })),
     concurrency,
     onProgress
@@ -470,3 +475,7 @@ export async function executeCodeReview({
     ]
   };
 }
+
+export { Blackboard, BlackboardTimeoutError, BlackboardValidationError, BlackboardAbortError } from './blackboard.mjs';
+export { DagScheduler, DagError, buildGraph, topoLayers } from './dag-scheduler.mjs';
+export { A2ABus, BusLimitError } from './a2a-bus.mjs';

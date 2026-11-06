@@ -40,6 +40,17 @@ scratch/
 coverage/
 test-results/
 implementation_plan.md
+ag_powertools_plan.md
+plans/
+.superpowers/
+progress.txt
+prd.json
+adversarial-loop.skill
+adversarial-loop-evals.zip
+adversarial-loop/
+adversarial-loop-evals/
+evals/
+*.skill
 audit_probe*.mjs
 phase5_parallel_audit*.mjs
 __pycache__/
