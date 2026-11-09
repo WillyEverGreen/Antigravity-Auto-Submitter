@@ -2590,6 +2590,19 @@ class WindowSession {
     this.lastApprovalTime = 0;
     this.sessionApprovals = 0;
     this.sessionBlocks = 0;
+    this.createdAt = Date.now();
+    this.isFocused = false;
+    this.lastFocusedAt = 0;
+    this.pendingFocusCheckId = null;
+    this.workspacePath = null;
+    const targetUrl = target.url || '';
+    const match = targetUrl.match(/workspaceUri=([^&]+)/);
+    if (match) {
+      try {
+        const decoded = decodeURIComponent(decodeURIComponent(match[1]));
+        this.workspacePath = path.resolve(decoded.replace(/^file:\/\/\//, ''));
+      } catch (e) {}
+    }
   }
 
   connect() {
@@ -2621,6 +2634,16 @@ class WindowSession {
       if (ws !== this.ws) return;
       try {
         const msg = JSON.parse(evt.data);
+        if (msg.id !== undefined && msg.id === this.pendingFocusCheckId) {
+          this.pendingFocusCheckId = null;
+          if (msg.result?.result?.value) {
+            this.isFocused = true;
+            this.lastFocusedAt = Date.now();
+          } else {
+            this.isFocused = false;
+          }
+          return;
+        }
         if (msg.id !== undefined && msg.id === this.pendingFocusId) {
           this.pendingFocusId = null;
           const found = msg.result?.result?.value?.found;
@@ -2727,6 +2750,17 @@ class WindowSession {
 
   scanTick() {
     if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (!this.pendingFocusCheckId) {
+      this.pendingFocusCheckId = this.reqId++;
+      try {
+        this.ws.send(JSON.stringify({
+          id: this.pendingFocusCheckId,
+          method: 'Runtime.evaluate',
+          params: { expression: 'Boolean(document.hasFocus && document.hasFocus())', returnByValue: true }
+        }));
+      } catch (e) {}
+    }
 
     if (this.awaitingTelegramResponse && !this.pendingTelegramCheckId) {
       const checkScript = `(() => {
@@ -3110,28 +3144,57 @@ class AutoSubmitDaemon {
             }
           },
           onPromptCallback: (promptText) => {
-            let injected = false;
-            // Prioritize dedicated Antigravity AI chat webviews
-            for (const session of this.sessions.values()) {
+            const chatSessions = [];
+            for (const [key, session] of this.sessions.entries()) {
               const url = (session.target?.url || session.url || '').toLowerCase();
               if (url.includes('/c/') || url.includes('54978') || url.includes('chat')) {
                 if (session.isConnected && session.ws) {
-                  session.injectChatPrompt(promptText);
-                  injected = true;
-                  break;
+                  chatSessions.push({ key, session });
                 }
               }
             }
-            // Fallback to any active session if no specific chat URL matched
-            if (!injected) {
-              for (const session of this.sessions.values()) {
+
+            if (chatSessions.length === 0) {
+              for (const [key, session] of this.sessions.entries()) {
                 if (session.isConnected && session.ws) {
-                  session.injectChatPrompt(promptText);
-                  break;
+                  chatSessions.push({ key, session });
                 }
               }
             }
-            this.logEvent('info', ' TELEGRAM ', `Prompt injected from Telegram: "${promptText}"`, '', C.pillCyan);
+
+            if (chatSessions.length === 0) {
+              this.logEvent('warn', ' TELEGRAM ', 'No active Antigravity chat window connected to receive prompt', '', C.pillRed);
+              return;
+            }
+
+            let bestSession = null;
+            let highestScore = -Infinity;
+
+            for (const { key, session } of chatSessions) {
+              let score = 0;
+              if (this.activeTargetSessionKey && key === this.activeTargetSessionKey) {
+                score += 10000;
+              }
+              if (this.activeTargetWorkspace && session.workspacePath) {
+                if (session.workspacePath.toLowerCase() === this.activeTargetWorkspace.toLowerCase()) {
+                  score += 5000;
+                }
+              }
+              if (session.isFocused) score += 500;
+              if (session.lastFocusedAt) score += Math.max(0, 500 - (Date.now() - session.lastFocusedAt) / 1000);
+              score += (session.createdAt || 0) / 1000000;
+
+              if (score > highestScore) {
+                highestScore = score;
+                bestSession = session;
+              }
+            }
+
+            if (bestSession) {
+              bestSession.injectChatPrompt(promptText);
+              const targetDesc = bestSession.workspacePath ? path.basename(bestSession.workspacePath) : bestSession.title;
+              this.logEvent('info', ' TELEGRAM ', `Prompt injected into [${targetDesc}]: "${promptText}"`, '', C.pillCyan);
+            }
           },
           onCommandCallback: (cmd, arg) => {
             if (cmd === 'pause') {
@@ -3148,7 +3211,11 @@ class AutoSubmitDaemon {
               const wins = countIdeWindows(this.sessions.values());
               const state = this.config.enabled ? '🟢 ACTIVE' : '⏸ PAUSED';
               const mode = (this.config.mode || 'autonomous').toUpperCase();
-              return `*Status:* ${state}\n*Mode:* ${mode}\n*Connected Windows:* ${wins}\n*Lifetime Approvals:* ${this.stats.lifetimeClicks} (${this.stats.sessionApprovals} this session)\n*Blocks:* ${this.stats.sessionBlocks}`;
+              let targetInfo = 'Auto (Most recent window)';
+              if (this.activeTargetWorkspace) {
+                targetInfo = `\`${this.activeTargetWorkspace}\``;
+              }
+              return `*Status:* ${state}\n*Mode:* ${mode}\n*Connected Windows:* ${wins}\n*Active Prompt Target:* ${targetInfo}\n*Lifetime Approvals:* ${this.stats.lifetimeClicks} (${this.stats.sessionApprovals} this session)\n*Blocks:* ${this.stats.sessionBlocks}`;
             }
             if (cmd === 'checkpoint') {
               try {
@@ -3159,18 +3226,61 @@ class AutoSubmitDaemon {
                 return `⚠️ Checkpoint error: ${err.message}`;
               }
             }
+            if (cmd === 'windows') {
+              const chatSessions = [];
+              for (const [key, session] of this.sessions.entries()) {
+                const url = (session.target?.url || session.url || '').toLowerCase();
+                if (url.includes('/c/') || url.includes('54978') || url.includes('chat')) {
+                  chatSessions.push({ key, session });
+                }
+              }
+              if (chatSessions.length === 0) {
+                return `🪟 *No active Antigravity chat windows detected.*`;
+              }
+              let msg = `🪟 *Connected Antigravity Windows (${chatSessions.length}):*\n\n`;
+              chatSessions.forEach(({ key, session }, idx) => {
+                const name = session.workspacePath ? path.basename(session.workspacePath) : session.title;
+                const isTarget = (this.activeTargetSessionKey === key) || 
+                  (!this.activeTargetSessionKey && this.activeTargetWorkspace && session.workspacePath && session.workspacePath.toLowerCase() === this.activeTargetWorkspace.toLowerCase()) ||
+                  (!this.activeTargetSessionKey && !this.activeTargetWorkspace && idx === chatSessions.length - 1);
+                const tag = isTarget ? '🎯 *[ACTIVE TARGET]*' : '🪟';
+                msg += `${idx + 1}. ${tag} *${name}*\n   Path: \`${session.workspacePath || 'Global'}\`\n`;
+              });
+              msg += `\n_To switch where Telegram prompts are sent:_ \`/switch <#>\``;
+              return msg;
+            }
+            if (cmd === 'switch') {
+              const query = (arg || '').trim();
+              const chatSessions = [];
+              for (const [key, session] of this.sessions.entries()) {
+                const url = (session.target?.url || session.url || '').toLowerCase();
+                if (url.includes('/c/') || url.includes('54978') || url.includes('chat')) {
+                  chatSessions.push({ key, session });
+                }
+              }
+              if (/^\d+$/.test(query)) {
+                const idx = parseInt(query, 10) - 1;
+                if (idx >= 0 && idx < chatSessions.length) {
+                  this.activeTargetSessionKey = chatSessions[idx].key;
+                  this.activeTargetWorkspace = chatSessions[idx].session.workspacePath;
+                  const name = chatSessions[idx].session.workspacePath ? path.basename(chatSessions[idx].session.workspacePath) : chatSessions[idx].session.title;
+                  return `🎯 *Switched Active Target Window to:*\n*${name}* (#${idx + 1})\n\`${chatSessions[idx].session.workspacePath || 'IDE'}\`\n\n_Prompts from Telegram will now go to this window!_`;
+                }
+              }
+              return `⚠️ Invalid window number. Run \`/windows\` to see connected windows.`;
+            }
             if (cmd === 'open') {
               const query = (arg || '').trim();
               if (!query) {
-                const recent = this.projectManager ? this.projectManager.getRecentProjects(5) : [];
-                let list = recent.map((p, idx) => `${idx + 1}. *${p.name}*\n   \`${p.path}\``).join('\n');
-                return `📂 *Specify a project to open:*\n\`/open <name_or_path>\`\n\n*Recent Projects:*\n${list || 'None yet'}`;
+                const recent = this.projectManager ? this.projectManager.getRecentProjects(6) : [];
+                let list = recent.map((p, idx) => `${idx + 1}. *${p.name}* (\`/open ${idx + 1}\`)`).join('\n');
+                return `📂 *Specify a project to open:*\n\`/open <name_or_#>\`\n\n*Recent Projects:*\n${list || 'None'}`;
               }
               const found = this.projectManager ? this.projectManager.findProject(query) : null;
               if (!found) {
-                const recent = this.projectManager ? this.projectManager.getRecentProjects(3) : [];
+                const recent = this.projectManager ? this.projectManager.getRecentProjects(4) : [];
                 let suggestions = recent.map(p => `• \`/open ${p.name}\``).join('\n');
-                return `❌ *Project "${query}" not found.*\n\nDid you mean to create it?\n👉 \`/new ${query}\`\n\n*Recent Projects:*\n${suggestions || 'None'}`;
+                return `❌ *Project "${query}" not found.*\n\nDid you mean to create it?\n👉 \`/new ${query}\`\n\n*Remembered Projects:*\n${suggestions || 'None'}`;
               }
               try {
                 const { spawn } = require('node:child_process');
@@ -3178,8 +3288,10 @@ class AutoSubmitDaemon {
                 const exe = exes.ide || exes.app;
                 if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
                 spawn(exe, ['-r', found.path], { detached: true, stdio: 'ignore' }).unref();
+                this.activeTargetWorkspace = found.path;
+                this.activeTargetSetAt = Date.now();
                 this.logEvent('info', ' OPEN ', `Opened workspace: ${found.path}`, '', C.pillGreen);
-                return `📂 *Opened project in Antigravity IDE:*\n📁 *${found.name}*\n\`${found.path}\``;
+                return `📂 *Opened project in Antigravity IDE:*\n📁 *${found.name}*\n\`${found.path}\`\n\n🎯 _Telegram prompts will now route to this workspace!_`;
               } catch (err) {
                 return `⚠️ Failed to open folder: ${err.message}`;
               }
@@ -3200,17 +3312,75 @@ class AutoSubmitDaemon {
 
                 const created = this.projectManager ? this.projectManager.createNewProject(query) : { name: query, path: query, newlyCreated: true };
                 spawn(exe, ['-n', '--remote-debugging-port=9333', created.path], { detached: true, stdio: 'ignore' }).unref();
+                this.activeTargetWorkspace = created.path;
+                this.activeTargetSetAt = Date.now();
                 this.logEvent('info', ' NEW-WIN ', `Opened new project: ${created.path}`, '', C.pillGreen);
                 const tag = created.newlyCreated ? 'Created & Opened New Project' : 'Opened Project';
-                return `🪟 *${tag} in Antigravity IDE:*\n📁 *${created.name}*\n\`${created.path}\``;
+                return `🪟 *${tag} in Antigravity IDE:*\n📁 *${created.name}*\n\`${created.path}\`\n\n🎯 _Telegram prompts will now route to this new workspace!_`;
               } catch (err) {
                 return `⚠️ Failed to open new project: ${err.message}`;
               }
             }
+            if (cmd === 'add') {
+              const argStr = (arg || '').trim();
+              if (!argStr) {
+                return `Usage: \`/add <folder_path> [short_name]\`\n\nExample:\n\`/add D:\\FullStack Projects\\Clip clip\``;
+              }
+              let dirPath = '';
+              let alias = '';
+              if (argStr.startsWith('"')) {
+                const endQuote = argStr.indexOf('"', 1);
+                if (endQuote > 1) {
+                  dirPath = argStr.slice(1, endQuote).trim();
+                  alias = argStr.slice(endQuote + 1).trim();
+                }
+              }
+              if (!dirPath) {
+                const parts = argStr.split(/\s+/);
+                if (parts.length === 1) {
+                  dirPath = parts[0];
+                  alias = path.basename(dirPath);
+                } else {
+                  if (fs.existsSync(parts[0])) {
+                    dirPath = parts[0];
+                    alias = parts.slice(1).join('-');
+                  } else {
+                    const lastWord = parts[parts.length - 1];
+                    const possiblePath = parts.slice(0, -1).join(' ');
+                    if (fs.existsSync(possiblePath)) {
+                      dirPath = possiblePath;
+                      alias = lastWord;
+                    } else {
+                      dirPath = argStr;
+                      alias = path.basename(dirPath);
+                    }
+                  }
+                }
+              }
+              try {
+                const entry = this.projectManager.addAlias(alias, dirPath);
+                return `✅ *Added Project Alias:*\n🏷️ *Short Name:* \`${entry.name}\`\n📁 *Path:* \`${entry.path}\`\n\n_Open it anytime with:_ \`/open ${entry.name}\``;
+              } catch (err) {
+                return `❌ *Failed to add project:* ${err.message}`;
+              }
+            }
+            if (cmd === 'remove') {
+              const name = (arg || '').trim();
+              if (!name) return `Usage: \`/remove <project_name_or_alias>\``;
+              const removed = this.projectManager.removeProject(name);
+              if (removed) {
+                return `🗑️ *Removed project alias:*\n\`${removed.name}\` (${removed.path})`;
+              }
+              return `⚠️ Project "${name}" was not found in remembered projects.`;
+            }
             if (cmd === 'recent' || cmd === 'projects') {
-              const recent = this.projectManager ? this.projectManager.getRecentProjects(10) : [];
-              let list = recent.map((p, idx) => `${idx + 1}. *${p.name}*\n   \`${p.path}\``).join('\n');
-              return `📁 *Remembered Projects:*\n${list || 'No remembered projects yet.'}\n\n*Quick Actions:*\n• \`/open <name>\` — Open project\n• \`/new <name>\` — Create & open new project`;
+              const recent = this.projectManager ? this.projectManager.getRecentProjects(15) : [];
+              if (recent.length === 0) return `📁 *No remembered projects yet.*\n\nCreate one with: \`/new <name>\`\nOr add an existing one: \`/add <path> [name]\``;
+              let list = recent.map((p, idx) => {
+                const num = String(idx + 1).padStart(2, ' ');
+                return `${num}. *${p.name}*\n    \`${p.path}\``;
+              }).join('\n');
+              return `📁 *Remembered Projects (${recent.length}):*\n\n${list}\n\n*Quick Actions:*\n• \`/open <name_or_#>\` — Open in IDE\n• \`/new <name>\` — Create & open new project\n• \`/add <path> [name]\` — Add project directory alias`;
             }
             return null;
           }

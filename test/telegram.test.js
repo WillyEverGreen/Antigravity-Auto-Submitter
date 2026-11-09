@@ -223,10 +223,14 @@ it('TelegramClient dispatches onCommandCallback for control commands', () => {
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/open /my/project' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/new' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/recent' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/add /my/cool-proj mycool' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/remove mycool' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/windows' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/switch 1' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/help' } });
 
-  assert.deepStrictEqual(commandsCalled, ['pause', 'resume', 'checkpoint', 'status', 'open', 'new', 'recent']);
-  assert.strictEqual(sentMessages.length, 8);
+  assert.deepStrictEqual(commandsCalled, ['pause', 'resume', 'checkpoint', 'status', 'open', 'new', 'recent', 'add', 'remove', 'windows', 'switch']);
+  assert.strictEqual(sentMessages.length, 12);
   assert(sentMessages[0].text.includes('Handled: pause'));
   assert(sentMessages[1].text.includes('Handled: resume'));
   assert(sentMessages[2].text.includes('Handled: checkpoint'));
@@ -234,7 +238,11 @@ it('TelegramClient dispatches onCommandCallback for control commands', () => {
   assert(sentMessages[4].text.includes('Handled: open'));
   assert(sentMessages[5].text.includes('Handled: new'));
   assert(sentMessages[6].text.includes('Handled: recent'));
-  assert(sentMessages[7].text.includes('Mission Control'));
+  assert(sentMessages[7].text.includes('Handled: add'));
+  assert(sentMessages[8].text.includes('Handled: remove'));
+  assert(sentMessages[9].text.includes('Handled: windows'));
+  assert(sentMessages[10].text.includes('Handled: switch'));
+  assert(sentMessages[11].text.includes('Mission Control'));
 });
 
 it('TelegramClient sends typing indicator when prompt is received', () => {
