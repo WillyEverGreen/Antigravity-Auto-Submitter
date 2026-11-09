@@ -19,10 +19,14 @@ Major architectural evolution to **Antigravity PowerTools (AG PowerTools)**: the
   - CDP DOM injection of native SVG microphone button into chat input toolbar.
   - Streaming audio transcription using Chromium native Web Speech API with global hotkey (`Ctrl+Alt+V`).
   - Optional Smart Prompt Polish mode structuring spoken dictation into Role, Objective, Context, and Constraints.
-- **Pillar 4 (Telegram Remote Mission Control)**:
+- **Pillar 4 (Telegram Remote Mission Control & Multi-Window Project Hub)**:
   - Native zero-dependency HTTPS long-polling bot (`node:https`) operating 100% locally with zero cloud dependencies or open ports.
   - Remote decision pings with inline `[Approve]` / `[Deny]` buttons dispatching real-time CDP approvals.
-  - Bidirectional remote prompting and automated task completion alerts.
+  - Bidirectional remote prompting, automated task completion alerts, and animated typing indicator (`sendChatAction: typing`) pulsing while AI processes.
+  - SQLite auto-sync with Antigravity IDE (`state.vscdb`) indexing recent workspaces across drives.
+  - Remote workspace management: `/open <name>` (launches project in new window with debug port enabled), `/new <name>` (scaffolds directory and launches in new window), `/recent`, `/add <path> [name]`, `/remove <name>`, `/windows`, and `/switch <#>`.
+  - Multi-window CDP prompt router scoring target window by workspace match and focus state.
+  - Extension lifecycle hardening: background daemon decoupled from subscription disposal to survive window reloads, with `autoStart: true` by default.
 - **Pillar 2 (Next-Gen Autonomous Swarm - Beyond Ralph)**:
   - Dual-Agent Adversarial Loop with independent Red-Team Critic issuing cryptographic HMAC-SHA256 green approval tokens.
   - Parallel Git Worktree Swarm executing independent DAG tasks concurrently across isolated worktrees.
