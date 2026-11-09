@@ -220,15 +220,43 @@ it('TelegramClient dispatches onCommandCallback for control commands', () => {
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/resume' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/checkpoint' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/status' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/open /my/project' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/new' } });
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: '/recent' } });
   client.handleUpdate({ message: { chat: { id: 54321 }, text: '/help' } });
 
-  assert.deepStrictEqual(commandsCalled, ['pause', 'resume', 'checkpoint', 'status']);
-  assert.strictEqual(sentMessages.length, 5);
+  assert.deepStrictEqual(commandsCalled, ['pause', 'resume', 'checkpoint', 'status', 'open', 'new', 'recent']);
+  assert.strictEqual(sentMessages.length, 8);
   assert(sentMessages[0].text.includes('Handled: pause'));
   assert(sentMessages[1].text.includes('Handled: resume'));
   assert(sentMessages[2].text.includes('Handled: checkpoint'));
   assert(sentMessages[3].text.includes('Handled: status'));
-  assert(sentMessages[4].text.includes('Mission Control'));
+  assert(sentMessages[4].text.includes('Handled: open'));
+  assert(sentMessages[5].text.includes('Handled: new'));
+  assert(sentMessages[6].text.includes('Handled: recent'));
+  assert(sentMessages[7].text.includes('Mission Control'));
+});
+
+it('TelegramClient sends typing indicator when prompt is received', () => {
+  const actions = [];
+  const client = new TelegramClient({
+    botToken: 'dummy-token',
+    authorizedChatId: '54321',
+    onPromptCallback: () => {}
+  });
+
+  client.request = (method, payload) => {
+    if (method === 'sendChatAction') actions.push(payload);
+    return Promise.resolve({ ok: true });
+  };
+
+  client.handleUpdate({ message: { chat: { id: 54321 }, text: 'Hello AI' } });
+  assert.strictEqual(actions.length, 1);
+  assert.strictEqual(actions[0].action, 'typing');
+  assert.strictEqual(actions[0].chat_id, '54321');
+
+  client.stopTypingIndicator();
+  assert.strictEqual(client.typingTimer, null);
 });
 
 try {

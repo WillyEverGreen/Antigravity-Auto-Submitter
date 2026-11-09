@@ -3131,7 +3131,7 @@ class AutoSubmitDaemon {
             }
             this.logEvent('info', ' TELEGRAM ', `Prompt injected from Telegram: "${promptText}"`, '', C.pillCyan);
           },
-          onCommandCallback: (cmd) => {
+          onCommandCallback: (cmd, arg) => {
             if (cmd === 'pause') {
               this.config.enabled = false;
               this.logEvent('info', ' PAUSE ', 'Auto-submit paused via Telegram', '', C.pillYellow);
@@ -3156,6 +3156,51 @@ class AutoSubmitDaemon {
               } catch (err) {
                 return `⚠️ Checkpoint error: ${err.message}`;
               }
+            }
+            if (cmd === 'open') {
+              const targetPath = (arg || '').trim() || process.cwd();
+              try {
+                const fs = require('node:fs');
+                const path = require('node:path');
+                const resolved = path.resolve(targetPath);
+                if (!fs.existsSync(resolved)) {
+                  return `❌ *Path not found:*\n\`${resolved}\``;
+                }
+                const { spawn } = require('node:child_process');
+                const exes = findAntigravityExecutables();
+                const exe = exes.ide || exes.app;
+                if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
+                spawn(exe, ['-r', resolved], { detached: true, stdio: 'ignore' }).unref();
+                this.logEvent('info', ' OPEN ', `Opened workspace: ${resolved}`, '', C.pillGreen);
+                return `📂 *Opened project in Antigravity IDE:*\n\`${resolved}\``;
+              } catch (err) {
+                return `⚠️ Failed to open folder: ${err.message}`;
+              }
+            }
+            if (cmd === 'new') {
+              const targetPath = (arg || '').trim();
+              try {
+                const { spawn } = require('node:child_process');
+                const exes = findAntigravityExecutables();
+                const exe = exes.ide || exes.app;
+                if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
+                const spawnArgs = ['-n', '--remote-debugging-port=9333'];
+                let resolved = '';
+                if (targetPath) {
+                  const fs = require('node:fs');
+                  const path = require('node:path');
+                  resolved = path.resolve(targetPath);
+                  if (fs.existsSync(resolved)) spawnArgs.push(resolved);
+                }
+                spawn(exe, spawnArgs, { detached: true, stdio: 'ignore' }).unref();
+                this.logEvent('info', ' NEW-WIN ', `Opened new Antigravity window${resolved ? ': ' + resolved : ''}`, '', C.pillGreen);
+                return `🪟 *Opened new Antigravity IDE window!*\n${resolved ? `Project: \`${resolved}\`` : 'Mode: Blank / New Workspace'}`;
+              } catch (err) {
+                return `⚠️ Failed to open window: ${err.message}`;
+              }
+            }
+            if (cmd === 'recent') {
+              return `📁 *Workspaces:*\n• Active: \`${process.cwd()}\`\n\n*Remote Commands:*\n• \`/open <path>\` — Open specific project\n• \`/new <path>\` — Open in a new window`;
             }
             return null;
           }
@@ -3235,6 +3280,7 @@ class AutoSubmitDaemon {
           const session = new WindowSession(t, ep.port, this.config, this.stats, (type, badge, action, details, color) => {
             if (type === 'telegram-reply') {
               if (this.telegram && this.telegram.isPaired) {
+                this.telegram.stopTypingIndicator();
                 const msg = action.length > 3900 ? action.slice(0, 3900) + '...\n\n_(truncated)_' : action;
                 this.telegram.sendMessage(msg).catch(() => {});
                 this.logEvent('info', ' TELEGRAM ', 'Sent assistant response back to Telegram', '', C.pillGreen);
