@@ -237,22 +237,14 @@ async function main() {
     const outLog = fs.openSync(path.join(logDir, 'daemon.log'), 'a');
     const errLog = fs.openSync(path.join(logDir, 'daemon.err'), 'a');
 
-    let pid = null;
-    if (process.platform === 'win32') {
-      const scriptPath = path.join(__dirname, '..', 'auto-accept.js');
-      const cmd = `powershell -NoProfile -Command "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine='node \\"${scriptPath}\\" daemon'}"`;
-      const res = execSync(cmd, { encoding: 'utf8' });
-      const m = res.match(/ProcessId\s+:\s+(\d+)/);
-      pid = m ? m[1] : 'Active';
-    } else {
-      const child = spawn(process.execPath, [path.join(__dirname, '..', 'auto-accept.js'), 'daemon'], {
-        detached: true,
-        stdio: ['ignore', outLog, errLog],
-        cwd: path.join(__dirname, '..')
-      });
-      child.unref();
-      pid = child.pid;
-    }
+    const child = spawn(process.execPath, [path.join(__dirname, '..', 'auto-accept.js'), 'daemon'], {
+      detached: true,
+      stdio: ['ignore', outLog, errLog],
+      windowsHide: true,
+      cwd: path.join(__dirname, '..')
+    });
+    child.unref();
+    pid = child.pid;
 
     console.log(`\x1b[32m✔ Antigravity Mission Control started in background (PID ${pid})\x1b[0m`);
     console.log(`  Telegram bot is now listening 24/7 for approvals and remote prompts.`);

@@ -60,6 +60,7 @@ function getRunningDaemonPid() {
       process.kill(child.pid, 0);
       return child.pid;
     } catch (e) {
+      if (e.code === 'EPERM') return child.pid;
       child = null;
     }
   }
@@ -76,7 +77,10 @@ function getRunningDaemonPid() {
               process.kill(pid, 0);
               return pid;
             } catch (e) {
-              try { fs.unlinkSync(p); } catch (e) {}
+              if (e.code === 'EPERM') return pid;
+              if (e.code === 'ESRCH') {
+                try { fs.unlinkSync(p); } catch (err) {}
+              }
             }
           }
         } catch (e) {}

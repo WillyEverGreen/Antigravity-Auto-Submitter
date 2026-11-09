@@ -74,6 +74,7 @@ function acquireDaemonLock(portKey = 'auto', force = false) {
           process.kill(existingPid, 0);
           return existingPid;
         } catch (e) {
+          if (e.code === 'EPERM') return existingPid;
           // Process not active, stale lock
         }
       }
