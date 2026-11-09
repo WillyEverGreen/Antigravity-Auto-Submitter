@@ -243,7 +243,7 @@
         },
         "antigravityAutoSubmit.autoStart": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Start the daemon automatically when the IDE starts."
         },
         "antigravityAutoSubmit.cdpPort": {

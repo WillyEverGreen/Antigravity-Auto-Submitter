@@ -3287,11 +3287,11 @@ class AutoSubmitDaemon {
                 const exes = findAntigravityExecutables();
                 const exe = exes.ide || exes.app;
                 if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
-                spawn(exe, ['-r', found.path], { detached: true, stdio: 'ignore' }).unref();
+                spawn(exe, ['-n', '--remote-debugging-port=9333', found.path], { detached: true, stdio: 'ignore' }).unref();
                 this.activeTargetWorkspace = found.path;
                 this.activeTargetSetAt = Date.now();
-                this.logEvent('info', ' OPEN ', `Opened workspace: ${found.path}`, '', C.pillGreen);
-                return `📂 *Opened project in Antigravity IDE:*\n📁 *${found.name}*\n\`${found.path}\`\n\n🎯 _Telegram prompts will now route to this workspace!_`;
+                this.logEvent('info', ' OPEN ', `Opened workspace in new window: ${found.path}`, '', C.pillGreen);
+                return `🪟 *Opened project in NEW Antigravity IDE window:*\n📁 *${found.name}*\n\`${found.path}\`\n\n🎯 _Extension active by default. Telegram prompts routed to this window!_`;
               } catch (err) {
                 return `⚠️ Failed to open folder: ${err.message}`;
               }
