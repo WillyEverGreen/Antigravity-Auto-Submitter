@@ -15,27 +15,19 @@ process.env.AG_TELEGRAM_CONFIG_PATH = TEST_CONFIG_PATH;
 
 console.log('🧪 Starting Antigravity PowerTools Telegram Test Suite...\n');
 
-let passed = 0;
-let total = 0;
-
+const tests = [];
 function it(name, fn) {
-  total++;
-  try {
-    fn();
-    console.log(`  ✓ ${name}`);
-    passed++;
-  } catch (err) {
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${err.message}`);
-    process.exitCode = 1;
-  }
+  tests.push({ name, fn });
 }
 
 const {
   TelegramClient,
   generatePairingCode,
   loadTelegramConfig,
-  saveTelegramConfig
+  saveTelegramConfig,
+  extractAttachment,
+  splitTelegramMessage,
+  getUploadsDir
 } = require('../lib/telegram-mission-control');
 
 it('generatePairingCode generates a 6-digit code and sets expiry', () => {
@@ -267,10 +259,138 @@ it('TelegramClient sends typing indicator when prompt is received', () => {
   assert.strictEqual(client.typingTimer, null);
 });
 
-try {
-  if (fs.existsSync(TEST_CONFIG_PATH)) fs.unlinkSync(TEST_CONFIG_PATH);
-} catch (e) {}
+it('extractAttachment accurately classifies screenshots, documents, and media', () => {
+  // Photo
+  const photoMsg = {
+    photo: [
+      { file_id: 'small', width: 100, height: 100 },
+      { file_id: 'large', width: 1200, height: 800 }
+    ]
+  };
+  const photoAtt = extractAttachment(photoMsg);
+  assert.strictEqual(photoAtt.fileId, 'large');
+  assert.strictEqual(photoAtt.type, 'photo');
 
-console.log(`\nResults: ${passed}/${total} Telegram mission control tests passed.`);
-if (process.exitCode) process.exit(process.exitCode);
+  // Document
+  const docMsg = {
+    document: { file_id: 'doc123', file_name: 'test_report.pdf' }
+  };
+  const docAtt = extractAttachment(docMsg);
+  assert.strictEqual(docAtt.fileId, 'doc123');
+  assert.strictEqual(docAtt.fileName, 'test_report.pdf');
+  assert.strictEqual(docAtt.type, 'document');
+
+  // Voice
+  const voiceMsg = { voice: { file_id: 'voice789' } };
+  const voiceAtt = extractAttachment(voiceMsg);
+  assert.strictEqual(voiceAtt.fileId, 'voice789');
+  assert.strictEqual(voiceAtt.type, 'voice');
+
+  // Plain text
+  assert.strictEqual(extractAttachment({ text: 'just text' }), null);
+});
+
+it('splitTelegramMessage chunks long content preserving paragraph boundaries', () => {
+  const shortText = 'Hello world';
+  assert.deepStrictEqual(splitTelegramMessage(shortText, 100), ['Hello world']);
+
+  const longText = 'Paragraph 1\n\n' + 'A'.repeat(50) + '\n\n' + 'B'.repeat(50);
+  const chunks = splitTelegramMessage(longText, 60);
+  assert(chunks.length >= 2);
+  assert.strictEqual(chunks[0], 'Paragraph 1');
+});
+
+it('TelegramClient downloads attachment and forwards prompt with local path', async () => {
+  let forwardedPrompt = null;
+  const sentMessages = [];
+  const client = new TelegramClient({
+    botToken: 'dummy-token',
+    authorizedChatId: '54321',
+    onPromptCallback: (p) => { forwardedPrompt = p; }
+  });
+
+  client.request = (method, payload) => {
+    if (method === 'getFile') {
+      return Promise.resolve({ file_path: 'photos/file_99.jpg' });
+    }
+    if (method === 'sendMessage') {
+      sentMessages.push(payload);
+      return Promise.resolve({ message_id: 100 });
+    }
+    return Promise.resolve({ ok: true });
+  };
+
+  // Mock downloadTelegramFile to write a test dummy file
+  client.downloadTelegramFile = async (remotePath, destPath) => {
+    fs.writeFileSync(destPath, 'test-image-content', 'utf8');
+    return destPath;
+  };
+
+  client.handleUpdate({
+    message: {
+      chat: { id: 54321 },
+      photo: [{ file_id: 'ph1', width: 800, height: 600 }],
+      caption: 'What is wrong with this error screen?'
+    }
+  });
+
+  // Allow async download / callback
+  await new Promise(r => setTimeout(r, 50));
+
+  assert(forwardedPrompt, 'Prompt must be forwarded to IDE');
+  assert(forwardedPrompt.includes('[Attached file:'));
+  assert(forwardedPrompt.includes('What is wrong with this error screen?'));
+  assert(sentMessages.length >= 1);
+  assert(sentMessages[0].text.includes('Received Screenshot'));
+  client.stopTypingIndicator();
+});
+
+it('TelegramClient sendFormattedResponse sends HTML and falls back on entity error', async () => {
+  const sent = [];
+  const client = new TelegramClient({
+    botToken: 'dummy-token',
+    authorizedChatId: '54321'
+  });
+
+  let failOnce = true;
+  client.request = (method, payload) => {
+    if (method === 'sendMessage') {
+      if (payload.parse_mode === 'HTML' && failOnce) {
+        failOnce = false;
+        return Promise.reject(new Error("Bad Request: can't parse entities: tag 'b' is not closed"));
+      }
+      sent.push(payload);
+      return Promise.resolve({ message_id: 1 });
+    }
+    return Promise.resolve({ ok: true });
+  };
+
+  await client.sendFormattedResponse('<b>Hello world</b>');
+  assert.strictEqual(sent.length, 1);
+  // Must have fallen back to plain text
+  assert.strictEqual(sent[0].text, 'Hello world');
+  assert.strictEqual(sent[0].parse_mode, undefined);
+});
+
+(async () => {
+  let passed = 0;
+  for (const t of tests) {
+    try {
+      await t.fn();
+      console.log(`  ✓ ${t.name}`);
+      passed++;
+    } catch (err) {
+      console.error(`  ✗ ${t.name}`);
+      console.error(`    ${err.message}`);
+      process.exitCode = 1;
+    }
+  }
+
+  try {
+    if (fs.existsSync(TEST_CONFIG_PATH)) fs.unlinkSync(TEST_CONFIG_PATH);
+  } catch (e) {}
+
+  console.log(`\nResults: ${passed}/${tests.length} Telegram mission control tests passed.`);
+  process.exit(process.exitCode || 0);
+})();
 

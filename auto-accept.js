@@ -2699,7 +2699,7 @@ class WindowSession {
         if (msg.id !== undefined && msg.id === this.pendingTelegramCheckId) {
           this.pendingTelegramCheckId = null;
           const val = msg.result?.result?.value;
-          if (val && !val.busy && val.response && val.response !== this.initialResponseSnapshot) {
+          if (val && !val.busy && val.response && val.response !== this.initialResponseSnapshot && val.raw !== this.initialResponseSnapshot) {
             this.awaitingTelegramResponse = false;
             this.initialResponseSnapshot = val.response;
             this.onEvent('telegram-reply', 'REPLY', val.response, '', C.pillGreen);
@@ -2768,9 +2768,55 @@ class WindowSession {
         const responses = Array.from(document.querySelectorAll('div.leading-relaxed.select-text'));
         if (responses.length === 0) return { busy: isBusy, response: null };
         const last = responses[responses.length - 1];
+
+        function serialize(el) {
+          if (!el) return '';
+          if (el.nodeType === 3) {
+            return el.nodeValue
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          }
+          if (el.nodeType !== 1) return '';
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'style' || tag === 'script' || tag === 'button' || tag === 'svg' || (el.classList && el.classList.contains('code-action-toolbar'))) {
+            return '';
+          }
+          let inner = '';
+          for (const child of el.childNodes) {
+            inner += serialize(child);
+          }
+          if (tag === 'p') return inner.trim() ? inner.trim() + '\\n\\n' : '';
+          if (tag === 'strong' || tag === 'b') return '<b>' + inner + '</b>';
+          if (tag === 'em' || tag === 'i') return '<i>' + inner + '</i>';
+          if (tag === 'code') {
+            if (el.parentElement && el.parentElement.tagName.toLowerCase() === 'pre') {
+              return inner;
+            }
+            return '<code>' + inner + '</code>';
+          }
+          if (tag === 'pre') return '<pre>' + inner.trim() + '</pre>\\n\\n';
+          if (tag === 'li') return '• ' + inner.trim() + '\\n';
+          if (tag === 'ul' || tag === 'ol') return inner + '\\n';
+          if (/^h[1-6]$/.test(tag)) return '<b><u>' + inner.trim() + '</u></b>\\n\\n';
+          if (tag === 'blockquote') return '<blockquote>' + inner.trim() + '</blockquote>\\n\\n';
+          if (tag === 'hr') return '───────────────\\n\\n';
+          if (tag === 'br') return '\\n';
+          if (tag === 'a') {
+            const href = el.getAttribute('href');
+            if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+              return '<a href=\"' + href + '\">' + inner + '</a>';
+            }
+            return inner;
+          }
+          return inner;
+        }
+
+        const formatted = serialize(last).trim();
         return {
           busy: isBusy,
-          response: (last ? last.innerText : '').trim()
+          response: formatted || (last ? last.innerText : '').trim(),
+          raw: (last ? last.innerText : '').trim()
         };
       })()`;
       this.pendingTelegramCheckId = this.reqId++;
@@ -3461,9 +3507,13 @@ class AutoSubmitDaemon {
             if (type === 'telegram-reply') {
               if (this.telegram && this.telegram.isPaired) {
                 this.telegram.stopTypingIndicator();
-                const msg = action.length > 3900 ? action.slice(0, 3900) + '...\n\n_(truncated)_' : action;
-                this.telegram.sendMessage(msg).catch(() => {});
-                this.logEvent('info', ' TELEGRAM ', 'Sent assistant response back to Telegram', '', C.pillGreen);
+                if (typeof this.telegram.sendFormattedResponse === 'function') {
+                  this.telegram.sendFormattedResponse(action).catch(() => {});
+                } else {
+                  const msg = action.length > 3900 ? action.slice(0, 3900) + '...\n\n_(truncated)_' : action;
+                  this.telegram.sendMessage(msg).catch(() => {});
+                }
+                this.logEvent('info', ' TELEGRAM ', 'Sent formatted assistant response back to Telegram', '', C.pillGreen);
               }
               return;
             }
