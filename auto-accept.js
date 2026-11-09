@@ -1810,25 +1810,92 @@ function buildScannerScript(cfg) {
       const autoSelectAlwaysAllow = ${alwaysAllow};
 
       // Native Voice Dictation Injection (Pillar 3)
-      if (typeof window !== 'undefined' && !window.__AGY_MIC_INJECTED__) {
-        window.__AGY_MIC_INJECTED__ = true;
+      if (typeof window !== 'undefined') {
         try {
           const micBtnId = 'agy-voice-dictate-btn';
-          const injectMic = () => {
-            if (document.getElementById(micBtnId)) return;
-            const tb = document.querySelector('div[class*="chat-input"] div[class*="toolbar"]') ||
-                       document.querySelector('div[class*="interactive-input-part"] div[class*="actions"]') ||
-                       document.querySelector('div[class*="chat"] form');
-            if (!tb) return;
-            const b = document.createElement('button');
-            b.id = micBtnId;
-            b.type = 'button';
-            b.title = 'Voice Dictate (Ctrl+Alt+V)';
-            b.style.cssText = 'background:transparent;border:1px solid #444;border-radius:4px;padding:3px 5px;margin:0 4px;cursor:pointer;color:#ccc;';
-            b.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-            tb.appendChild(b);
-          };
-          injectMic();
+          if (!document.getElementById(micBtnId)) {
+            const addContextBtn = document.querySelector('button[aria-label="Add context"]');
+            const tb = (addContextBtn && addContextBtn.parentElement) ||
+                       document.querySelector('div.agy-composer-footer div.flex') ||
+                       document.querySelector('div.surface-composer-card div.flex') ||
+                       document.querySelector('div[class*="chat-input"] div[class*="toolbar"]');
+            if (tb) {
+              const b = document.createElement('button');
+              b.id = micBtnId;
+              b.type = 'button';
+              b.title = 'Voice Dictation (Ctrl+Alt+V)';
+              b.setAttribute('aria-label', 'Voice Dictation');
+              b.className = 'p-1.5 rounded-full text-secondary-foreground hover:bg-secondary cursor-pointer flex items-center justify-center transition-colors';
+              b.style.cssText = 'width: 28px; height: 28px; margin-left: 2px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: none; cursor: pointer; color: inherit;';
+              b.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+
+              let isRecording = false;
+              let recognition = null;
+
+              const toggleRecording = (e) => {
+                if (e) { e.preventDefault(); e.stopPropagation(); }
+                const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechClass) {
+                  b.title = 'Web Speech not supported in this Chromium target';
+                  return;
+                }
+                if (isRecording && recognition) {
+                  recognition.stop();
+                  return;
+                }
+                try {
+                  recognition = new SpeechClass();
+                  recognition.continuous = true;
+                  recognition.interimResults = false;
+                  recognition.lang = 'en-US';
+                  recognition.onstart = () => {
+                    isRecording = true;
+                    b.style.color = '#ff4d4f';
+                  };
+                  recognition.onresult = (evt) => {
+                    let trans = '';
+                    for (let i = 0; i < evt.results.length; ++i) {
+                      if (evt.results[i].isFinal && evt.results[i][0]) {
+                        trans += evt.results[i][0].transcript + ' ';
+                      }
+                    }
+                    if (trans.trim()) {
+                      const inputDiv = document.querySelector('[contenteditable="true"], div.surface-composer-card [contenteditable], textarea');
+                      if (inputDiv) {
+                        inputDiv.focus();
+                        if (document.execCommand) {
+                          document.execCommand('insertText', false, trans.trim() + ' ');
+                        } else {
+                          inputDiv.textContent = (inputDiv.textContent || '') + ' ' + trans.trim();
+                          inputDiv.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                      }
+                    }
+                  };
+                  recognition.onerror = () => {
+                    isRecording = false;
+                    b.style.color = 'inherit';
+                  };
+                  recognition.onend = () => {
+                    isRecording = false;
+                    b.style.color = 'inherit';
+                  };
+                  recognition.start();
+                } catch (err) {
+                  isRecording = false;
+                  b.style.color = 'inherit';
+                }
+              };
+
+              b.onclick = toggleRecording;
+
+              if (addContextBtn) {
+                addContextBtn.insertAdjacentElement('afterend', b);
+              } else {
+                tb.appendChild(b);
+              }
+            }
+          }
         } catch (e) {}
       }
 
