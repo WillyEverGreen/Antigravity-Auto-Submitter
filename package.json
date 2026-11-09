@@ -141,7 +141,7 @@
     "verify": "node scripts/verify-project.js",
     "verify:full": "node scripts/verify-project.js && npm test",
     "prepublishOnly": "node scripts/verify-project.js",
-    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node --test test/kiro-runtime.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js && node test/kiro-setup.test.mjs && node test/vscode-extension.test.js && node test/powertools.test.js && node test/telegram.test.js && node test/autonomous-swarm.test.js && node --test test/brutal-powertools.test.js",
+    "test": "node test/cli.test.js && node test/kiro-agent.test.mjs && node --test test/kiro-runtime.test.mjs && node kiro-auto-accept/test/kiro.test.js && node claude-auto-accept/test/claude-hook.test.js && node test/kiro-setup.test.mjs && node test/vscode-extension.test.js && node test/powertools.test.js && node test/telegram.test.js && node test/project-manager.test.js && node test/autonomous-swarm.test.js && node --test test/brutal-powertools.test.js",
     "test:brutal": "node --test test/brutal-powertools.test.js",
     "test:kiro": "node test/kiro-agent.test.mjs && node --test test/kiro-runtime.test.mjs && node test/kiro-setup.test.mjs",
     "test:claude": "node claude-auto-accept/test/claude-hook.test.js",

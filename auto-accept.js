@@ -3092,6 +3092,8 @@ class AutoSubmitDaemon {
   initTelegram() {
     try {
       const { loadTelegramConfig, TelegramClient } = require('./lib/telegram-mission-control');
+      const { ProjectManager } = require('./lib/project-manager');
+      this.projectManager = new ProjectManager();
       const tgCfg = loadTelegramConfig();
       if (tgCfg.botToken && tgCfg.authorizedChatId) {
         this.telegram = new TelegramClient({
@@ -3158,49 +3160,57 @@ class AutoSubmitDaemon {
               }
             }
             if (cmd === 'open') {
-              const targetPath = (arg || '').trim() || process.cwd();
+              const query = (arg || '').trim();
+              if (!query) {
+                const recent = this.projectManager ? this.projectManager.getRecentProjects(5) : [];
+                let list = recent.map((p, idx) => `${idx + 1}. *${p.name}*\n   \`${p.path}\``).join('\n');
+                return `📂 *Specify a project to open:*\n\`/open <name_or_path>\`\n\n*Recent Projects:*\n${list || 'None yet'}`;
+              }
+              const found = this.projectManager ? this.projectManager.findProject(query) : null;
+              if (!found) {
+                const recent = this.projectManager ? this.projectManager.getRecentProjects(3) : [];
+                let suggestions = recent.map(p => `• \`/open ${p.name}\``).join('\n');
+                return `❌ *Project "${query}" not found.*\n\nDid you mean to create it?\n👉 \`/new ${query}\`\n\n*Recent Projects:*\n${suggestions || 'None'}`;
+              }
               try {
-                const fs = require('node:fs');
-                const path = require('node:path');
-                const resolved = path.resolve(targetPath);
-                if (!fs.existsSync(resolved)) {
-                  return `❌ *Path not found:*\n\`${resolved}\``;
-                }
                 const { spawn } = require('node:child_process');
                 const exes = findAntigravityExecutables();
                 const exe = exes.ide || exes.app;
                 if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
-                spawn(exe, ['-r', resolved], { detached: true, stdio: 'ignore' }).unref();
-                this.logEvent('info', ' OPEN ', `Opened workspace: ${resolved}`, '', C.pillGreen);
-                return `📂 *Opened project in Antigravity IDE:*\n\`${resolved}\``;
+                spawn(exe, ['-r', found.path], { detached: true, stdio: 'ignore' }).unref();
+                this.logEvent('info', ' OPEN ', `Opened workspace: ${found.path}`, '', C.pillGreen);
+                return `📂 *Opened project in Antigravity IDE:*\n📁 *${found.name}*\n\`${found.path}\``;
               } catch (err) {
                 return `⚠️ Failed to open folder: ${err.message}`;
               }
             }
             if (cmd === 'new') {
-              const targetPath = (arg || '').trim();
+              const query = (arg || '').trim();
               try {
                 const { spawn } = require('node:child_process');
                 const exes = findAntigravityExecutables();
                 const exe = exes.ide || exes.app;
                 if (!exe) return `❌ Could not locate Antigravity IDE executable on this system.`;
-                const spawnArgs = ['-n', '--remote-debugging-port=9333'];
-                let resolved = '';
-                if (targetPath) {
-                  const fs = require('node:fs');
-                  const path = require('node:path');
-                  resolved = path.resolve(targetPath);
-                  if (fs.existsSync(resolved)) spawnArgs.push(resolved);
+
+                if (!query) {
+                  spawn(exe, ['-n', '--remote-debugging-port=9333'], { detached: true, stdio: 'ignore' }).unref();
+                  this.logEvent('info', ' NEW-WIN ', 'Opened new blank Antigravity window', '', C.pillGreen);
+                  return `🪟 *Opened new Antigravity IDE window!*\nMode: Blank / New Workspace\n\n_Tip: To create a named project, send \`/new <name>\`_`;
                 }
-                spawn(exe, spawnArgs, { detached: true, stdio: 'ignore' }).unref();
-                this.logEvent('info', ' NEW-WIN ', `Opened new Antigravity window${resolved ? ': ' + resolved : ''}`, '', C.pillGreen);
-                return `🪟 *Opened new Antigravity IDE window!*\n${resolved ? `Project: \`${resolved}\`` : 'Mode: Blank / New Workspace'}`;
+
+                const created = this.projectManager ? this.projectManager.createNewProject(query) : { name: query, path: query, newlyCreated: true };
+                spawn(exe, ['-n', '--remote-debugging-port=9333', created.path], { detached: true, stdio: 'ignore' }).unref();
+                this.logEvent('info', ' NEW-WIN ', `Opened new project: ${created.path}`, '', C.pillGreen);
+                const tag = created.newlyCreated ? 'Created & Opened New Project' : 'Opened Project';
+                return `🪟 *${tag} in Antigravity IDE:*\n📁 *${created.name}*\n\`${created.path}\``;
               } catch (err) {
-                return `⚠️ Failed to open window: ${err.message}`;
+                return `⚠️ Failed to open new project: ${err.message}`;
               }
             }
-            if (cmd === 'recent') {
-              return `📁 *Workspaces:*\n• Active: \`${process.cwd()}\`\n\n*Remote Commands:*\n• \`/open <path>\` — Open specific project\n• \`/new <path>\` — Open in a new window`;
+            if (cmd === 'recent' || cmd === 'projects') {
+              const recent = this.projectManager ? this.projectManager.getRecentProjects(10) : [];
+              let list = recent.map((p, idx) => `${idx + 1}. *${p.name}*\n   \`${p.path}\``).join('\n');
+              return `📁 *Remembered Projects:*\n${list || 'No remembered projects yet.'}\n\n*Quick Actions:*\n• \`/open <name>\` — Open project\n• \`/new <name>\` — Create & open new project`;
             }
             return null;
           }
