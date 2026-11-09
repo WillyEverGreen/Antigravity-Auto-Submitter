@@ -22,7 +22,7 @@ const readline = require('readline');
 const { spawn, spawnSync, execSync } = require('child_process');
 
 // ── Package Metadata ──
-let PKG_VERSION = '1.9.8';
+let PKG_VERSION = '2.0.0';
 // Direct install: __dirname/package.json. Bundled in the VS Code extension
 // (daemon/ has no manifest): fall back to the extension's own package.json.
 for (const manifest of [path.join(__dirname, 'package.json'), path.join(__dirname, '..', 'package.json')]) {
@@ -1808,6 +1808,29 @@ function buildScannerScript(cfg) {
       const mode = ${mode};
       const autoSelectAlwaysAllow = ${alwaysAllow};
 
+      // Native Voice Dictation Injection (Pillar 3)
+      if (typeof window !== 'undefined' && !window.__AGY_MIC_INJECTED__) {
+        window.__AGY_MIC_INJECTED__ = true;
+        try {
+          const micBtnId = 'agy-voice-dictate-btn';
+          const injectMic = () => {
+            if (document.getElementById(micBtnId)) return;
+            const tb = document.querySelector('div[class*="chat-input"] div[class*="toolbar"]') ||
+                       document.querySelector('div[class*="interactive-input-part"] div[class*="actions"]') ||
+                       document.querySelector('div[class*="chat"] form');
+            if (!tb) return;
+            const b = document.createElement('button');
+            b.id = micBtnId;
+            b.type = 'button';
+            b.title = 'Voice Dictate (Ctrl+Alt+V)';
+            b.style.cssText = 'background:transparent;border:1px solid #444;border-radius:4px;padding:3px 5px;margin:0 4px;cursor:pointer;color:#ccc;';
+            b.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+            tb.appendChild(b);
+          };
+          injectMic();
+        } catch (e) {}
+      }
+
       const checkKeywords = (text) => {
         // Strip the scanner's own configuration vocabulary (e.g. skipKeywords: ["rm -rf"]) so
         // self-inspection code does not trip the gate. Only the vocabulary itself is removed:
@@ -2598,6 +2621,68 @@ class WindowSession {
       if (ws !== this.ws) return;
       try {
         const msg = JSON.parse(evt.data);
+        if (msg.id !== undefined && msg.id === this.pendingFocusId) {
+          this.pendingFocusId = null;
+          const found = msg.result?.result?.value?.found;
+          if (found && this.pendingInjectText) {
+            const insertId = this.reqId++;
+            this.pendingInsertId = insertId;
+            try {
+              this.ws.send(JSON.stringify({
+                id: insertId,
+                method: 'Input.insertText',
+                params: { text: this.pendingInjectText }
+              }));
+            } catch (e) {}
+          }
+          return;
+        }
+        if (msg.id !== undefined && msg.id === this.pendingInsertId) {
+          this.pendingInsertId = null;
+          this.pendingInjectText = null;
+          const clickSendId = this.reqId++;
+          this.pendingClickSendId = clickSendId;
+          const clickSendScript = `(() => {
+            const sendBtn = document.querySelector('button[aria-label*="Send"], .agy-send-button, div[class*="surface-composer"] button[type="submit"]');
+            if (sendBtn && !sendBtn.disabled) {
+              sendBtn.click();
+              return true;
+            }
+            const inputDiv = document.querySelector('div[aria-label="Message input"], [contenteditable="true"]');
+            if (inputDiv) {
+              inputDiv.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              return true;
+            }
+            return false;
+          })()`;
+          try {
+            this.ws.send(JSON.stringify({
+              id: clickSendId,
+              method: 'Runtime.evaluate',
+              params: { expression: clickSendScript, returnByValue: true }
+            }));
+          } catch (e) {}
+          return;
+        }
+        if (msg.id !== undefined && msg.id === this.pendingClickSendId) {
+          this.pendingClickSendId = null;
+          return;
+        }
+        if (msg.id !== undefined && msg.id === this.pendingTelegramSnapshotId) {
+          this.pendingTelegramSnapshotId = null;
+          this.initialResponseSnapshot = (msg.result?.result?.value || '').trim();
+          return;
+        }
+        if (msg.id !== undefined && msg.id === this.pendingTelegramCheckId) {
+          this.pendingTelegramCheckId = null;
+          const val = msg.result?.result?.value;
+          if (val && !val.busy && val.response && val.response !== this.initialResponseSnapshot) {
+            this.awaitingTelegramResponse = false;
+            this.initialResponseSnapshot = val.response;
+            this.onEvent('telegram-reply', 'REPLY', val.response, '', C.pillGreen);
+          }
+          return;
+        }
         if (msg.id !== undefined && (msg.id === this.pendingScanId || msg.id === this.reqId - 1)) {
           this.pendingScanId = null;
           if (msg.result && msg.result.result) {
@@ -2642,6 +2727,28 @@ class WindowSession {
 
   scanTick() {
     if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (this.awaitingTelegramResponse && !this.pendingTelegramCheckId) {
+      const checkScript = `(() => {
+        const isBusy = Boolean(document.querySelector('button[aria-label*="Cancel"], div.surface-composer-card [aria-label*="Cancel"]'));
+        const responses = Array.from(document.querySelectorAll('div.leading-relaxed.select-text'));
+        if (responses.length === 0) return { busy: isBusy, response: null };
+        const last = responses[responses.length - 1];
+        return {
+          busy: isBusy,
+          response: (last ? last.innerText : '').trim()
+        };
+      })()`;
+      this.pendingTelegramCheckId = this.reqId++;
+      try {
+        this.ws.send(JSON.stringify({
+          id: this.pendingTelegramCheckId,
+          method: 'Runtime.evaluate',
+          params: { expression: checkScript, returnByValue: true }
+        }));
+      } catch (e) {}
+    }
+
     if (!this.config.enabled || this.isScanning) return;
 
     this.isScanning = true;
@@ -2714,6 +2821,69 @@ class WindowSession {
       this.stats.recordApproval(outcome.action);
       this.onEvent('info', ` APPROVE `, `Approved: ${actionClean}`, `Approved in ${this.title} | Approvals: ${this.stats.lifetimeClicks}`, C.pillGreen);
     }
+  }
+
+  approvePrompt() {
+    if (!this.isConnected || !this.ws) return;
+    const clickScript = `(() => {
+      const btn = document.querySelector('button[aria-label*="Allow"], button[aria-label*="Run command"], button.monaco-button[title*="Allow"], div[class*="interaction-card"] button');
+      if (btn) { btn.click(); return true; }
+      return false;
+    })()`;
+    try {
+      this.ws.send(JSON.stringify({
+        id: this.reqId++,
+        method: 'Runtime.evaluate',
+        params: { expression: clickScript, returnByValue: true }
+      }));
+    } catch (e) {}
+  }
+
+  injectChatPrompt(text) {
+    if (!this.isConnected || !this.ws) return;
+    this.awaitingTelegramResponse = true;
+    this.telegramPromptAt = Date.now();
+    this.pendingInjectText = text;
+
+    const snapshotScript = `(() => {
+      const responses = Array.from(document.querySelectorAll('div.leading-relaxed.select-text'));
+      return responses.length > 0 ? (responses[responses.length - 1].innerText || '').trim() : '';
+    })()`;
+    this.pendingTelegramSnapshotId = this.reqId++;
+    try {
+      this.ws.send(JSON.stringify({
+        id: this.pendingTelegramSnapshotId,
+        method: 'Runtime.evaluate',
+        params: { expression: snapshotScript, returnByValue: true }
+      }));
+    } catch (e) {}
+
+    const cleanAndFocusScript = `(() => {
+      // Strictly target Antigravity AI chat input
+      const inputDiv = document.querySelector('div[aria-label="Message input"], div.surface-composer-card [contenteditable="true"]');
+      if (inputDiv) {
+        inputDiv.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('delete', false, null);
+        return { found: true, type: 'contenteditable' };
+      }
+      const ta = document.querySelector('div[class*="chat"] textarea, div.surface-composer-card textarea');
+      if (ta) {
+        ta.focus();
+        ta.value = '';
+        return { found: true, type: 'textarea' };
+      }
+      return { found: false };
+    })()`;
+
+    this.pendingFocusId = this.reqId++;
+    try {
+      this.ws.send(JSON.stringify({
+        id: this.pendingFocusId,
+        method: 'Runtime.evaluate',
+        params: { expression: cleanAndFocusScript, returnByValue: true }
+      }));
+    } catch (e) {}
   }
 
   destroy() {
@@ -2864,6 +3034,14 @@ class AutoSubmitDaemon {
     if (details) {
       console.log(`            ${C.dim}${details}${C.reset}`);
     }
+
+    if (badge && badge.includes('PAUSED') && this.telegram && this.telegram.isPaired) {
+      this.telegram.sendApprovalPrompt({
+        command: action,
+        workspace: details || 'Antigravity IDE',
+        reqId: `req-${Date.now()}`
+      }).catch(() => {});
+    }
   }
 
   printBanner() {
@@ -2903,10 +3081,89 @@ class AutoSubmitDaemon {
   }
 
   async start() {
+    await this.syncWindows();
+    this.initTelegram();
     this.printBanner();
     this.setupSignalHandlers();
     if (this.isInteractive) this.setupInstantHotkeys();
     await this.connectLoop();
+  }
+
+  initTelegram() {
+    try {
+      const { loadTelegramConfig, TelegramClient } = require('./lib/telegram-mission-control');
+      const tgCfg = loadTelegramConfig();
+      if (tgCfg.botToken && tgCfg.authorizedChatId) {
+        this.telegram = new TelegramClient({
+          onApprovalCallback: (reqId, approved) => {
+            if (approved) {
+              for (const session of this.sessions.values()) {
+                if (session.isConnected && session.ws) {
+                  session.approvePrompt();
+                }
+              }
+              this.logEvent('info', ' APPROVE ', 'Approved remotely via Telegram', '', C.pillGreen);
+            } else {
+              this.logEvent('warn', ' DENIED ', 'Denied remotely via Telegram', '', C.pillRed);
+            }
+          },
+          onPromptCallback: (promptText) => {
+            let injected = false;
+            // Prioritize dedicated Antigravity AI chat webviews
+            for (const session of this.sessions.values()) {
+              const url = (session.target?.url || session.url || '').toLowerCase();
+              if (url.includes('/c/') || url.includes('54978') || url.includes('chat')) {
+                if (session.isConnected && session.ws) {
+                  session.injectChatPrompt(promptText);
+                  injected = true;
+                  break;
+                }
+              }
+            }
+            // Fallback to any active session if no specific chat URL matched
+            if (!injected) {
+              for (const session of this.sessions.values()) {
+                if (session.isConnected && session.ws) {
+                  session.injectChatPrompt(promptText);
+                  break;
+                }
+              }
+            }
+            this.logEvent('info', ' TELEGRAM ', `Prompt injected from Telegram: "${promptText}"`, '', C.pillCyan);
+          },
+          onCommandCallback: (cmd) => {
+            if (cmd === 'pause') {
+              this.config.enabled = false;
+              this.logEvent('info', ' PAUSE ', 'Auto-submit paused via Telegram', '', C.pillYellow);
+              return '⏸ *Auto-submit is now PAUSED in Antigravity IDE.*';
+            }
+            if (cmd === 'resume') {
+              this.config.enabled = true;
+              this.logEvent('info', ' RESUME ', 'Auto-submit resumed via Telegram', '', C.pillGreen);
+              return '▶️ *Auto-submit is now ACTIVE in Antigravity IDE.*';
+            }
+            if (cmd === 'status') {
+              const wins = countIdeWindows(this.sessions.values());
+              const state = this.config.enabled ? '🟢 ACTIVE' : '⏸ PAUSED';
+              const mode = (this.config.mode || 'autonomous').toUpperCase();
+              return `*Status:* ${state}\n*Mode:* ${mode}\n*Connected Windows:* ${wins}\n*Lifetime Approvals:* ${this.stats.lifetimeClicks} (${this.stats.sessionApprovals} this session)\n*Blocks:* ${this.stats.sessionBlocks}`;
+            }
+            if (cmd === 'checkpoint') {
+              try {
+                const { createCheckpoint } = require('./lib/time-travel');
+                const cp = createCheckpoint(process.cwd(), 'Telegram remote checkpoint');
+                return `🏷️ *Checkpoint created:*\nTag: \`${cp.tag}\`\nCommit: \`${cp.commit ? cp.commit.slice(0, 8) : 'snapshot'}\``;
+              } catch (err) {
+                return `⚠️ Checkpoint error: ${err.message}`;
+              }
+            }
+            return null;
+          }
+        });
+        this.telegram.startPolling().catch(() => {});
+        this.logEvent('info', ' TELEGRAM ', `Telegram Mission Control connected (Chat ID: ${tgCfg.authorizedChatId})`, '', C.pillGreen);
+      }
+    } catch (e) { }
   }
 
   async connectLoop() {
@@ -2976,6 +3233,14 @@ class AutoSubmitDaemon {
 
         if (!this.sessions.has(key)) {
           const session = new WindowSession(t, ep.port, this.config, this.stats, (type, badge, action, details, color) => {
+            if (type === 'telegram-reply') {
+              if (this.telegram && this.telegram.isPaired) {
+                const msg = action.length > 3900 ? action.slice(0, 3900) + '...\n\n_(truncated)_' : action;
+                this.telegram.sendMessage(msg).catch(() => {});
+                this.logEvent('info', ' TELEGRAM ', 'Sent assistant response back to Telegram', '', C.pillGreen);
+              }
+              return;
+            }
             this.logEvent(type, badge, action, details, color);
           });
           this.sessions.set(key, session);
@@ -3329,6 +3594,9 @@ class AutoSubmitDaemon {
 
   shutdown() {
     console.log(`\n  ${C.yellow}Shutting down auto-submit daemon...${C.reset}\n`);
+    if (this.telegram) {
+      try { this.telegram.stopPolling(); } catch (e) { }
+    }
     releaseDaemonLock(this.portKey);
     this.stopScanner();
     try { this.stats.flush(); } catch (e) { }
@@ -3403,6 +3671,51 @@ if (require.main === module) {
     killAntigravity();
     console.log(`\n  ${C.green}✔ Terminated all Antigravity IDE processes.${C.reset}\n`);
     process.exit(0);
+  }
+
+  if (firstArg === 'turbo') {
+    const { applyTurboPreset, auditTurboSettings } = require('./lib/turbo-preset');
+    if (process.argv.includes('--audit') || process.argv.includes('--check')) {
+      const a = auditTurboSettings();
+      console.log(`Settings: ${a.filePath} (Compliant: ${a.isCompliant ? 'YES' : 'NO'})`);
+    } else {
+      const res = applyTurboPreset();
+      console.log(`\n  \x1b[32m✔ Antigravity Turbo Preset applied to:\x1b[0m ${res.filePath}\n`);
+    }
+    process.exit(0);
+  }
+
+  if (firstArg === 'checkpoint') {
+    const { createCheckpoint } = require('./lib/time-travel');
+    const desc = process.argv.slice(3).join(' ') || 'CLI checkpoint';
+    try {
+      const ckpt = createCheckpoint(desc);
+      console.log(`\n  \x1b[32m✔ Checkpoint created:\x1b[0m ${ckpt.id} (${ckpt.fileCount} files snapshot)\n`);
+      process.exit(0);
+    } catch (e) {
+      console.error(`Checkpoint error: ${e.message}`);
+      process.exit(1);
+    }
+  }
+
+  if (firstArg === 'rewind') {
+    const { rollbackToCheckpoint, listCheckpoints } = require('./lib/time-travel');
+    const target = process.argv[3];
+    if (!target) {
+      const list = listCheckpoints();
+      console.log('\nAvailable Checkpoints:');
+      for (const c of list) console.log(`  - ${c.id}: ${c.description} [${c.timestamp}]`);
+      console.log('\nUsage: auto-accept rewind <checkpoint_id>\n');
+      process.exit(0);
+    }
+    try {
+      rollbackToCheckpoint(target);
+      console.log(`\n  \x1b[32m✔ Successfully rewound to checkpoint:\x1b[0m ${target}\n`);
+      process.exit(0);
+    } catch (e) {
+      console.error(`Rewind error: ${e.message}`);
+      process.exit(1);
+    }
   }
 
   if (firstArg === 'launch' || firstArg === 'start-ide') {

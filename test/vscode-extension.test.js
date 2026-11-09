@@ -126,10 +126,10 @@ it('bundle script copies auto-accept.js to daemon/auto-accept.js cleanly', () =>
 
 // ── 3. Extension Module Activation & Registration ──
 
-it('extension module activates and registers all 16 declared commands and webview dashboard', () => {
+it('extension module activates and registers all 25 declared commands and webview dashboard', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(extDir, 'package.json'), 'utf8'));
   const declaredCmds = pkg.contributes.commands.map(c => c.command);
-  assert.strictEqual(declaredCmds.length, 16, 'should declare 16 commands in package.json');
+  assert.strictEqual(declaredCmds.length, 25, 'should declare 25 commands in package.json');
 
   const registeredCmds = new Map();
   const subscriptions = [];
@@ -249,7 +249,7 @@ it('extension module activates and registers all 16 declared commands and webvie
     for (const cmd of declaredCmds) {
       assert(registeredCmds.has(cmd), `Command ${cmd} declared in package.json must be registered in extension.js`);
     }
-    assert.strictEqual(registeredCmds.size, 16, 'All 16 commands should be registered');
+    assert.strictEqual(registeredCmds.size, declaredCmds.length, `All ${declaredCmds.length} commands should be registered`);
 
     // Verify webview dashboard provider is registered
     assert(registeredViews.has('antigravityAutoSubmit.dashboardView'), 'Webview dashboard provider must be registered');

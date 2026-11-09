@@ -1,8 +1,8 @@
 {
   "name": "antigravity-auto-submit",
-  "displayName": "Antigravity Auto-Submit",
-  "description": "Autonomously approve Antigravity IDE tool and plan prompts from a status bar toggle, with keyword guardrails.",
-  "version": "1.9.8",
+  "displayName": "Antigravity PowerTools",
+  "description": "Autonomously approve Antigravity IDE prompts, orchestrate multi-agent swarms, dictate via voice, control via Telegram, and optimize IDE performance.",
+  "version": "2.0.0",
   "publisher": "WillyEverGreen",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -126,6 +126,60 @@
         "title": "Remove Keyword Rule",
         "category": "Antigravity Auto-Submit",
         "icon": "$(trash)"
+      },
+      {
+        "command": "antigravityAutoSubmit.cleanCaches",
+        "title": "Clean Safe Caches (Purge Scratch & Package Caches)",
+        "category": "Antigravity PowerTools",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "antigravityAutoSubmit.auditDisk",
+        "title": "Audit Disk & Session Cache Usage",
+        "category": "Antigravity PowerTools",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "antigravityAutoSubmit.applyTurboPreset",
+        "title": "Apply Turbo Mode Preset",
+        "category": "Antigravity PowerTools",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "antigravityAutoSubmit.toggleVoiceInput",
+        "title": "Toggle Voice Dictation",
+        "category": "Antigravity PowerTools",
+        "icon": "$(unmute)"
+      },
+      {
+        "command": "antigravityAutoSubmit.telegramPair",
+        "title": "Pair Telegram Mission Control",
+        "category": "Antigravity PowerTools",
+        "icon": "$(device-mobile)"
+      },
+      {
+        "command": "antigravityAutoSubmit.telegramStatus",
+        "title": "Telegram Mission Control Status",
+        "category": "Antigravity PowerTools",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "antigravityAutoSubmit.createCheckpoint",
+        "title": "Create Time-Travel Checkpoint",
+        "category": "Antigravity PowerTools",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "antigravityAutoSubmit.timeTravelRollback",
+        "title": "Rewind to Time-Travel Checkpoint",
+        "category": "Antigravity PowerTools",
+        "icon": "$(history)"
+      },
+      {
+        "command": "antigravityAutoSubmit.showCostMetrics",
+        "title": "Show Smart Model Cost Savings",
+        "category": "Antigravity PowerTools",
+        "icon": "$(pulse)"
       }
     ],
     "viewsContainers": {

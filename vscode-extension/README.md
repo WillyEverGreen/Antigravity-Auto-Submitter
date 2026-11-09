@@ -1,8 +1,8 @@
-# Antigravity Auto-Submit
+# Antigravity PowerTools
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/vscode-extension/media/icon.png" width="120" height="120" alt="Antigravity Auto-Submit Logo" />
-  <h3>Hands-Free Autonomous Approval Engine for Google Antigravity IDE</h3>
+  <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/vscode-extension/media/icon.png" width="120" height="120" alt="Antigravity PowerTools Logo" />
+  <h3>Productivity, Autonomous Swarm & Workspace Hygiene Suite for Google Antigravity IDE</h3>
   <p>Never wait for permission prompts again. Auto-approves tool executions, child subagents, and implementation plans with intelligent safety guardrails.</p>
   <p>
     <a href="https://github.com/WillyEverGreen/Antigravity-Auto-Submitter"><img src="https://img.shields.io/github/stars/WillyEverGreen/Antigravity-Auto-Submitter?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars" /></a>

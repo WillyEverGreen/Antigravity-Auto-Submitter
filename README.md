@@ -2,9 +2,9 @@
 
   <img src="https://raw.githubusercontent.com/WillyEverGreen/Antigravity-Auto-Submitter/main/resources/icon.png" width="128" height="128" alt="Antigravity Auto-Submitter Logo" />
 
-  <h1>Antigravity Auto-Submitter CLI</h1>
+  <h1>Antigravity PowerTools (AG PowerTools)</h1>
 
-  <p><b>Ultra-fast, zero-interruption developer daemon.</b> Inspired by Vite and Gum, automatically approves tool confirmations and plan dialogs in Antigravity IDE so your agents never get blocked waiting for permissions.</p>
+  <p><b>The ultimate productivity, multi-agent orchestration, and workspace hygiene suite for Antigravity IDE.</b> Automatically approves tool confirmations and plan dialogs, coordinates autonomous adversarial swarms, provides native voice dictation, Telegram remote mission control, and 1-click IDE Turbo Mode.</p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge" alt="License" /></a>

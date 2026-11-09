@@ -18,6 +18,12 @@ if (!fs.existsSync(src)) {
 fs.mkdirSync(dest, { recursive: true });
 fs.copyFileSync(src, destFile);
 
+const srcLib = path.join(root, 'lib');
+const destLib = path.join(dest, 'lib');
+if (fs.existsSync(srcLib)) {
+  fs.cpSync(srcLib, destLib, { recursive: true });
+}
+
 const hash = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 if (hash(src) !== hash(destFile)) {
   console.error('bundle: copy verification failed — bundled daemon does not match the source.');

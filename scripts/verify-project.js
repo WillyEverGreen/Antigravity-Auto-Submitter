@@ -80,7 +80,7 @@ check('shipped code imports only builtins, relative paths, or "vscode"', () => {
       }
     }
   };
-  ['bin', 'scripts', 'claude-auto-accept', 'kiro-agent', 'kiro-auto-accept', 'vscode-extension'].forEach(walk);
+  ['bin', 'lib', 'scripts', 'claude-auto-accept', 'kiro-agent', 'kiro-auto-accept', 'vscode-extension'].forEach(walk);
   if (exists('auto-accept.js')) files.push('auto-accept.js');
 
   // Anchored patterns only: a bare `from '...'` search matches prose and template

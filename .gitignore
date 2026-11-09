@@ -4,6 +4,7 @@ node_modules/
 
 # Logs & Debugging
 *.log
+*.err
 debug.log
 npm-debug.log*
 yarn-debug.log*
@@ -64,3 +65,5 @@ vscode-extension/daemon/
 
 # Agent tooling state (worktrees, local settings, task scratch)
 .claude/
+.ag-checkpoints.json
+.STEERING.md.last

@@ -5,6 +5,34 @@ All notable changes to the "antigravity-auto-submit" project will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-08
+
+Major architectural evolution to **Antigravity PowerTools (AG PowerTools)**: the definitive productivity, multi-agent orchestration, and workspace hygiene suite for Antigravity IDE. Preserves internal package identifier `antigravity-auto-submit` and all 2,550+ existing installations.
+
+### Added
+- **Rebrand to Antigravity PowerTools**: Upgraded `displayName` across manifests and runtime banners while maintaining full backward compatibility.
+- **Pillar 7 (One-Click Cache Optimizer & Turbo Preset)**:
+  - Command `antigravityAutoSubmit.cleanCaches` (`ag-clean`) purging Tier 1 scratch and package manager caches with safe dry-run capabilities.
+  - Command `antigravityAutoSubmit.applyTurboPreset` (`ag-turbo`) fine-tuning IDE settings (cursor blinking, zero smooth scroll latency, TS memory caps, watcher exclusions).
+  - Command `antigravityAutoSubmit.auditDisk` for instant disk & session cache reclamation reporting.
+- **Pillar 3 (Native Chat Microphone & Voice Dictation)**:
+  - CDP DOM injection of native SVG microphone button into chat input toolbar.
+  - Streaming audio transcription using Chromium native Web Speech API with global hotkey (`Ctrl+Alt+V`).
+  - Optional Smart Prompt Polish mode structuring spoken dictation into Role, Objective, Context, and Constraints.
+- **Pillar 4 (Telegram Remote Mission Control)**:
+  - Native zero-dependency HTTPS long-polling bot (`node:https`) operating 100% locally with zero cloud dependencies or open ports.
+  - Remote decision pings with inline `[Approve]` / `[Deny]` buttons dispatching real-time CDP approvals.
+  - Bidirectional remote prompting and automated task completion alerts.
+- **Pillar 2 (Next-Gen Autonomous Swarm - Beyond Ralph)**:
+  - Dual-Agent Adversarial Loop with independent Red-Team Critic issuing cryptographic HMAC-SHA256 green approval tokens.
+  - Parallel Git Worktree Swarm executing independent DAG tasks concurrently across isolated worktrees.
+  - Shadow TDD pipeline enforcing strict Red-Green-Refactor testing invariants.
+  - Mid-flight live steering via `STEERING.md` and Telegram channels.
+- **Pillar 5 & 6 (Time-Travel Snapshots & Smart Model Cost Router)**:
+  - Silent git micro-checkpoints (`ag-checkpoint`, `ag-rewind`) for 1-click conflict-free state rollback.
+  - Smart Model Tier & Cost Router saving 70-80% in developer API tokens by triaging tasks across Flagship, Balanced, and Economy tiers.
+- **10 New CLI Binaries**: `ag-powertools`, `powertools`, `ag-swarm`, `ag-loop`, `ag-tdd`, `ag-worktree`, `ag-telegram`, `ag-checkpoint`, `ag-rewind`, `ag-turbo`.
+
 ## [1.9.8] - 2026-11-04
 
 Production-readiness audit: correctness, data-safety and packaging hardening.

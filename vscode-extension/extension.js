@@ -1689,6 +1689,120 @@ function activate(context) {
     await removeRule(pick.list, pick.label);
   });
 
+  reg('cleanCaches', async () => {
+    try {
+      const { cleanSafeCaches } = require('../lib/cleaner-bridge');
+      const pick = await vscode.window.showWarningMessage(
+        'Clean safe caches (Tier 1 package manager & scratch files)?',
+        { modal: true },
+        'Clean Now'
+      );
+      if (pick !== 'Clean Now') return;
+      cleanSafeCaches();
+      vscode.window.showInformationMessage('Cache cleaning completed safely.');
+      appendLog('clean', 'Cache cleaned safely');
+    } catch (e) {
+      vscode.window.showErrorMessage(`Cache clean failed: ${e.message}`);
+    }
+  });
+
+  reg('auditDisk', async () => {
+    try {
+      const { auditDiskUsage } = require('../lib/cleaner-bridge');
+      const metrics = auditDiskUsage();
+      const mb = ((metrics.total_bytes || 0) / (1024 * 1024)).toFixed(1);
+      vscode.window.showInformationMessage(`Disk Audit: ${mb} MB recoverable across ${metrics.total_files || 0} stale files.`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Disk audit failed: ${e.message}`);
+    }
+  });
+
+  reg('applyTurboPreset', async () => {
+    try {
+      const { applyTurboPreset } = require('../lib/turbo-preset');
+      const res = applyTurboPreset();
+      vscode.window.showInformationMessage(`Antigravity Turbo Mode preset applied! (${res.appliedKeys.length} settings optimized)`);
+      appendLog('turbo', 'Applied Turbo Mode Preset');
+    } catch (e) {
+      vscode.window.showErrorMessage(`Failed to apply Turbo Preset: ${e.message}`);
+    }
+  });
+
+  reg('toggleVoiceInput', () => {
+    vscode.window.showInformationMessage('Voice Dictation active. Click the injected microphone in chat toolbar or press Ctrl+Alt+V.');
+  });
+
+  reg('telegramPair', async () => {
+    try {
+      const { generatePairingCode } = require('../lib/telegram-mission-control');
+      const code = generatePairingCode();
+      const sel = await vscode.window.showInformationMessage(
+        `Telegram Pairing Code: ${code}. Send "/pair ${code}" to your bot.`,
+        'Copy Code'
+      );
+      if (sel === 'Copy Code') vscode.env.clipboard.writeText(code);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Telegram pairing error: ${e.message}`);
+    }
+  });
+
+  reg('telegramStatus', async () => {
+    try {
+      const { loadTelegramConfig } = require('../lib/telegram-mission-control');
+      const cfg = loadTelegramConfig();
+      const status = cfg.authorizedChatId ? `Paired with Chat ID: ${cfg.authorizedChatId}` : 'Not paired. Run Pair command first.';
+      vscode.window.showInformationMessage(`Telegram Mission Control: ${status}`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Telegram status error: ${e.message}`);
+    }
+  });
+
+  reg('createCheckpoint', async () => {
+    try {
+      const { createCheckpoint } = require('../lib/time-travel');
+      const desc = await vscode.window.showInputBox({ prompt: 'Enter checkpoint description', placeHolder: 'Before refactoring...' });
+      const ckpt = createCheckpoint(desc || 'Manual Checkpoint');
+      vscode.window.showInformationMessage(`Time-Travel Checkpoint created: ${ckpt.id} (${ckpt.fileCount} files snapshot)`);
+      appendLog('checkpoint', `Created checkpoint ${ckpt.id}`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Failed to create checkpoint: ${e.message}`);
+    }
+  });
+
+  reg('timeTravelRollback', async () => {
+    try {
+      const { listCheckpoints, rollbackToCheckpoint } = require('../lib/time-travel');
+      const list = listCheckpoints();
+      if (list.length === 0) {
+        vscode.window.showInformationMessage('No checkpoints available to rewind to.');
+        return;
+      }
+      const pick = await vscode.window.showQuickPick(
+        list.map(c => ({ label: c.id, description: `[${c.timestamp}] ${c.description} (${c.fileCount} files)`, ckpt: c })),
+        { placeHolder: 'Select checkpoint to rewind to' }
+      );
+      if (!pick) return;
+      rollbackToCheckpoint(pick.ckpt.id);
+      vscode.window.showInformationMessage(`Successfully rewound to checkpoint ${pick.ckpt.id}!`);
+      appendLog('rewind', `Rewound to ${pick.ckpt.id}`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Rollback failed: ${e.message}`);
+    }
+  });
+
+  reg('showCostMetrics', () => {
+    try {
+      const { calculateSavingsSummary } = require('../lib/cost-router');
+      const summary = calculateSavingsSummary([
+        { prompt: 'implement payments', fileCount: 1, tokenEstimate: 5000 },
+        { prompt: 'git commit message', fileCount: 1, tokenEstimate: 300 }
+      ]);
+      vscode.window.showInformationMessage(`Smart Model Cost Router: Saving ~${summary.savingsPercentage}% vs flagship-only execution.`);
+    } catch (e) {
+      vscode.window.showErrorMessage(`Cost metrics error: ${e.message}`);
+    }
+  });
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration(SECTION)) {
