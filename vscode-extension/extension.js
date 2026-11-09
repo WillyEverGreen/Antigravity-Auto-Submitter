@@ -1813,7 +1813,7 @@ function activate(context) {
     }),
     statusItem,
     output,
-    { dispose: () => { stop(); stopPolling(); } }
+    { dispose: () => { stopPolling(); } }
   );
 
   render();

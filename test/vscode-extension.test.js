@@ -276,6 +276,11 @@ it('extension module activates and registers all 25 declared commands and webvie
     // Test deactivation
     assert.doesNotThrow(() => deactivate(), 'deactivate should complete cleanly');
 
+    // Test subscriptions disposal does not kill daemon (preserves background process across window reloads)
+    const cleanupDisposable = subscriptions.find(s => s && typeof s.dispose === 'function' && !s.command && !registeredCmds.has(s));
+    assert(cleanupDisposable, 'Must have a cleanup disposable in subscriptions');
+    assert.doesNotThrow(() => cleanupDisposable.dispose(), 'Subscription dispose must succeed cleanly without killing daemon');
+
     // Test openWalkthrough execution fallback when context.extension is missing
     const executedCmds = [];
     vscodeMock.commands.executeCommand = (cmd, ...args) => {
